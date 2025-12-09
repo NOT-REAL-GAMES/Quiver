@@ -29,7 +29,7 @@ VORBISLIB = vorbis
 # build variables
 # ---------------------------
 CPUFLAGS =
-LDFLAGS = -mwindows -static-libgcc
+LDFLAGS = -mwindows -static-libgcc -static-libstdc++
 DFLAGS ?=
 CFLAGS ?=
 

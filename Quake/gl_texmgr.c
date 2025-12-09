@@ -737,7 +737,7 @@ void TexMgr_Init (void)
 		NULL, "greytexture", 2, 2, SRC_LIGHTMAP, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 
 	TEMP_ALLOC (byte, bluenoise_rgba, sizeof (bluenoise_data) * 4);
-	for (i = 0; i < sizeof (bluenoise_data); ++i)
+	for (i = 0; i < (int)sizeof (bluenoise_data); ++i)
 		for (int j = 0; j < 3; ++j)
 			bluenoise_rgba[i * 4 + j] = bluenoise_data[i];
 	bluenoisetexture = TexMgr_LoadImage (
@@ -1391,7 +1391,7 @@ TexMgr_LoadImage -- the one entry point for loading all textures
 */
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
-	unsigned flags)
+	textureflags_t flags)
 {
 	unsigned short crc = 0;
 	gltexture_t	  *glt;
@@ -1502,8 +1502,8 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 		{
 			size *= LIGHTMAP_BYTES;
 		}
-		allocated = data = (byte *)Mem_Alloc (size);
-		if (fread (data, 1, size, f) != size)
+		allocated = data = static_cast<byte *> (Mem_Alloc (size));
+		if (fread (data, 1, size, f) != (size_t)size)
 			goto invalid;
 		fclose (f);
 	}

@@ -622,14 +622,14 @@ static void R_PrepareTransparentWaterSurfList ()
 	if (cl.worldmodel->water_surfs_specials != types)
 	{
 		if (!cl.worldmodel->water_surfs)
-			cl.worldmodel->water_surfs = Mem_Realloc (cl.worldmodel->water_surfs, 8192 * sizeof (int));
+			cl.worldmodel->water_surfs = static_cast<int *> (Mem_Realloc (cl.worldmodel->water_surfs, 8192 * sizeof (int)));
 		cl.worldmodel->used_water_surfs = 0;
 
 		for (int i = 0; i < cl.worldmodel->numsurfaces; i++)
 			if (cl.worldmodel->surfaces[i].flags & types)
 			{
 				if (cl.worldmodel->used_water_surfs >= 8192 && !(cl.worldmodel->used_water_surfs & (cl.worldmodel->used_water_surfs - 1)))
-					cl.worldmodel->water_surfs = Mem_Realloc (cl.worldmodel->water_surfs, cl.worldmodel->used_water_surfs * 2 * sizeof (int));
+					cl.worldmodel->water_surfs = static_cast<int *> (Mem_Realloc (cl.worldmodel->water_surfs, cl.worldmodel->used_water_surfs * 2 * sizeof (int)));
 				cl.worldmodel->water_surfs[cl.worldmodel->used_water_surfs] = i;
 				++cl.worldmodel->used_water_surfs;
 			}

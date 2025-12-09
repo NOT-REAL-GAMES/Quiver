@@ -1000,13 +1000,13 @@ static void ED_Count (void)
 		if (ent->v.model)
 			models++;
 
-		if (ent->v.movetype == MOVETYPE_STEP)
+		if (ent->v.movetype == (float)MOVETYPE_STEP)
 			step++;
-		if (ent->v.movetype == MOVETYPE_PUSH)
+		if (ent->v.movetype == (float)MOVETYPE_PUSH)
 			push++;
-		if (ent->v.movetype == MOVETYPE_NONE)
+		if (ent->v.movetype == (float)MOVETYPE_NONE)
 			none++;
-		if (ent->v.movetype == MOVETYPE_NOCLIP)
+		if (ent->v.movetype == (float)MOVETYPE_NOCLIP)
 			noclip++;
 	}
 
@@ -1159,7 +1159,7 @@ static void ED_RezoneString (string_t *ref, const char *str)
 		// initialised with
 	}
 
-	buf = Mem_Alloc (len);
+	buf = static_cast<char *> (Mem_Alloc (len));
 	memcpy (buf, str, len);
 	id = -1 - (*ref = PR_SetEngineString (buf));
 	// make sure its flagged as zoned so we can clean up properly after.
@@ -1168,7 +1168,7 @@ static void ED_RezoneString (string_t *ref, const char *str)
 		int old_size = (qcvm->knownzonesize + 7) >> 3;
 		qcvm->knownzonesize = (id + 32) & ~7;
 		int new_size = (qcvm->knownzonesize + 7) >> 3;
-		qcvm->knownzone = Mem_Realloc (qcvm->knownzone, new_size);
+		qcvm->knownzone = static_cast<unsigned char *> (Mem_Realloc (qcvm->knownzone, new_size));
 		memset (qcvm->knownzone + old_size, 0, new_size - old_size);
 	}
 	qcvm->knownzone[id >> 3] |= 1u << (id & 7);
@@ -1620,7 +1620,7 @@ static void PR_MergeEngineFieldDefs (void)
 	if (maxdefs != qcvm->progs->numfielddefs)
 	{ // we now know how many entries we need to add...
 		ddef_t *olddefs = qcvm->fielddefs;
-		qcvm->fielddefs = Mem_Alloc (maxdefs * sizeof (*qcvm->fielddefs));
+		qcvm->fielddefs = static_cast<ddef_t *> (Mem_Alloc (maxdefs * sizeof (*qcvm->fielddefs)));
 		memcpy (qcvm->fielddefs, olddefs, qcvm->progs->numfielddefs * sizeof (*qcvm->fielddefs));
 		if (olddefs != (ddef_t *)((byte *)qcvm->progs + qcvm->progs->ofs_fielddefs))
 			Mem_Free (olddefs);
@@ -1758,7 +1758,7 @@ qboolean PR_LoadProgs (const char *filename, qboolean fatal, unsigned int needcr
 			return false;
 		}
 	}
-	if (qcvm->progs->crc != needcrc)
+	if ((unsigned int)qcvm->progs->crc != needcrc)
 	{
 		if (fatal)
 			Host_Error ("%s system vars have been modified, progdefs.h is out of date", filename);

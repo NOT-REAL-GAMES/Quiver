@@ -1,13 +1,14 @@
-project('vkquake', 'c', default_options : ['c_std=gnu11', 'buildtype=release'])
+project('vkquake', 'c', 'cpp', default_options : ['c_std=gnu11', 'cpp_std=gnu++20', 'buildtype=release'])
 
-cc = meson.get_compiler('c')
+cc = meson.get_compiler('cpp')
+cc_c = meson.get_compiler('c')
 
 if cc.has_header_symbol('sched.h', 'CPU_ZERO', prefix: '#define _GNU_SOURCE')
     message('Info: Task affinity support enabled.')
-    add_project_arguments('-D_GNU_SOURCE', language: 'c')
+    add_project_arguments('-D_GNU_SOURCE', language: 'cpp')
 else
     message('Warning: sched.h not found, disabling Task affinity support.')
-    add_project_arguments('-DTASK_AFFINITY_NOT_AVAILABLE', language: 'c')
+    add_project_arguments('-DTASK_AFFINITY_NOT_AVAILABLE', language: 'cpp')
 endif
 
 shaders = [
@@ -185,7 +186,7 @@ srcs = [
 	 run_generate_embedded_pak,
 ]
 
-cflags = ['-Wall', '-Wno-trigraphs', '-Werror', '-std=gnu11']
+cflags = ['-Wall', '-Wno-trigraphs', '-Werror']
 
 deps = [
     cc.find_library('m', required : false),
@@ -269,4 +270,5 @@ incdirs = [
     'Quake/mimalloc',
 ]
 
-executable('vkquake', [srcs, shaders_c], dependencies : deps, include_directories : incdirs, c_args : cflags, c_pch: ['Quake/quakedef.h', 'Quake/quakedef.c'])
+# Note: .c files are compiled as C++ via override_options
+executable('vkquake', [srcs, shaders_c], dependencies : deps, include_directories : incdirs, cpp_args : cflags, override_options : ['cpp_std=gnu++20'])

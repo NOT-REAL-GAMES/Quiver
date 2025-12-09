@@ -1040,7 +1040,7 @@ void Key_EventWithKeycode (int key, qboolean down, int keycode)
 	if (cls.demoplayback && down && consolekeys[key] && key_dest == key_game && key != K_TAB)
 	{
 		cmd[0] = 0;
-		char *seektime = keydown[K_SHIFT] ? "30" : "10";
+		const char *seektime = keydown[K_SHIFT] ? "30" : "10";
 
 		if (key == K_LEFTARROW)
 			q_snprintf (cmd, sizeof (cmd), "seek -%s\n", seektime);

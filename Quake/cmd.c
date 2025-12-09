@@ -291,8 +291,8 @@ void Cmd_Exec_f (void)
 		fseek (f, 0, SEEK_END);
 		long length = ftell (f);
 		fseek (f, 0, SEEK_SET);
-		buf = Mem_Alloc (length + 1);
-		if (fread (buf, 1, length, f) != length)
+		buf = static_cast<char *> (Mem_Alloc (length + 1));
+		if (fread (buf, 1, length, f) != (size_t)length)
 			Mem_Free (buf);
 		else
 		{

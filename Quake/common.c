@@ -383,8 +383,8 @@ char *q_strtrim (char *str)
 char **q_strsplit (char *str, char sep, size_t *nb_substr)
 {
 	size_t nb_sub_strings_max_size = 8;
-	char **sub_strings = Mem_Alloc (nb_sub_strings_max_size * sizeof (char *));
-	int	   nb_sub_strings = 0;
+	char **sub_strings = static_cast<char **> (Mem_Alloc (nb_sub_strings_max_size * sizeof (char *)));
+	size_t nb_sub_strings = 0;
 
 	size_t start_str_index = 0;
 
@@ -425,7 +425,7 @@ char **q_strsplit (char *str, char sep, size_t *nb_substr)
 				if (nb_sub_strings >= nb_sub_strings_max_size)
 				{
 					nb_sub_strings_max_size = nb_sub_strings_max_size * 2;
-					sub_strings = Mem_Realloc (sub_strings, nb_sub_strings_max_size * sizeof (char *));
+					sub_strings = static_cast<char **> (Mem_Realloc (sub_strings, nb_sub_strings_max_size * sizeof (char *)));
 				}
 				// we found the first split, meaning the string before this split is indeed the first sub-string
 				if (nb_sub_strings == 0)
@@ -849,7 +849,7 @@ void MSG_WriteDouble (sizebuf_t *sb, double f)
 		double	f;
 		int64_t l;
 	} dat;
-	byte *o = SZ_GetSpace (sb, sizeof (f));
+	byte *o = static_cast<byte *> (SZ_GetSpace (sb, sizeof (f)));
 	dat.f = f;
 
 	o[0] = dat.l >> 0;
@@ -1404,8 +1404,8 @@ The mode argument controls how overflow is handled:
 */
 const char *COM_ParseEx (const char *data, cpe_mode mode)
 {
-	int c;
-	int len;
+	int	   c;
+	size_t len;
 
 	len = 0;
 	com_token[0] = 0;
@@ -2365,7 +2365,7 @@ _add_path:
 			{
 				tinfl_decompressor inflator;
 				tinfl_init (&inflator);
-				vkquake_pak_extracted = Mem_Alloc (vkquake_pak_size_extracted);
+				vkquake_pak_extracted = static_cast<byte *> (Mem_Alloc (vkquake_pak_size_extracted));
 
 				tinfl_status decomp_status = tinfl_decompress (
 					&inflator, vkquake_pak, &vkquake_pak_size_compressed, vkquake_pak_extracted, vkquake_pak_extracted, &vkquake_pak_size_extracted,
@@ -3143,7 +3143,7 @@ void LOC_LoadFile (const char *file)
 	for (i = 0; i < localization.numentries; i++)
 	{
 		locentry_t *entry = &localization.entries[i];
-		unsigned	pos = COM_HashString (entry->key) % localization.numindices, end = pos;
+		int			pos = COM_HashString (entry->key) % localization.numindices, end = pos;
 
 		for (;;)
 		{
@@ -3196,7 +3196,7 @@ Returns localized string if available, or NULL otherwise
 */
 const char *LOC_GetRawString (const char *key)
 {
-	unsigned pos, end;
+	int pos, end;
 
 	if (!localization.numindices || !key || !*key || *key != '$')
 		return NULL;

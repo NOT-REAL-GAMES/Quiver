@@ -68,7 +68,7 @@ static void HashMap_Rehash (hash_map_t *map, const uint32_t new_size)
 	if (map->hash_size >= new_size)
 		return;
 	map->hash_size = new_size;
-	map->hash_to_index = Mem_Realloc (map->hash_to_index, map->hash_size * sizeof (uint32_t));
+	map->hash_to_index = static_cast<uint32_t *> (Mem_Realloc (map->hash_to_index, map->hash_size * sizeof (uint32_t)));
 	memset (map->hash_to_index, 0xFF, map->hash_size * sizeof (uint32_t));
 	for (uint32_t i = 0; i < map->num_entries; ++i)
 	{
@@ -89,7 +89,7 @@ static void HashMap_ExpandKeyValueStorage (hash_map_t *map, const uint32_t new_s
 {
 	map->keys = Mem_Realloc (map->keys, new_size * map->key_size);
 	map->values = Mem_Realloc (map->values, new_size * map->value_size);
-	map->index_chain = Mem_Realloc (map->index_chain, new_size * sizeof (uint32_t));
+	map->index_chain = static_cast<uint32_t *> (Mem_Realloc (map->index_chain, new_size * sizeof (uint32_t)));
 	map->key_value_storage_size = new_size;
 }
 
@@ -101,7 +101,7 @@ HashMap_CreateImpl
 hash_map_t *HashMap_CreateImpl (
 	const uint32_t key_size, const uint32_t value_size, uint32_t (*hasher) (const void *const), qboolean (*comp) (const void *const, const void *const))
 {
-	hash_map_t *map = Mem_Alloc (sizeof (hash_map_t));
+	hash_map_t *map = static_cast<hash_map_t *> (Mem_Alloc (sizeof (hash_map_t)));
 	map->key_size = key_size;
 	map->value_size = value_size;
 	map->hasher = hasher;

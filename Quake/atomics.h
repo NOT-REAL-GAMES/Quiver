@@ -27,6 +27,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__cplusplus)
+#include <atomic>
+#include <stdint.h>
 #else
 #include <stdatomic.h>
 #endif
@@ -162,7 +165,110 @@ static inline void Atomic_WriteBarrier (void)
 {
 	_WriteBarrier ();
 }
+#elif defined(__cplusplus)
+// C++ mode: use std::atomic
+typedef std::atomic<uint8_t> atomic_uint8_t;
+
+static inline uint8_t Atomic_OrUInt8 (atomic_uint8_t *atomic, uint8_t val)
+{
+	return atomic->fetch_or (val);
+}
+
+typedef std::atomic<uint32_t> atomic_uint32_t;
+
+static inline uint32_t Atomic_LoadUInt32 (atomic_uint32_t *atomic)
+{
+	return atomic->load ();
+}
+
+static inline void Atomic_StoreUInt32 (atomic_uint32_t *atomic, uint32_t desired)
+{
+	atomic->store (desired);
+}
+
+static inline void Atomic_StoreUInt32_Relaxed (atomic_uint32_t *atomic, uint32_t desired)
+{
+	atomic->store (desired, std::memory_order_relaxed);
+}
+
+static inline uint32_t Atomic_AddUInt32 (atomic_uint32_t *atomic, uint32_t value)
+{
+	return atomic->fetch_add (value);
+}
+
+static inline uint32_t Atomic_SubUInt32 (atomic_uint32_t *atomic, uint32_t value)
+{
+	return atomic->fetch_sub (value);
+}
+
+static inline uint32_t Atomic_OrUInt32 (atomic_uint32_t *atomic, uint32_t value)
+{
+	return atomic->fetch_or (value);
+}
+
+static inline uint32_t Atomic_OrUInt32_Relaxed (atomic_uint32_t *atomic, uint32_t value)
+{
+	return atomic->fetch_or (value, std::memory_order_relaxed);
+}
+
+static inline uint32_t Atomic_IncrementUInt32 (atomic_uint32_t *atomic)
+{
+	return atomic->fetch_add (1);
+}
+
+static inline uint32_t Atomic_DecrementUInt32 (atomic_uint32_t *atomic)
+{
+	return atomic->fetch_sub (1);
+}
+
+typedef std::atomic<uint64_t> atomic_uint64_t;
+
+static inline uint64_t Atomic_LoadUInt64 (atomic_uint64_t *atomic)
+{
+	return atomic->load ();
+}
+
+static inline void Atomic_StoreUInt64 (atomic_uint64_t *atomic, uint64_t desired)
+{
+	atomic->store (desired);
+}
+
+static inline qboolean Atomic_CompareExchangeUInt32 (atomic_uint32_t *atomic, uint32_t *expected, uint32_t desired)
+{
+	return atomic->compare_exchange_weak (*expected, desired);
+}
+
+static inline qboolean Atomic_CompareExchangeUInt64 (atomic_uint64_t *atomic, uint64_t *expected, uint64_t desired)
+{
+	return atomic->compare_exchange_weak (*expected, desired);
+}
+
+static inline uint64_t Atomic_IncrementUInt64 (atomic_uint64_t *atomic)
+{
+	return atomic->fetch_add (1);
+}
+
+static inline uint64_t Atomic_AddUInt64 (atomic_uint64_t *atomic, const uint64_t value)
+{
+	return atomic->fetch_add (value);
+}
+
+static inline uint64_t Atomic_SubUInt64 (atomic_uint64_t *atomic, const uint64_t value)
+{
+	return atomic->fetch_sub (value);
+}
+
+static inline void Atomic_ReadBarrier (void)
+{
+	std::atomic_thread_fence (std::memory_order_acquire);
+}
+
+static inline void Atomic_WriteBarrier (void)
+{
+	std::atomic_thread_fence (std::memory_order_release);
+}
 #else
+// C11 mode: use _Atomic
 typedef _Atomic uint8_t atomic_uint8_t;
 
 static inline uint8_t Atomic_OrUInt8 (atomic_uint8_t *atomic, uint8_t val)

@@ -603,7 +603,7 @@ static void PF_sv_ambientsound (void)
 	if (sv.num_ambients == sv.max_ambients)
 	{
 		int					   nm = sv.max_ambients + 128;
-		struct ambientsound_s *n = (nm * sizeof (*n) < sv.max_ambients * sizeof (*n)) ? NULL : Mem_Realloc (sv.ambientsounds, nm * sizeof (*n));
+		ambientsound_t *n = (nm * sizeof (*n) < sv.max_ambients * sizeof (*n)) ? NULL : static_cast<ambientsound_t *> (Mem_Realloc (sv.ambientsounds, nm * sizeof (*n)));
 		if (!n)
 			PR_RunError ("PF_ambientsound: out of memory"); // shouldn't really happen.
 		sv.ambientsounds = n;
@@ -975,7 +975,7 @@ static void PF_findradius (void)
 		float d, lensq;
 		if (ent->free)
 			continue;
-		if (ent->v.solid == SOLID_NOT)
+		if (ent->v.solid == (float)SOLID_NOT)
 			continue;
 
 		d = org[0] - (ent->v.origin[0] + (ent->v.mins[0] + ent->v.maxs[0]) * 0.5);
@@ -1451,7 +1451,7 @@ static void PF_aim (void)
 	VectorCopy (pr_global_struct->v_forward, dir);
 	VectorMA (start, 2048, dir, end);
 	tr = SV_Move (start, vec3_origin, vec3_origin, end, false, ent);
-	if (tr.ent && tr.ent->v.takedamage == DAMAGE_AIM && (!teamplay.value || ent->v.team <= 0 || ent->v.team != tr.ent->v.team))
+	if (tr.ent && tr.ent->v.takedamage == (float)DAMAGE_AIM && (!teamplay.value || ent->v.team <= 0 || ent->v.team != tr.ent->v.team))
 	{
 		VectorCopy (pr_global_struct->v_forward, G_VECTOR (OFS_RETURN));
 		return;
@@ -1465,7 +1465,7 @@ static void PF_aim (void)
 	check = NEXT_EDICT (qcvm->edicts);
 	for (i = 1; i < qcvm->num_edicts; i++, check = NEXT_EDICT (check))
 	{
-		if (check->v.takedamage != DAMAGE_AIM)
+		if (check->v.takedamage != (float)DAMAGE_AIM)
 			continue;
 		if (check == ent)
 			continue;
@@ -1644,7 +1644,7 @@ static void PF_sv_makestatic (void)
 	if (sv.num_statics == sv.max_statics)
 	{
 		int				nm = sv.max_statics + 128;
-		entity_state_t *n = (nm * sizeof (*n) < sv.max_statics * sizeof (*n)) ? NULL : Mem_Realloc (sv.static_entities, nm * sizeof (*n));
+		entity_state_t *n = (nm * sizeof (*n) < sv.max_statics * sizeof (*n)) ? NULL : static_cast<entity_state_t *> (Mem_Realloc (sv.static_entities, nm * sizeof (*n)));
 		if (!n)
 			PR_RunError ("PF_makestatic: out of memory"); // shouldn't really happen.
 		sv.static_entities = n;
@@ -1820,8 +1820,8 @@ static void PF_cl_makestatic (void)
 	if (i >= cl.max_static_entities)
 	{
 		int		   ec = 64;
-		entity_t **newstatics = Mem_Realloc (cl.static_entities, sizeof (*newstatics) * (cl.max_static_entities + ec));
-		entity_t  *newents = Mem_Alloc (sizeof (*newents) * ec);
+		entity_t **newstatics = static_cast<entity_t **> (Mem_Realloc (cl.static_entities, sizeof (*newstatics) * (cl.max_static_entities + ec)));
+		entity_t  *newents = static_cast<entity_t *> (Mem_Alloc (sizeof (*newents) * ec));
 		if (!newstatics || !newents)
 			Host_Error ("Too many static entities");
 		cl.static_entities = newstatics;

@@ -193,12 +193,12 @@ static int R_AllocDepsData (combined_brush_deps *items)
 		return last;
 
 	if (used_deps_data == 0)
-		brush_deps_data = Mem_Alloc (INITIAL_BRUSH_DEPS_SIZE * sizeof (combined_brush_deps));
+		brush_deps_data = static_cast<combined_brush_deps *> (Mem_Alloc (INITIAL_BRUSH_DEPS_SIZE * sizeof (combined_brush_deps)));
 
 	for (int i = 0; i <= item_count; i++)
 	{
 		if (used_deps_data >= INITIAL_BRUSH_DEPS_SIZE && !(used_deps_data & (used_deps_data - 1)))
-			brush_deps_data = Mem_Realloc (brush_deps_data, used_deps_data * 2 * sizeof (combined_brush_deps));
+			brush_deps_data = static_cast<combined_brush_deps *> (Mem_Realloc (brush_deps_data, used_deps_data * 2 * sizeof (combined_brush_deps)));
 		brush_deps_data[used_deps_data] = items[i];
 		++used_deps_data;
 	}
@@ -392,7 +392,7 @@ R_RecursiveNode
 ================
 */
 static void R_RecursiveNode (
-	mnode_t *node, qmodel_t *model, vec3_t modelorg, int chain, int *brushpolys, int *surfs_visited, int worker_index, qboolean water_transparent_only)
+	mnode_t *node, qmodel_t *model, vec3_t modelorg, texchain_t chain, int *brushpolys, int *surfs_visited, int worker_index, qboolean water_transparent_only)
 {
 	if (node->contents >= 0)
 	{
@@ -438,7 +438,7 @@ qboolean R_IndirectBrush (entity_t *e)
 R_DrawBrushModel
 =================
 */
-void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpolys, qboolean sort, qboolean water_opaque_only, qboolean water_transparent_only)
+void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, texchain_t chain, int *brushpolys, qboolean sort, qboolean water_opaque_only, qboolean water_transparent_only)
 {
 	int			i, k;
 	msurface_t *psurf;
@@ -2515,12 +2515,12 @@ GL_PrepareSIMDData
 */
 void GL_PrepareSIMDAndParallelData (void)
 {
-	cl.worldmodel->surfvis = Mem_Alloc (((cl.worldmodel->numsurfaces + 31) / 8));
+	cl.worldmodel->surfvis = static_cast<byte *> (Mem_Alloc (((cl.worldmodel->numsurfaces + 31) / 8)));
 #ifdef USE_SIMD
 	int i;
 
-	cl.worldmodel->soa_leafbounds = Mem_Alloc (6 * sizeof (float) * ((cl.worldmodel->numleafs + 31) & ~7));
-	cl.worldmodel->soa_surfplanes = Mem_Alloc (4 * sizeof (float) * ((cl.worldmodel->numsurfaces + 31) & ~7));
+	cl.worldmodel->soa_leafbounds = static_cast<soa_aabb_t *> (Mem_Alloc (6 * sizeof (float) * ((cl.worldmodel->numleafs + 31) & ~7)));
+	cl.worldmodel->soa_surfplanes = static_cast<soa_plane_t *> (Mem_Alloc (4 * sizeof (float) * ((cl.worldmodel->numsurfaces + 31) & ~7)));
 
 	for (i = 0; i < cl.worldmodel->numleafs; ++i)
 	{
@@ -2917,7 +2917,8 @@ void R_FlushUpdateLightmaps (
 		cbx->cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, num_batch_lightmaps, pre_barriers);
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
 	uint32_t offsets[2] = {
-		current_compute_buffer_index * MAX_LIGHTSTYLES * sizeof (float), current_compute_buffer_index * MAX_DLIGHTS * 2 * sizeof (lm_compute_light_t)};
+		static_cast<uint32_t> (current_compute_buffer_index * MAX_LIGHTSTYLES * sizeof (float)),
+		static_cast<uint32_t> (current_compute_buffer_index * MAX_DLIGHTS * 2 * sizeof (lm_compute_light_t))};
 	for (int j = 0; j < num_batch_lightmaps; ++j)
 	{
 		VkDescriptorSet sets[1] = {lightmaps[lightmap_indexes[j]].descriptor_set};
@@ -2952,7 +2953,9 @@ void R_FlushUpdateLightmaps (
 							lightmap_regions[j][y + h][i] = false;
 						h += 1;
 					}
-					uint32_t push_constants[6] = {current_dlights, LMBLOCK_WIDTH, x * LM_CULL_BLOCK_W / 8, y * LM_CULL_BLOCK_H / 8, type == 1, cached_dlights};
+					uint32_t push_constants[6] = {
+					static_cast<uint32_t> (current_dlights), LMBLOCK_WIDTH, static_cast<uint32_t> (x * LM_CULL_BLOCK_W / 8),
+					static_cast<uint32_t> (y * LM_CULL_BLOCK_H / 8), static_cast<uint32_t> (type == 1), static_cast<uint32_t> (cached_dlights)};
 					R_PushConstants (cbx, VK_SHADER_STAGE_COMPUTE_BIT, 0, 6 * sizeof (uint32_t), push_constants);
 					w = q_min (lightmaps[lightmap_indexes[j]].lightstyle_rectused[0].w / 8 - x * LM_CULL_BLOCK_W / 8, w * LM_CULL_BLOCK_W / 8);
 					h = q_min (lightmaps[lightmap_indexes[j]].lightstyle_rectused[0].h / 8 - y * LM_CULL_BLOCK_H / 8, h * LM_CULL_BLOCK_H / 8);

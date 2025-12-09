@@ -81,6 +81,14 @@ typedef enum
 } cvarflags_t;
 // clang-format on
 
+#ifdef __cplusplus
+inline cvarflags_t operator| (cvarflags_t a, cvarflags_t b) { return static_cast<cvarflags_t> (static_cast<int> (a) | static_cast<int> (b)); }
+inline cvarflags_t operator& (cvarflags_t a, cvarflags_t b) { return static_cast<cvarflags_t> (static_cast<int> (a) & static_cast<int> (b)); }
+inline cvarflags_t operator~ (cvarflags_t a) { return static_cast<cvarflags_t> (~static_cast<int> (a)); }
+inline cvarflags_t &operator|= (cvarflags_t &a, cvarflags_t b) { return a = a | b; }
+inline cvarflags_t &operator&= (cvarflags_t &a, cvarflags_t b) { return a = a & b; }
+#endif
+
 typedef void (*cvarcallback_t) (struct cvar_s *);
 
 typedef struct cvar_s

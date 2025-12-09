@@ -396,7 +396,7 @@ static byte *Image_LoadLMP (FILE *f, int *width, int *height)
 {
 	lmpheader_t qpic;
 	size_t		pix;
-	void	   *data;
+	byte	   *data;
 
 	if (fread (&qpic, 1, sizeof (qpic), f) != sizeof (qpic))
 		Sys_Error ("'%s' is not a valid LMP file", loadfilename);
@@ -406,13 +406,13 @@ static byte *Image_LoadLMP (FILE *f, int *width, int *height)
 
 	pix = qpic.width * qpic.height;
 
-	if (com_filesize != 8 + pix)
+	if (com_filesize != (qfileofs_t)(8 + pix))
 	{
 		fclose (f);
 		return NULL;
 	}
 
-	data = (byte *)Mem_Alloc (pix); //+1 to allow reading padding byte on last line
+	data = static_cast<byte *> (Mem_Alloc (pix)); //+1 to allow reading padding byte on last line
 	if (fread (data, 1, pix, f) != pix)
 		Sys_Error ("'%s' is not a valid LMP file", loadfilename);
 	fclose (f);

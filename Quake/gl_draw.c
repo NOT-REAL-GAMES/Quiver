@@ -244,7 +244,7 @@ qpic_t *Draw_PicFromWad2 (const char *name, unsigned int texflags)
 
 		offset = (src_offset_t)p - (src_offset_t)wad_base + sizeof (int) * 2; // johnfitz
 
-		gl.gltexture = TexMgr_LoadImage (NULL, texturename, p->width, p->height, SRC_INDEXED, p->data, WADFILENAME, offset, texflags); // johnfitz -- TexMgr
+		gl.gltexture = TexMgr_LoadImage (NULL, texturename, p->width, p->height, SRC_INDEXED, p->data, WADFILENAME, offset, static_cast<textureflags_t> (texflags)); // johnfitz -- TexMgr
 		gl.sl = 0;
 		gl.sh = 1;
 		gl.tl = 0;
@@ -318,7 +318,7 @@ qpic_t *Draw_TryCachePic (const char *path, unsigned int texflags)
 	pic->pic.height = dat->height;
 
 	gl.gltexture = TexMgr_LoadImage (
-		NULL, path, dat->width, dat->height, SRC_INDEXED, dat->data, path, sizeof (int) * 2, texflags | TEXPREF_NOPICMIP); // johnfitz -- TexMgr
+		NULL, path, dat->width, dat->height, SRC_INDEXED, dat->data, path, sizeof (int) * 2, static_cast<textureflags_t> (texflags) | TEXPREF_NOPICMIP); // johnfitz -- TexMgr
 	gl.sl = 0;
 	gl.sh = 1;
 	gl.tl = 0;
@@ -346,7 +346,7 @@ Draw_MakePic -- johnfitz -- generate pics from internal data
 */
 static qpic_t *Draw_MakePic (const char *name, int width, int height, const byte *data)
 {
-	int		flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_PAD;
+	textureflags_t flags = TEXPREF_NEAREST | TEXPREF_ALPHA | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_PAD;
 	qpic_t *pic;
 	glpic_t gl;
 

@@ -622,7 +622,7 @@ static void GL_InitInstance (void)
 	if (!SDL_Vulkan_GetInstanceExtensions (draw_context, &sdl_extension_count, NULL))
 		Sys_Error ("SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError ());
 
-	const char **const instance_extensions = Mem_Alloc (sizeof (const char *) * (sdl_extension_count + 3));
+	const char **const instance_extensions = static_cast<const char **> (Mem_Alloc (sizeof (const char *) * (sdl_extension_count + 3)));
 	if (!SDL_Vulkan_GetInstanceExtensions (draw_context, &sdl_extension_count, instance_extensions))
 		Sys_Error ("SDL_Vulkan_GetInstanceExtensions failed: %s", SDL_GetError ());
 
@@ -1272,10 +1272,10 @@ static void GL_InitCommandBuffers (void)
 	for (int scbx_index = 0; scbx_index < SCBX_NUM; ++scbx_index)
 	{
 		const int multiplicity = SECONDARY_CB_MULTIPLICITY[scbx_index];
-		vulkan_globals.secondary_cb_contexts[scbx_index] = Mem_Alloc (multiplicity * sizeof (cb_context_t));
-		secondary_command_pools[scbx_index] = Mem_Alloc (multiplicity * sizeof (VkCommandPool));
+		vulkan_globals.secondary_cb_contexts[scbx_index] = static_cast<cb_context_t *> (Mem_Alloc (multiplicity * sizeof (cb_context_t)));
+		secondary_command_pools[scbx_index] = static_cast<VkCommandPool *> (Mem_Alloc (multiplicity * sizeof (VkCommandPool)));
 		for (int i = 0; i < DOUBLE_BUFFERED; ++i)
-			secondary_command_buffers[scbx_index][i] = Mem_Alloc (multiplicity * sizeof (VkCommandBuffer));
+			secondary_command_buffers[scbx_index][i] = static_cast<VkCommandBuffer *> (Mem_Alloc (multiplicity * sizeof (VkCommandBuffer)));
 		for (int i = 0; i < multiplicity; ++i)
 		{
 			err = vkCreateCommandPool (vulkan_globals.device, &command_pool_create_info, NULL, &secondary_command_pools[scbx_index][i]);
@@ -2021,7 +2021,7 @@ static qboolean GL_CreateSwapChain (void)
 	}
 
 	if ((vulkan_surface_capabilities.currentExtent.width != 0xFFFFFFFF || vulkan_surface_capabilities.currentExtent.height != 0xFFFFFFFF) &&
-		(vulkan_surface_capabilities.currentExtent.width != vid.width || vulkan_surface_capabilities.currentExtent.height != vid.height))
+		(vulkan_surface_capabilities.currentExtent.width != (uint32_t)vid.width || vulkan_surface_capabilities.currentExtent.height != (uint32_t)vid.height))
 	{
 		return false;
 	}
@@ -2737,8 +2737,8 @@ static void GL_ScreenEffects (cb_context_t *cbx, qboolean enabled, end_rendering
 				screen_effect_flags |= SCREEN_EFFECT_FLAG_MENU;
 
 			const screen_effect_constants_t push_constants = {
-				parms->vid_width - 1,
-				parms->vid_height - 1,
+				(uint32_t)(parms->vid_width - 1),
+				(uint32_t)(parms->vid_height - 1),
 				1.0f / (float)parms->vid_width,
 				1.0f / (float)parms->vid_height,
 				(float)parms->vid_width / (float)parms->vid_height,
@@ -2900,11 +2900,11 @@ void WriteScreenshot (VkBuffer buffer, vulkan_memory_t memory)
 
 	qboolean ok;
 	if (!q_strncasecmp (screenshot_ext, "png", sizeof (screenshot_ext)))
-		ok = Image_WritePNG (screenshot_imagename, buffer_ptr, glwidth, glheight, 32, true);
+		ok = Image_WritePNG (screenshot_imagename, static_cast<byte *> (buffer_ptr), glwidth, glheight, 32, true);
 	else if (!q_strncasecmp (screenshot_ext, "tga", sizeof (screenshot_ext)))
-		ok = Image_WriteTGA (screenshot_imagename, buffer_ptr, glwidth, glheight, 32, true);
+		ok = Image_WriteTGA (screenshot_imagename, static_cast<byte *> (buffer_ptr), glwidth, glheight, 32, true);
 	else if (!q_strncasecmp (screenshot_ext, "jpg", sizeof (screenshot_ext)))
-		ok = Image_WriteJPG (screenshot_imagename, buffer_ptr, glwidth, glheight, 32, screenshot_quality, true);
+		ok = Image_WriteJPG (screenshot_imagename, static_cast<byte *> (buffer_ptr), glwidth, glheight, 32, screenshot_quality, true);
 	else
 		ok = false;
 
@@ -3089,48 +3089,35 @@ GL_EndRendering
 */
 task_handle_t GL_EndRendering (qboolean use_tasks, qboolean swapchain)
 {
-	end_rendering_parms_t parms = {
-		.swapchain = swapchain,
-		.render_warp = render_warp,
-		.vid_palettize = vid_palettize.value != 0,
-		.menu = key_dest == key_menu,
+	end_rendering_parms_t parms = {};
+	parms.swapchain = swapchain;
+	parms.render_warp = render_warp;
+	parms.vid_palettize = vid_palettize.value != 0;
+	parms.menu = key_dest == key_menu;
 #if defined(_DEBUG)
-		.ray_debug = r_raydebug.value && (bmodel_tlas != VK_NULL_HANDLE),
+	parms.ray_debug = r_raydebug.value && (bmodel_tlas != VK_NULL_HANDLE);
 #endif
-		.render_scale = CLAMP (0, render_scale, 8),
-		.vid_width = vid.width,
-		.vid_height = vid.height,
-		.time = fmod (cl.time, 2.0 * M_PI),
-		.viewent_alpha = ENTALPHA_DECODE (cl.viewent.alpha),
-		.v_blend[0] = v_blend[0],
-		.v_blend[1] = v_blend[1],
-		.v_blend[2] = v_blend[2],
-		.v_blend[3] = v_blend[3],
-		.origin =
-			{
-				r_refdef.vieworg[0],
-				r_refdef.vieworg[1],
-				r_refdef.vieworg[2],
-			},
-		.forward =
-			{
-				-vulkan_globals.view_matrix[2],
-				-vulkan_globals.view_matrix[6],
-				-vulkan_globals.view_matrix[10],
-			},
-		.right =
-			{
-				vulkan_globals.view_matrix[0],
-				vulkan_globals.view_matrix[4],
-				vulkan_globals.view_matrix[8],
-			},
-		.down =
-			{
-				-vulkan_globals.view_matrix[1],
-				-vulkan_globals.view_matrix[5],
-				-vulkan_globals.view_matrix[9],
-			},
-	};
+	parms.render_scale = CLAMP (0, render_scale, 8);
+	parms.vid_width = vid.width;
+	parms.vid_height = vid.height;
+	parms.time = (float)fmod (cl.time, 2.0 * M_PI);
+	parms.viewent_alpha = ENTALPHA_DECODE (cl.viewent.alpha);
+	parms.v_blend[0] = v_blend[0];
+	parms.v_blend[1] = v_blend[1];
+	parms.v_blend[2] = v_blend[2];
+	parms.v_blend[3] = v_blend[3];
+	parms.origin[0] = r_refdef.vieworg[0];
+	parms.origin[1] = r_refdef.vieworg[1];
+	parms.origin[2] = r_refdef.vieworg[2];
+	parms.forward[0] = -vulkan_globals.view_matrix[2];
+	parms.forward[1] = -vulkan_globals.view_matrix[6];
+	parms.forward[2] = -vulkan_globals.view_matrix[10];
+	parms.right[0] = vulkan_globals.view_matrix[0];
+	parms.right[1] = vulkan_globals.view_matrix[4];
+	parms.right[2] = vulkan_globals.view_matrix[8];
+	parms.down[0] = -vulkan_globals.view_matrix[1];
+	parms.down[1] = -vulkan_globals.view_matrix[5];
+	parms.down[2] = -vulkan_globals.view_matrix[9];
 	task_handle_t end_rendering_task = INVALID_TASK_HANDLE;
 	if (use_tasks)
 		end_rendering_task = Task_AllocateAndAssignFunc ((task_func_t)GL_EndRenderingTask, &parms, sizeof (parms));
@@ -3253,7 +3240,7 @@ static void VID_InitModelist (void)
 	const int sdlmodes = SDL_GetNumDisplayModes (0);
 	int		  i;
 
-	modelist = Mem_Realloc (modelist, sizeof (vmode_t) * sdlmodes);
+	modelist = static_cast<vmode_t *> (Mem_Realloc (modelist, sizeof (vmode_t) * sdlmodes));
 	nummodes = 0;
 	for (i = 0; i < sdlmodes; i++)
 	{
@@ -3276,8 +3263,8 @@ R_CreatePaletteOctreeBuffers
 */
 static void R_CreatePaletteOctreeBuffers (uint32_t *colors, int num_colors, palette_octree_node_t *nodes, int num_nodes)
 {
-	const int colors_size = num_colors * sizeof (uint32_t);
-	const int nodes_size = num_nodes * sizeof (palette_octree_node_t);
+	const size_t colors_size = num_colors * sizeof (uint32_t);
+	const size_t nodes_size = num_nodes * sizeof (palette_octree_node_t);
 
 	buffer_create_info_t buffer_create_infos[2] = {
 		{&palette_colors_buffer, colors_size, 0, VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, NULL, NULL, "Palette colors"},

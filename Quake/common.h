@@ -42,6 +42,42 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #undef min
 #undef max
 
+#ifdef __cplusplus
+#include <type_traits>
+// C++ template implementations - use common_type for mixed types
+template <typename T, typename U>
+inline auto q_min (T a, U b) -> std::common_type_t<T, U>
+{
+	using CT = std::common_type_t<T, U>;
+	return (static_cast<CT>(a) < static_cast<CT>(b)) ? static_cast<CT>(a) : static_cast<CT>(b);
+}
+
+template <typename T, typename U>
+inline auto q_max (T a, U b) -> std::common_type_t<T, U>
+{
+	using CT = std::common_type_t<T, U>;
+	return (static_cast<CT>(a) > static_cast<CT>(b)) ? static_cast<CT>(a) : static_cast<CT>(b);
+}
+
+template <typename T, typename U, typename V>
+inline auto CLAMP (T minval, U val, V maxval) -> std::common_type_t<T, U, V>
+{
+	using CT = std::common_type_t<T, U, V>;
+	CT v = static_cast<CT>(val);
+	CT mn = static_cast<CT>(minval);
+	CT mx = static_cast<CT>(maxval);
+	return (v < mn) ? mn : ((v > mx) ? mx : v);
+}
+
+template <typename T, typename U>
+inline auto q_align (T size, U alignment) -> std::common_type_t<T, U>
+{
+	using CT = std::common_type_t<T, U>;
+	CT s = static_cast<CT>(size);
+	CT a = static_cast<CT>(alignment);
+	return ((s & (a - 1)) == 0) ? s : (s + a - (s & (a - 1)));
+}
+#else
 // clang-format off
 #define GENERIC_TYPES(x, separator) \
 	x(int, i) separator \
@@ -102,6 +138,7 @@ GENERIC_INT_TYPES (IMPL_GENERIC_INT_FUNCS, NO_COMMA)
 #define q_align(size, alignment) _Generic((size) + (alignment), \
 	GENERIC_INT_TYPES (SELECT_ALIGN, COMMA))(size, alignment)
 // clang-format on
+#endif /* __cplusplus */
 
 #define countof(x) (sizeof (x) / sizeof ((x)[0]))
 

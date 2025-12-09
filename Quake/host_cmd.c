@@ -115,7 +115,7 @@ static void FileList_Clear (filelist_item_t **list)
 
 filelist_item_t *extralevels;
 
-static void FileList_Init (char *path, char *ext, int min_bsp_size, filelist_item_t **list)
+static void FileList_Init (const char *path, const char *ext, int min_bsp_size, filelist_item_t **list)
 {
 #ifdef _WIN32
 	WIN32_FIND_DATA fdat;
@@ -603,7 +603,7 @@ static void Host_Noclip_f (void)
 	switch (Cmd_Argc ())
 	{
 	case 1:
-		if (sv_player->v.movetype != MOVETYPE_NOCLIP)
+		if (sv_player->v.movetype != (float)MOVETYPE_NOCLIP)
 		{
 			noclip_anglehack = true;
 			sv_player->v.movetype = MOVETYPE_NOCLIP;
@@ -667,7 +667,7 @@ static void Host_SetPos_f (void)
 		return;
 	}
 
-	if (sv_player->v.movetype != MOVETYPE_NOCLIP)
+	if (sv_player->v.movetype != (float)MOVETYPE_NOCLIP)
 	{
 		noclip_anglehack = true;
 		sv_player->v.movetype = MOVETYPE_NOCLIP;
@@ -716,7 +716,7 @@ static void Host_Fly_f (void)
 	switch (Cmd_Argc ())
 	{
 	case 1:
-		if (sv_player->v.movetype != MOVETYPE_FLY)
+		if (sv_player->v.movetype != (float)MOVETYPE_FLY)
 		{
 			sv_player->v.movetype = MOVETYPE_FLY;
 			SV_ClientPrintf ("flymode ON\n");
@@ -1472,19 +1472,19 @@ static void Host_Loadgame_f (void)
 			data++;
 		if (data[0] == '/' && data[1] == '*' && (data[2] == '\r' || data[2] == '\n'))
 		{ // looks like an extended saved game
-			char	   *end;
-			const char *ext;
-			ext = data + 2;
+			char *end;
+			char *ext;
+			ext = const_cast<char *> (data + 2);
 			while ((end = strchr (ext, '\n')))
 			{
 				*end = 0;
-				ext = COM_Parse (ext);
+				ext = const_cast<char *> (COM_Parse (ext));
 				if (!strcmp (com_token, "sv.lightstyles"))
 				{
 					int idx;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					idx = atoi (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					if (idx >= 0 && idx < MAX_LIGHTSTYLES)
 					{
 						if (*com_token)
@@ -1496,9 +1496,9 @@ static void Host_Loadgame_f (void)
 				else if (!strcmp (com_token, "sv.model_precache"))
 				{
 					int idx;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					idx = atoi (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					if (idx >= 1 && idx < MAX_MODELS)
 					{
 						sv.model_precache[idx] = (const char *)q_strdup (com_token);
@@ -1510,18 +1510,18 @@ static void Host_Loadgame_f (void)
 				else if (!strcmp (com_token, "sv.sound_precache"))
 				{
 					int idx;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					idx = atoi (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					if (idx >= 1 && idx < MAX_MODELS)
 						sv.sound_precache[idx] = (const char *)q_strdup (com_token);
 				}
 				else if (!strcmp (com_token, "sv.particle_precache"))
 				{
 					int idx;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					idx = atoi (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					if (idx >= 1 && idx < MAX_PARTICLETYPES)
 					{
 						Mem_Free (sv.particle_precache[idx]);
@@ -1531,40 +1531,40 @@ static void Host_Loadgame_f (void)
 				else if (!strcmp (com_token, "sv.serverflags") || !strcmp (com_token, "svs.serverflags"))
 				{
 					int fl;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					fl = atoi (com_token);
 					svs.serverflags = fl;
 				}
 				else if (!strcmp (com_token, "spawnparm"))
 				{
 					int idx;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					idx = atoi (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					if (idx >= 1 && idx <= NUM_TOTAL_SPAWN_PARMS)
 						spawn_parms[idx - 1] = atof (com_token);
 				}
 				else if (!strcmp (com_token, "fog") && fastload)
 				{
 					float d, r, g, b;
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					d = atof (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					r = atof (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					g = atof (com_token);
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					b = atof (com_token);
 					Fog_Update (d, r, g, b, 0.0f);
 				}
 				else if (!strcmp (com_token, "sky") && fastload)
 				{
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					Sky_LoadSkyBox (com_token);
 				}
 				else if (!strcmp (com_token, "skyfog") && fastload)
 				{
-					ext = COM_Parse (ext);
+					ext = const_cast<char *> (COM_Parse (ext));
 					Sky_SetSkyfog (atof (com_token));
 				}
 				*end = '\n';
@@ -1995,7 +1995,7 @@ static void Host_PreSpawn_f (void)
 	}
 
 	// will start splurging out prespawn data
-	host_client->sendsignon = 2;
+	host_client->sendsignon = PRESPAWN_MODELS;
 	host_client->signonidx = 0;
 }
 
@@ -2066,7 +2066,7 @@ static void Host_Spawn_f (void)
 
 	MSG_WriteByte (&host_client->message, svc_signonnum);
 	MSG_WriteByte (&host_client->message, 3);
-	host_client->sendsignon = true;
+	host_client->sendsignon = PRESPAWN_FLUSH;
 }
 
 /*
@@ -2212,7 +2212,7 @@ static void Host_Give_f (void)
 				sv_player->v.items = (int)sv_player->v.items | HIT_PROXIMITY_GUN | HIT_LASER_CANNON | HIT_MJOLNIR;
 			for (i = 0; i <= 9; ++i)
 				sv_player->v.items = (int)sv_player->v.items | (IT_SHOTGUN << i);
-			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR3;
+			sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + (float)IT_ARMOR3;
 			sv_player->v.items = (int)sv_player->v.items | (int)(IT_KEY1 | IT_KEY2);
 			sv_player->v.ammo_shells = 999;
 			sv_player->v.ammo_nails = 999;
@@ -2277,7 +2277,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon <= IT_LIGHTNING)
+					if (sv_player->v.weapon <= (float)IT_LIGHTNING)
 						sv_player->v.ammo_nails = v;
 				}
 			}
@@ -2294,7 +2294,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon > IT_LIGHTNING)
+					if (sv_player->v.weapon > (float)IT_LIGHTNING)
 						sv_player->v.ammo_nails = v;
 				}
 			}
@@ -2307,7 +2307,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon <= IT_LIGHTNING)
+					if (sv_player->v.weapon <= (float)IT_LIGHTNING)
 						sv_player->v.ammo_rockets = v;
 				}
 			}
@@ -2324,7 +2324,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon > IT_LIGHTNING)
+					if (sv_player->v.weapon > (float)IT_LIGHTNING)
 						sv_player->v.ammo_rockets = v;
 				}
 			}
@@ -2341,7 +2341,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon <= IT_LIGHTNING)
+					if (sv_player->v.weapon <= (float)IT_LIGHTNING)
 						sv_player->v.ammo_cells = v;
 				}
 			}
@@ -2358,7 +2358,7 @@ static void Host_Give_f (void)
 				if (val)
 				{
 					val->_float = v;
-					if (sv_player->v.weapon > IT_LIGHTNING)
+					if (sv_player->v.weapon > (float)IT_LIGHTNING)
 						sv_player->v.ammo_cells = v;
 				}
 			}
@@ -2370,19 +2370,19 @@ static void Host_Give_f (void)
 			{
 				sv_player->v.armortype = 0.8;
 				sv_player->v.armorvalue = v;
-				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR3;
+				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + (float)IT_ARMOR3;
 			}
 			else if (v > 100)
 			{
 				sv_player->v.armortype = 0.6;
 				sv_player->v.armorvalue = v;
-				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR2;
+				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + (float)IT_ARMOR2;
 			}
 			else if (v >= 0)
 			{
 				sv_player->v.armortype = 0.3;
 				sv_player->v.armorvalue = v;
-				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + IT_ARMOR1;
+				sv_player->v.items = sv_player->v.items - ((int)(sv_player->v.items) & (int)(IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3)) + (float)IT_ARMOR1;
 			}
 			break;
 			// johnfitz

@@ -540,7 +540,7 @@ void Sbar_DrawInventory (cb_context_t *cbx)
 
 	if (rogue)
 	{
-		if (cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN)
+		if (cl.stats[STAT_ACTIVEWEAPON] >= (int)RIT_LAVA_NAILGUN)
 			Sbar_DrawPicAlpha (cbx, 0, -24, rsb_invbar[0], scr_sbaralpha.value); // johnfitz -- scr_sbaralpha
 		else
 			Sbar_DrawPicAlpha (cbx, 0, -24, rsb_invbar[1], scr_sbaralpha.value); // johnfitz -- scr_sbaralpha
@@ -633,11 +633,11 @@ void Sbar_DrawInventory (cb_context_t *cbx)
 	if (rogue)
 	{
 		// check for powered up weapon.
-		if (cl.stats[STAT_ACTIVEWEAPON] >= RIT_LAVA_NAILGUN)
+		if (cl.stats[STAT_ACTIVEWEAPON] >= (int)RIT_LAVA_NAILGUN)
 		{
 			for (i = 0; i < 5; i++)
 			{
-				if (cl.stats[STAT_ACTIVEWEAPON] == (RIT_LAVA_NAILGUN << i))
+				if (cl.stats[STAT_ACTIVEWEAPON] == (int)(RIT_LAVA_NAILGUN << i))
 				{
 					Sbar_DrawPic (cbx, (i + 2) * 24, -16, rsb_weapons[i]);
 				}

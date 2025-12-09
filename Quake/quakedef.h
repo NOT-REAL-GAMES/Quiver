@@ -323,7 +323,7 @@ static inline int FindLastBitNonZero64 (const uint64_t mask)
 {
 	return 63 ^ __builtin_clzll (mask);
 }
-#define THREAD_LOCAL  _Thread_local
+#define THREAD_LOCAL  thread_local
 #define FORCE_INLINE  __attribute__ ((always_inline)) inline
 #define UNREACHABLE() __builtin_unreachable ()
 #endif

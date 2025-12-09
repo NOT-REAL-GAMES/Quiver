@@ -459,7 +459,7 @@ R_DrawEntitiesOnList
 alphapass 0 for opaque, 1 for transparent overwater, 2 for transpatent underwater
 =============
 */
-void R_DrawEntitiesOnList (cb_context_t *cbx, int alphapass, int chain, qboolean use_tasks) // johnfitz -- added parameter
+void R_DrawEntitiesOnList (cb_context_t *cbx, int alphapass, texchain_t chain, qboolean use_tasks) // johnfitz -- added parameter
 {
 	int i = -1;
 
@@ -960,7 +960,7 @@ static void R_DrawEntitiesTask (int index, void *use_tasks)
 	cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[SCBX_ENTITIES][index];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx); // johnfitz
-	R_DrawEntitiesOnList (cbx, false, index + chain_model_0, use_tasks ? true : false);
+	R_DrawEntitiesOnList (cbx, false, static_cast<texchain_t> (index + chain_model_0), use_tasks ? true : false);
 }
 
 /*
@@ -1031,10 +1031,12 @@ static void R_PrintStats (double time1)
 			(int)cl.entities[cl.viewentity].origin[2], (int)cl.viewangles[PITCH], (int)cl.viewangles[YAW], (int)cl.viewangles[ROLL]);
 	else if (r_speeds.value == 2)
 		Con_Printf (
-			"%6.3f ms  %4u/%4u wpoly %4u/%4u epoly %5.3g lmap %4u skypoly\n", (time2 - time1) * 1000.0, rs_brushpolys, rs_brushpasses, rs_aliaspolys,
-			rs_aliaspasses, lms, rs_skypolys);
+			"%6.3f ms  %4u/%4u wpoly %4u/%4u epoly %5.3g lmap %4u skypoly\n", (time2 - time1) * 1000.0,
+			Atomic_LoadUInt32 (&rs_brushpolys), Atomic_LoadUInt32 (&rs_brushpasses), Atomic_LoadUInt32 (&rs_aliaspolys),
+			Atomic_LoadUInt32 (&rs_aliaspasses), lms, Atomic_LoadUInt32 (&rs_skypolys));
 	else if (r_speeds.value)
-		Con_Printf ("%3i ms  %4i wpoly %4i epoly %5.3g lmap\n", (int)((time2 - time1) * 1000), rs_brushpolys, rs_aliaspolys, lms);
+		Con_Printf ("%3i ms  %4i wpoly %4i epoly %5.3g lmap\n", (int)((time2 - time1) * 1000),
+			Atomic_LoadUInt32 (&rs_brushpolys), Atomic_LoadUInt32 (&rs_aliaspolys), lms);
 	// johnfitz
 }
 

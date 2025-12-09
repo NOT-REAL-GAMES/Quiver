@@ -26,7 +26,7 @@ VORBISLIB = vorbis
 # build variables
 # ---------------------------
 CPUFLAGS =
-LDFLAGS = -m64 -mwindows -static-libgcc
+LDFLAGS = -m64 -mwindows -static-libgcc -static-libstdc++
 DFLAGS ?=
 CFLAGS ?= -m64 -D_WIN32_WINNT=0x0501
 

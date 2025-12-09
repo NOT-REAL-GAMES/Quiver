@@ -450,7 +450,7 @@ void Cvar_SetQuick (cvar_t *var, const char *value)
 
 		var->flags |= CVAR_CHANGED;
 		len = strlen (value);
-		if (len != strlen (var->string))
+		if (len != (int)strlen (var->string))
 		{
 			Mem_Free ((void *)var->string);
 			var->string = (char *)Mem_Alloc (len + 1);
@@ -656,7 +656,7 @@ cvar_t *Cvar_Create (const char *name, const char *value)
 	if (Cmd_Exists (name))
 		return NULL; // error! panic! oh noes!
 
-	newvar = Mem_Alloc (sizeof (cvar_t) + strlen (name) + 1);
+	newvar = static_cast<cvar_t *> (Mem_Alloc (sizeof (cvar_t) + strlen (name) + 1));
 	newvar->name = (char *)(newvar + 1);
 	strcpy ((char *)(newvar + 1), name);
 	newvar->flags = CVAR_USERDEFINED;

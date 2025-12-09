@@ -167,7 +167,7 @@ void *Mod_Extradata_CheckSkin (qmodel_t *mod, int skinnum)
 	if (mod->type != mod_alias)
 		return mod->extradata[PV_QUAKE1];
 
-	poseverttype_t valid_models_with_prio[PV_SIZE] = {0};
+	poseverttype_t valid_models_with_prio[PV_SIZE] = {};
 	int			   id_models_with_prio_size = 0;
 
 	// 1. fill valid_models_with_prio in the order (MD3, MD5, MDL) selecting non-null extradata
@@ -950,11 +950,11 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 		COM_StripExtension (mod->name + 5, mapname, sizeof (mapname));
 		q_snprintf (filename, sizeof (filename), "textures/%s/#%s", mapname, tx->name + 1); // this also replaces the '*' with a '#'
 		enum srcformat fmt = SRC_RGBA;
-		data = Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id);
+		data = static_cast<byte *>(Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id));
 		if (!data)
 		{
 			q_snprintf (filename, sizeof (filename), "textures/#%s", tx->name + 1);
-			data = Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id);
+			data = static_cast<byte *>(Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id));
 		}
 
 		// now load whatever we found
@@ -980,7 +980,7 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 	else // regular texture
 	{
 		// ericw -- fence textures
-		int extraflags;
+		unsigned int extraflags;
 
 		extraflags = 0;
 		if (tx->name[0] == '{')
@@ -991,11 +991,11 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 		COM_StripExtension (mod->name + 5, mapname, sizeof (mapname));
 		q_snprintf (filename, sizeof (filename), "textures/%s/%s", mapname, tx->name);
 		enum srcformat fmt = SRC_RGBA;
-		data = Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id);
+		data = static_cast<byte *>(Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id));
 		if (!data)
 		{
 			q_snprintf (filename, sizeof (filename), "textures/%s", tx->name);
-			data = Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id);
+			data = static_cast<byte *>(Image_LoadImage (filename, &fwidth, &fheight, &fmt, mod->path_id));
 		}
 
 		// now load whatever we found
@@ -1003,7 +1003,7 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 		{
 			char filename2[MAX_OSPATH];
 
-			tx->gltexture = TexMgr_LoadImage (mod, filename, fwidth, fheight, fmt, data, filename, 0, TEXPREF_MIPMAP | extraflags);
+			tx->gltexture = TexMgr_LoadImage (mod, filename, fwidth, fheight, fmt, data, filename, 0, static_cast<textureflags_t>(TEXPREF_MIPMAP | extraflags));
 			Mem_Free (data);
 
 			// now try to load glow/luma image from the same place
@@ -1016,7 +1016,7 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 			}
 
 			if (data)
-				tx->fullbright = TexMgr_LoadImage (mod, filename2, fwidth, fheight, fmt, data, filename2, 0, TEXPREF_MIPMAP | extraflags);
+				tx->fullbright = TexMgr_LoadImage (mod, filename2, fwidth, fheight, fmt, data, filename2, 0, static_cast<textureflags_t>(TEXPREF_MIPMAP | extraflags));
 		}
 		else // use the texture from the bsp file
 		{
@@ -1035,16 +1035,16 @@ static void Mod_LoadTextureTask (int i, qmodel_t **ppmod)
 			{
 				tx->gltexture = TexMgr_LoadImage (
 					mod, texturename, tx->width, tx->height, fmt, (byte *)(tx + 1), tx->source_file, tx->source_offset,
-					TEXPREF_MIPMAP | TEXPREF_NOBRIGHT | extraflags);
+					static_cast<textureflags_t>(TEXPREF_MIPMAP | TEXPREF_NOBRIGHT | extraflags));
 				q_snprintf (texturename, sizeof (texturename), "%s:%s_glow", mod->name, tx->name);
 				tx->fullbright = TexMgr_LoadImage (
 					mod, texturename, tx->width, tx->height, fmt, (byte *)(tx + 1), tx->source_file, tx->source_offset,
-					TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT | extraflags);
+					static_cast<textureflags_t>(TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT | extraflags));
 			}
 			else
 			{
 				tx->gltexture = TexMgr_LoadImage (
-					mod, texturename, tx->width, tx->height, fmt, (byte *)(tx + 1), tx->source_file, tx->source_offset, TEXPREF_MIPMAP | extraflags);
+					mod, texturename, tx->width, tx->height, fmt, (byte *)(tx + 1), tx->source_file, tx->source_offset, static_cast<textureflags_t>(TEXPREF_MIPMAP | extraflags));
 			}
 		}
 	}
@@ -1099,7 +1099,7 @@ static void Mod_LoadTextures (qmodel_t *mod, byte *mod_base, lump_t *l)
 
 	for (i = 0; i < nummiptex; i++)
 	{
-		dataofs = ReadLongUnaligned (m + offsetof (dmiptexlump_t, dataofs[i]));
+		dataofs = ReadLongUnaligned (m + OFFSETOF_ARRAY (dmiptexlump_t, dataofs, i));
 		if (dataofs == -1)
 			continue;
 		memcpy (&mt, m + dataofs, sizeof (miptex_t));
@@ -1180,12 +1180,12 @@ static void Mod_LoadTextures (qmodel_t *mod, byte *mod_base, lump_t *l)
 
 		if (mod->bspversion != BSPVERSION_QUAKE64)
 		{
-			memcpy (tx + 1, pixels_p, pixels);
+			memcpy (reinterpret_cast<void *>(tx + 1), pixels_p, pixels);
 		}
 		else
 		{ // Q64 bsp
 			tx->shift = ReadLongUnaligned (m + dataofs + offsetof (miptex64_t, shift));
-			memcpy (tx + 1, m + dataofs + sizeof (miptex64_t), pixels);
+			memcpy (reinterpret_cast<void *>(tx + 1), m + dataofs + sizeof (miptex64_t), pixels);
 		}
 	}
 
@@ -1596,8 +1596,8 @@ static void Mod_LoadTexinfo (qmodel_t *mod, byte *mod_base, lump_t *l)
 	{
 		for (j = 0; j < 4; j++)
 		{
-			out->vecs[0][j] = ReadFloatUnaligned (in + offsetof (texinfo_t, vecs[0][j]));
-			out->vecs[1][j] = ReadFloatUnaligned (in + offsetof (texinfo_t, vecs[1][j]));
+			out->vecs[0][j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (texinfo_t, vecs[0], j));
+			out->vecs[1][j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (texinfo_t, vecs[1], j));
 		}
 
 		miptex = ReadLongUnaligned (in + offsetof (texinfo_t, miptex));
@@ -1796,7 +1796,7 @@ static void Mod_LoadFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bs
 			texinfon = ReadLongUnaligned (inl + offsetof (dlface_t, texinfo));
 			for (i = 0; i < MAXLIGHTMAPS; i++)
 			{
-				out->styles[i] = *(inl + offsetof (dlface_t, styles[i]));
+				out->styles[i] = *(inl + OFFSETOF_ARRAY (dlface_t, styles, i));
 				if (out->styles[i] >= MAX_LIGHTSTYLES && out->styles[i] != 255)
 				{
 					Con_Warning ("Invalid lightstyle %d\n", out->styles[i]);
@@ -1818,7 +1818,7 @@ static void Mod_LoadFaces (qmodel_t *mod, byte *mod_base, lump_t *l, qboolean bs
 			texinfon = ReadShortUnaligned (ins + offsetof (dsface_t, texinfo));
 			for (i = 0; i < MAXLIGHTMAPS; i++)
 			{
-				out->styles[i] = *(ins + offsetof (dsface_t, styles[i]));
+				out->styles[i] = *(ins + OFFSETOF_ARRAY (dsface_t, styles, i));
 				if (out->styles[i] >= MAX_LIGHTSTYLES && out->styles[i] != 255)
 				{
 					Con_Warning ("Invalid lightstyle %d\n", out->styles[i]);
@@ -1955,8 +1955,8 @@ static void Mod_LoadNodes_S (qmodel_t *mod, byte *mod_base, lump_t *l)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadShortUnaligned (in + offsetof (dsnode_t, mins[j]));
-			out->minmaxs[3 + j] = ReadShortUnaligned (in + offsetof (dsnode_t, maxs[j]));
+			out->minmaxs[j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dsnode_t, mins, j));
+			out->minmaxs[3 + j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dsnode_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dsnode_t, planenum));
@@ -1968,7 +1968,7 @@ static void Mod_LoadNodes_S (qmodel_t *mod, byte *mod_base, lump_t *l)
 		for (j = 0; j < 2; j++)
 		{
 			// johnfitz -- hack to handle nodes > 32k, adapted from darkplaces
-			p = (unsigned short)ReadShortUnaligned (in + offsetof (dsnode_t, children[j]));
+			p = (unsigned short)ReadShortUnaligned (in + OFFSETOF_ARRAY (dsnode_t, children, j));
 			if (p < count)
 				out->children[j] = mod->nodes + p;
 			else
@@ -2007,8 +2007,8 @@ static void Mod_LoadNodes_L1 (qmodel_t *mod, byte *mod_base, lump_t *l)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadShortUnaligned (in + offsetof (dl1node_t, mins[j]));
-			out->minmaxs[3 + j] = ReadShortUnaligned (in + offsetof (dl1node_t, maxs[j]));
+			out->minmaxs[j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dl1node_t, mins, j));
+			out->minmaxs[3 + j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dl1node_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dl1node_t, planenum));
@@ -2020,7 +2020,7 @@ static void Mod_LoadNodes_L1 (qmodel_t *mod, byte *mod_base, lump_t *l)
 		for (j = 0; j < 2; j++)
 		{
 			// johnfitz -- hack to handle nodes > 32k, adapted from darkplaces
-			p = ReadLongUnaligned (in + offsetof (dl1node_t, children[j]));
+			p = ReadLongUnaligned (in + OFFSETOF_ARRAY (dl1node_t, children, j));
 			if (p >= 0 && p < count)
 				out->children[j] = mod->nodes + p;
 			else
@@ -2059,8 +2059,8 @@ static void Mod_LoadNodes_L2 (qmodel_t *mod, byte *mod_base, lump_t *l)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadFloatUnaligned (in + offsetof (dl2node_t, mins[j]));
-			out->minmaxs[3 + j] = ReadFloatUnaligned (in + offsetof (dl2node_t, maxs[j]));
+			out->minmaxs[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dl2node_t, mins, j));
+			out->minmaxs[3 + j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dl2node_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dl2node_t, planenum));
@@ -2072,7 +2072,7 @@ static void Mod_LoadNodes_L2 (qmodel_t *mod, byte *mod_base, lump_t *l)
 		for (j = 0; j < 2; j++)
 		{
 			// johnfitz -- hack to handle nodes > 32k, adapted from darkplaces
-			p = ReadLongUnaligned (in + offsetof (dl2node_t, children[j]));
+			p = ReadLongUnaligned (in + OFFSETOF_ARRAY (dl2node_t, children, j));
 			if (p > 0 && p < count)
 				out->children[j] = mod->nodes + p;
 			else
@@ -2123,8 +2123,8 @@ static void Mod_ProcessLeafs_S (qmodel_t *mod, byte *in, int filelen)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadShortUnaligned (in + offsetof (dsleaf_t, mins[j]));
-			out->minmaxs[3 + j] = ReadShortUnaligned (in + offsetof (dsleaf_t, maxs[j]));
+			out->minmaxs[j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dsleaf_t, mins, j));
+			out->minmaxs[3 + j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dsleaf_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dsleaf_t, contents));
@@ -2142,7 +2142,7 @@ static void Mod_ProcessLeafs_S (qmodel_t *mod, byte *in, int filelen)
 		out->efrags = NULL;
 
 		for (j = 0; j < 4; j++)
-			out->ambient_sound_level[j] = *(in + offsetof (dsleaf_t, ambient_level[j]));
+			out->ambient_sound_level[j] = *(in + OFFSETOF_ARRAY (dsleaf_t, ambient_level, j));
 
 		// johnfitz -- removed code to mark surfaces as SURF_UNDERWATER
 	}
@@ -2167,8 +2167,8 @@ static void Mod_ProcessLeafs_L1 (qmodel_t *mod, byte *in, int filelen)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadShortUnaligned (in + offsetof (dl1leaf_t, mins[j]));
-			out->minmaxs[3 + j] = ReadShortUnaligned (in + offsetof (dl1leaf_t, maxs[j]));
+			out->minmaxs[j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dl1leaf_t, mins, j));
+			out->minmaxs[3 + j] = ReadShortUnaligned (in + OFFSETOF_ARRAY (dl1leaf_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dl1leaf_t, contents));
@@ -2185,7 +2185,7 @@ static void Mod_ProcessLeafs_L1 (qmodel_t *mod, byte *in, int filelen)
 		out->efrags = NULL;
 
 		for (j = 0; j < 4; j++)
-			out->ambient_sound_level[j] = *(in + offsetof (dl1leaf_t, ambient_level[j]));
+			out->ambient_sound_level[j] = *(in + OFFSETOF_ARRAY (dl1leaf_t, ambient_level, j));
 
 		// johnfitz -- removed code to mark surfaces as SURF_UNDERWATER
 	}
@@ -2210,8 +2210,8 @@ static void Mod_ProcessLeafs_L2 (qmodel_t *mod, byte *in, int filelen)
 	{
 		for (j = 0; j < 3; j++)
 		{
-			out->minmaxs[j] = ReadFloatUnaligned (in + offsetof (dl2leaf_t, mins[j]));
-			out->minmaxs[3 + j] = ReadFloatUnaligned (in + offsetof (dl2leaf_t, maxs[j]));
+			out->minmaxs[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dl2leaf_t, mins, j));
+			out->minmaxs[3 + j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dl2leaf_t, maxs, j));
 		}
 
 		p = ReadLongUnaligned (in + offsetof (dl2leaf_t, contents));
@@ -2228,7 +2228,7 @@ static void Mod_ProcessLeafs_L2 (qmodel_t *mod, byte *in, int filelen)
 		out->efrags = NULL;
 
 		for (j = 0; j < 4; j++)
-			out->ambient_sound_level[j] = *(in + offsetof (dl2leaf_t, ambient_level[j]));
+			out->ambient_sound_level[j] = *(in + OFFSETOF_ARRAY (dl2leaf_t, ambient_level, j));
 
 		// johnfitz -- removed code to mark surfaces as SURF_UNDERWATER
 	}
@@ -2241,7 +2241,7 @@ Mod_LoadLeafs
 */
 static void Mod_LoadLeafs (qmodel_t *mod, byte *mod_base, lump_t *l, int bsp2)
 {
-	void *in = (void *)(mod_base + l->fileofs);
+	byte *in = mod_base + l->fileofs;
 
 	if (bsp2 == 2)
 		Mod_ProcessLeafs_L2 (mod, in, l->filelen);
@@ -2434,8 +2434,8 @@ static void Mod_LoadClipnodes (qmodel_t *mod, byte *mod_base, lump_t *l, qboolea
 				Host_Error ("Mod_LoadClipnodes: planenum out of bounds");
 			// johnfitz
 
-			out->children[0] = ReadLongUnaligned (inl + offsetof (dlclipnode_t, children[0]));
-			out->children[1] = ReadLongUnaligned (inl + offsetof (dlclipnode_t, children[1]));
+			out->children[0] = ReadLongUnaligned (inl + OFFSETOF_ARRAY (dlclipnode_t, children, 0));
+			out->children[1] = ReadLongUnaligned (inl + OFFSETOF_ARRAY (dlclipnode_t, children, 1));
 			// Spike: FIXME: bounds check
 		}
 	}
@@ -2451,8 +2451,8 @@ static void Mod_LoadClipnodes (qmodel_t *mod, byte *mod_base, lump_t *l, qboolea
 			// johnfitz
 
 			// johnfitz -- support clipnodes > 32k
-			out->children[0] = (unsigned short)ReadShortUnaligned (ins + offsetof (dsclipnode_t, children[0]));
-			out->children[1] = (unsigned short)ReadShortUnaligned (ins + offsetof (dsclipnode_t, children[1]));
+			out->children[0] = (unsigned short)ReadShortUnaligned (ins + OFFSETOF_ARRAY (dsclipnode_t, children, 0));
+			out->children[1] = (unsigned short)ReadShortUnaligned (ins + OFFSETOF_ARRAY (dsclipnode_t, children, 1));
 
 			if (out->children[0] >= count)
 				out->children[0] -= 65536;
@@ -2613,7 +2613,7 @@ static void Mod_LoadPlanes (qmodel_t *mod, byte *mod_base, lump_t *l)
 		bits = 0;
 		for (j = 0; j < 3; j++)
 		{
-			out->normal[j] = ReadFloatUnaligned (in + offsetof (dplane_t, normal[j]));
+			out->normal[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dplane_t, normal, j));
 			if (out->normal[j] < 0)
 				bits |= 1 << j;
 		}
@@ -2666,13 +2666,13 @@ static void Mod_LoadSubmodels (qmodel_t *mod, byte *mod_base, lump_t *l)
 	{
 		for (j = 0; j < 3; j++)
 		{ // spread the mins / maxs by a pixel
-			out->mins[j] = ReadFloatUnaligned (in + offsetof (dmodel_t, mins[j])) - 1;
-			out->maxs[j] = ReadFloatUnaligned (in + offsetof (dmodel_t, maxs[j])) + 1;
-			out->origin[j] = ReadFloatUnaligned (in + offsetof (dmodel_t, origin[j]));
+			out->mins[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dmodel_t, mins, j)) - 1;
+			out->maxs[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dmodel_t, maxs, j)) + 1;
+			out->origin[j] = ReadFloatUnaligned (in + OFFSETOF_ARRAY (dmodel_t, origin, j));
 		}
 		for (j = 0; j < MAX_MAP_HULLS; j++)
 		{
-			out->headnode[j] = ReadLongUnaligned (in + offsetof (dmodel_t, headnode[j]));
+			out->headnode[j] = ReadLongUnaligned (in + OFFSETOF_ARRAY (dmodel_t, headnode, j));
 		}
 		out->visleafs = ReadLongUnaligned (in + offsetof (dmodel_t, visleafs));
 		out->firstface = ReadLongUnaligned (in + offsetof (dmodel_t, firstface));
@@ -2827,7 +2827,7 @@ static byte *Mod_LoadVisibilityExternal (FILE *f)
 static void Mod_LoadLeafsExternal (qmodel_t *mod, FILE *f)
 {
 	int	  filelen;
-	void *in;
+	byte *in;
 
 	filelen = 0;
 	if (fread (&filelen, 1, 4, f) != 4)
@@ -2836,10 +2836,10 @@ static void Mod_LoadLeafsExternal (qmodel_t *mod, FILE *f)
 	if (filelen <= 0)
 		return;
 	Con_DPrintf ("...%d bytes leaf data\n", filelen);
-	in = Mem_Alloc (filelen);
+	in = static_cast<byte *> (Mem_Alloc (filelen));
 	if (fread (in, filelen, 1, f) != 1)
 		return;
-	Mod_ProcessLeafs_S (mod, (byte *)in, filelen);
+	Mod_ProcessLeafs_S (mod, in, filelen);
 }
 
 /*
@@ -3372,7 +3372,7 @@ static void Mod_LoadSkinTask (int i, load_skin_task_args_t *args)
 		{
 			unsigned int   fwidth = 0;
 			unsigned int   fheight = 0;
-			void		  *data = NULL;
+			byte		  *data = NULL;
 			// unsupported format by default
 			enum srcformat fmt = SRC_INDEXED;
 
@@ -3426,16 +3426,16 @@ static void Mod_LoadSkinTask (int i, load_skin_task_args_t *args)
 			if (Mod_CheckFullbrights (skin, size))
 			{
 				pheader->gltextures[i][0] = TexMgr_LoadImage (
-					mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, texflags | TEXPREF_MIPMAP | TEXPREF_NOBRIGHT);
+					mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP | TEXPREF_NOBRIGHT));
 				q_snprintf (fbr_mask_name, sizeof (fbr_mask_name), "%s:frame%i_glow", mod->name, i);
 				pheader->fbtextures[i][0] = TexMgr_LoadImage (
 					mod, fbr_mask_name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset,
-					texflags | TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT);
+					static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT));
 			}
 			else
 			{
 				pheader->gltextures[i][0] =
-					TexMgr_LoadImage (mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, texflags | TEXPREF_MIPMAP);
+					TexMgr_LoadImage (mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP));
 				pheader->fbtextures[i][0] = NULL;
 			}
 		}
@@ -3468,16 +3468,16 @@ static void Mod_LoadSkinTask (int i, load_skin_task_args_t *args)
 			if (Mod_CheckFullbrights (skin, size))
 			{
 				pheader->gltextures[i][j & 3] = TexMgr_LoadImage (
-					mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, texflags | TEXPREF_MIPMAP | TEXPREF_NOBRIGHT);
+					mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP | TEXPREF_NOBRIGHT));
 				q_snprintf (fbr_mask_name, sizeof (fbr_mask_name), "%s:frame%i_%i_glow", mod->name, i, j);
 				pheader->fbtextures[i][j & 3] = TexMgr_LoadImage (
 					mod, fbr_mask_name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset,
-					texflags | TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT);
+					static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP | TEXPREF_FULLBRIGHT));
 			}
 			else
 			{
 				pheader->gltextures[i][j & 3] =
-					TexMgr_LoadImage (mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, texflags | TEXPREF_MIPMAP);
+					TexMgr_LoadImage (mod, name, pheader->skinwidth, pheader->skinheight, SRC_INDEXED, skin, mod->name, offset, static_cast<textureflags_t>(texflags | TEXPREF_MIPMAP));
 				pheader->fbtextures[i][j & 3] = NULL;
 			}
 			// johnfitz
@@ -3726,7 +3726,7 @@ static void check_tris_size (size_t numtris)
 	{
 		size_t new_trinagles_size = q_max (triangles_size * 2, numtris);
 
-		triangles = Mem_Realloc (triangles, new_trinagles_size * sizeof (mtriangle_t));
+		triangles = static_cast<mtriangle_t *> (Mem_Realloc (triangles, new_trinagles_size * sizeof (mtriangle_t)));
 
 		triangles_size = new_trinagles_size;
 	}
@@ -3805,16 +3805,16 @@ static void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 
 	for (i = 0; i < 3; i++)
 	{
-		pheader->scale[i] = ReadFloatUnaligned (mod_base + offsetof (mdl_t, scale[i]));
-		pheader->scale_origin[i] = ReadFloatUnaligned (mod_base + offsetof (mdl_t, scale_origin[i]));
-		pheader->eyeposition[i] = ReadFloatUnaligned (mod_base + offsetof (mdl_t, eyeposition[i]));
+		pheader->scale[i] = ReadFloatUnaligned (mod_base + OFFSETOF_ARRAY (mdl_t, scale, i));
+		pheader->scale_origin[i] = ReadFloatUnaligned (mod_base + OFFSETOF_ARRAY (mdl_t, scale_origin, i));
+		pheader->eyeposition[i] = ReadFloatUnaligned (mod_base + OFFSETOF_ARRAY (mdl_t, eyeposition, i));
 	}
 
 	//
 	// load the skins
 	//
 	pskintype = mod_base + sizeof (mdl_t);
-	pskintype = Mod_LoadAllSkins (pheader, mod, mod_base, pheader->numskins, pskintype);
+	pskintype = static_cast<byte *>(Mod_LoadAllSkins (pheader, mod, mod_base, pheader->numskins, pskintype));
 
 	//
 	// load base s and t vertices
@@ -3840,7 +3840,7 @@ static void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 
 		for (j = 0; j < 3; j++)
 		{
-			triangles[i].vertindex[j] = ReadLongUnaligned (pintriangles + offsetof (dtriangle_t, vertindex[j]));
+			triangles[i].vertindex[j] = ReadLongUnaligned (pintriangles + OFFSETOF_ARRAY (dtriangle_t, vertindex, j));
 		}
 		pintriangles += sizeof (dtriangle_t);
 	}
@@ -3856,9 +3856,9 @@ static void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 		aliasframetype_t frametype;
 		frametype = (aliasframetype_t)ReadLongUnaligned (pframetype + offsetof (daliasframetype_t, type));
 		if (frametype == ALIAS_SINGLE)
-			pframetype = Mod_LoadAliasFrame (pframetype + sizeof (daliasframetype_t), pheader, i);
+			pframetype = static_cast<byte *>(Mod_LoadAliasFrame (pframetype + sizeof (daliasframetype_t), pheader, i));
 		else
-			pframetype = Mod_LoadAliasGroup (pframetype + sizeof (daliasframetype_t), pheader, i);
+			pframetype = static_cast<byte *>(Mod_LoadAliasGroup (pframetype + sizeof (daliasframetype_t), pheader, i));
 	}
 
 	pheader->numposes = posenum;
@@ -4105,7 +4105,7 @@ static qboolean MD5_ParseCheck (const char *s, const void **buffer)
 {
 	if (strcmp (com_token, s))
 		return false;
-	*buffer = COM_Parse (*buffer);
+	*buffer = COM_Parse (static_cast<const char *>(*buffer));
 	return true;
 }
 
@@ -4117,7 +4117,7 @@ MD5_ParseUInt
 static size_t MD5_ParseUInt (const void **buffer)
 {
 	size_t i = strtoull (com_token, NULL, 0);
-	*buffer = COM_Parse (*buffer);
+	*buffer = COM_Parse (static_cast<const char *>(*buffer));
 	return i;
 }
 
@@ -4129,7 +4129,7 @@ MD5_ParseSInt
 static long MD5_ParseSInt (const void **buffer)
 {
 	long i = strtol (com_token, NULL, 0);
-	*buffer = COM_Parse (*buffer);
+	*buffer = COM_Parse (static_cast<const char *>(*buffer));
 	return i;
 }
 
@@ -4141,7 +4141,7 @@ MD5_ParseFloat
 static double MD5_ParseFloat (const void **buffer)
 {
 	double i = strtod (com_token, NULL);
-	*buffer = COM_Parse (*buffer);
+	*buffer = COM_Parse (static_cast<const char *>(*buffer));
 	return i;
 }
 
@@ -4150,13 +4150,13 @@ static double MD5_ParseFloat (const void **buffer)
 	{                                                                          \
 		if (strcmp (com_token, s))                                             \
 			Sys_Error ("Mod_LoadMD5MeshModel(%s): Expected \"%s\"", fname, s); \
-		buffer = COM_Parse (buffer);                                           \
+		buffer = COM_Parse (static_cast<const char *>(buffer));                \
 	} while (0)
 #define MD5UINT()	MD5_ParseUInt (&buffer)
 #define MD5SINT()	MD5_ParseSInt (&buffer)
 #define MD5FLOAT()	MD5_ParseFloat (&buffer)
 #define MD5CHECK(s) MD5_ParseCheck (s, &buffer)
-#define MD5IGNORE() buffer = COM_Parse (buffer)
+#define MD5IGNORE() buffer = COM_Parse (static_cast<const char *>(buffer))
 
 /*
 ================
@@ -4436,7 +4436,7 @@ static unsigned int MD5_HackyModelFlags (const char *name)
 	f = (mdl_t *)COM_LoadFile (oldmodel, NULL);
 	if (f)
 	{
-		if (com_filesize >= sizeof (*f) && LittleLong (f->ident) == IDPOLYHEADER && LittleLong (f->version) == ALIAS_VERSION)
+		if (com_filesize >= (qfileofs_t)sizeof (*f) && LittleLong (f->ident) == IDPOLYHEADER && LittleLong (f->version) == ALIAS_VERSION)
 			ret = f->flags;
 		Mem_Free (f);
 	}
@@ -4475,11 +4475,11 @@ static void MD5Anim_Begin (md5animctx_t *ctx, const char *fname)
 
 	if (ctx->animfile)
 	{
-		const void *buffer = COM_Parse (ctx->animfile);
+		const void *buffer = COM_Parse (static_cast<const char *>(ctx->animfile));
 		MD5EXPECT ("MD5Version");
 		MD5EXPECT ("10");
 		if (MD5CHECK ("commandline"))
-			buffer = COM_Parse (buffer);
+			buffer = COM_Parse (static_cast<const char *>(buffer));
 		MD5EXPECT ("numFrames");
 		ctx->numposes = MD5UINT ();
 		MD5EXPECT ("numJoints");
@@ -4498,17 +4498,19 @@ static void MD5Anim_Begin (md5animctx_t *ctx, const char *fname)
 MD5Anim_Load
 ================
 */
+typedef struct md5anim_ab_s
+{
+	unsigned int flags, offset;
+} md5anim_ab_t;
+
 static void MD5Anim_Load (md5animctx_t *ctx, jointinfo_t *joints, size_t numjoints)
 {
 	const char *fname = ctx->fname;
-	struct
-	{
-		unsigned int flags, offset;
-	}			*ab;
+	md5anim_ab_t *ab;
 	size_t		 rawcount;
 	float		*raw, *r;
 	jointpose_t *outposes;
-	const void	*buffer = COM_Parse (ctx->buffer);
+	const void	*buffer = COM_Parse (static_cast<const char *>(ctx->buffer));
 	size_t		 j;
 
 	if (!buffer)
@@ -4523,10 +4525,10 @@ static void MD5Anim_Load (md5animctx_t *ctx, jointinfo_t *joints, size_t numjoin
 	if (ctx->numjoints != numjoints)
 		Sys_Error ("%s has incorrect joint count", fname);
 
-	raw = Mem_Alloc (sizeof (*raw) * (rawcount + 6));
-	ab = Mem_Alloc (sizeof (*ab) * ctx->numjoints);
+	raw = static_cast<float *> (Mem_Alloc (sizeof (*raw) * (rawcount + 6)));
+	ab = static_cast<md5anim_ab_t *> (Mem_Alloc (sizeof (*ab) * ctx->numjoints));
 
-	ctx->posedata = outposes = Mem_Alloc (sizeof (*outposes) * ctx->numjoints * ctx->numposes);
+	ctx->posedata = outposes = static_cast<jointpose_t *> (Mem_Alloc (sizeof (*outposes) * ctx->numjoints * ctx->numposes));
 
 	MD5EXPECT ("hierarchy");
 	MD5EXPECT ("{");
@@ -4535,7 +4537,7 @@ static void MD5Anim_Load (md5animctx_t *ctx, jointinfo_t *joints, size_t numjoin
 		// validate stuff
 		if (strcmp (joints[j].name, com_token))
 			Sys_Error ("%s: joint was renamed", fname);
-		buffer = COM_Parse (buffer);
+		buffer = COM_Parse (static_cast<const char *>(buffer));
 		if (joints[j].parent != MD5SINT ())
 			Sys_Error ("%s: joint has wrong parent", fname);
 		// new info
@@ -4664,7 +4666,7 @@ static void Mod_LoadMDXSkinTask (int i, load_skin_MDX_task_args_t *args)
 
 	unsigned int fwidth, fheight;
 
-	void *data;
+	byte *data;
 	char  texname[MAX_QPATH] = {0};
 	q_snprintf (texname, sizeof (texname), "%s", basic_texname);
 
@@ -4675,12 +4677,12 @@ static void Mod_LoadMDXSkinTask (int i, load_skin_MDX_task_args_t *args)
 	if (!data)
 	{
 		q_snprintf (texname, sizeof (texname), "progs/%s", basic_texname);
-		data = Image_LoadImage (texname, (int *)&fwidth, (int *)&fheight, &fmt, mod->path_id);
+		data = static_cast<byte *>(Image_LoadImage (texname, (int *)&fwidth, (int *)&fheight, &fmt, mod->path_id));
 	}
 	if (!data)
 	{
 		q_snprintf (texname, sizeof (texname), "textures/%s", basic_texname);
-		data = Image_LoadImage (texname, (int *)&fwidth, (int *)&fheight, &fmt, mod->path_id);
+		data = static_cast<byte *>(Image_LoadImage (texname, (int *)&fwidth, (int *)&fheight, &fmt, mod->path_id));
 	}
 
 	if (data) // load external image
@@ -4767,9 +4769,9 @@ static size_t Mod_LoadMDXSkinsByIndex (
 	int effective_num_skins = 0;
 
 	// Populate basic texture names:
-	for (int skin_index = 0; !load_finished && skin_index < numskins; skin_index++)
+	for (size_t skin_index = 0; !load_finished && skin_index < numskins; skin_index++)
 	{
-		for (int f = 0; f < countof (surf->gltextures[0]); f++)
+		for (size_t f = 0; f < countof (surf->gltextures[0]); f++)
 		{
 			// Generate basic skin name:
 			skin_pattern_func (mod, surf, surf_defs, surf_index, numsurfaces, skin_index, f, basename, skin_table[skin_index].framegroups[f].c_str);
@@ -4787,7 +4789,10 @@ static size_t Mod_LoadMDXSkinsByIndex (
 	}
 
 	// load textures: (concurrently)
-	load_skin_MDX_task_args_t args = {.mod = mod, .surf = surf, .skins = skin_table};
+	load_skin_MDX_task_args_t args = {};
+	args.mod = mod;
+	args.surf = surf;
+	args.skins = skin_table;
 
 	if (!Tasks_IsWorker () && effective_num_skins > 1)
 	{
@@ -4808,7 +4813,7 @@ static size_t Mod_LoadMDXSkinsByIndex (
 	for (int skin_index = 0; skin_index < effective_num_skins; skin_index++)
 	{
 		int frame_count = 0;
-		for (int framegroup_index = 0; framegroup_index < skin_table[skin_index].numframegroups; framegroup_index++)
+		for (size_t framegroup_index = 0; framegroup_index < skin_table[skin_index].numframegroups; framegroup_index++)
 		{
 			if (surf->gltextures[skin_index][framegroup_index])
 				frame_count++;
@@ -4868,12 +4873,12 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 
 	md5animctx_t anim = {NULL};
 
-	buffer = COM_Parse (buffer);
+	buffer = COM_Parse (static_cast<const char *>(buffer));
 
 	MD5EXPECT ("MD5Version");
 	MD5EXPECT (MD5_VERSION);
 	if (MD5CHECK ("commandline"))
-		buffer = COM_Parse (buffer);
+		buffer = COM_Parse (static_cast<const char *>(buffer));
 	MD5EXPECT ("numJoints");
 	numjoints = MD5UINT ();
 	MD5EXPECT ("numMeshes");
@@ -4887,7 +4892,7 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 	if (strcmp (com_token, "joints"))
 		Sys_Error ("Mod_LoadMD5MeshModel(%s): Expected \"%s\"", fname, "joints");
 	MD5Anim_Begin (&anim, fname);
-	buffer = COM_Parse (buffer);
+	buffer = COM_Parse (static_cast<const char *>(buffer));
 
 	hdrsize = sizeof (*outhdr) - sizeof (outhdr->frames);
 	hdrsize += sizeof (outhdr->frames) * anim.numposes;
@@ -4907,7 +4912,7 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 		static vec3_t scale = {1, 1, 1};
 		vec4_t		  quat;
 		q_strlcpy (joint_infos[j].name, com_token, sizeof (joint_infos[j].name));
-		buffer = COM_Parse (buffer);
+		buffer = COM_Parse (static_cast<const char *>(buffer));
 		joint_infos[j].parent = MD5SINT ();
 		if (joint_infos[j].parent < -1 && joint_infos[j].parent >= (ssize_t)numjoints)
 			Sys_Error ("joint index out of bounds");
@@ -4933,7 +4938,7 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 	if (strcmp (com_token, "}"))
 		Sys_Error ("Mod_LoadMD5MeshModel(%s): Expected \"%s\"", fname, "}");
 	MD5Anim_Load (&anim, joint_infos, numjoints);
-	buffer = COM_Parse (buffer);
+	buffer = COM_Parse (static_cast<const char *>(buffer));
 
 	// 2. Compute inverted joints:
 	TEMP_ALLOC_ZEROED (jointpose_t, inverted_joints, anim.numjoints * anim.numposes);
@@ -4949,9 +4954,13 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 				memcpy (concat_joints[joint_index].mat, in_pose[joint_index].mat, sizeof (jointpose_t));
 			else
 				R_ConcatTransforms (
-					(void *)concat_joints[joint_infos[joint_index].parent].mat, (void *)in_pose[joint_index].mat, (void *)concat_joints[joint_index].mat);
+					reinterpret_cast<float (*)[4]>(concat_joints[joint_infos[joint_index].parent].mat),
+					reinterpret_cast<float (*)[4]>(const_cast<float *>(in_pose[joint_index].mat)),
+					reinterpret_cast<float (*)[4]>(concat_joints[joint_index].mat));
 			// and finally invert it
-			R_ConcatTransforms ((void *)concat_joints[joint_index].mat, (void *)joint_infos[joint_index].inverse.mat, (void *)out_pose[joint_index].mat);
+			R_ConcatTransforms (reinterpret_cast<float (*)[4]>(concat_joints[joint_index].mat),
+					reinterpret_cast<float (*)[4]>(joint_infos[joint_index].inverse.mat),
+					reinterpret_cast<float (*)[4]>(const_cast<float *>(out_pose[joint_index].mat)));
 		}
 	}
 	Mem_Free (anim.posedata);
@@ -4963,7 +4972,7 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 	size_t	   total_numverts = 0;
 	md5vert_t *total_vertexes = NULL;
 
-	for (int m = 0; m < nummeshes; m++)
+	for (size_t m = 0; m < nummeshes; m++)
 	{
 		MD5EXPECT ("mesh");
 		MD5EXPECT ("{");
@@ -5002,13 +5011,13 @@ static void Mod_LoadMD5MeshModel (qmodel_t *mod, const void *buffer)
 		surf->numskins = (int)Mod_LoadMDXSkinsByIndex (mod, surf, NULL, m, nummeshes, MAX_SKINS, (const char *)com_token, MD5_Skin_Name);
 
 		if (surf->numskins == 0)
-			Con_Warning ("MD5: %s, no skins found for surf '%s' (%d)\n", fname, (const char *)com_token, m);
+			Con_Warning ("MD5: %s, no skins found for surf '%s' (%zu)\n", fname, (const char *)com_token, m);
 
 		// MD5 have only 1 surface pose, meaning 1 vertex-like "pose" (not to ne mixed with md5animctx_t anim poses !)
 		//  because it uses skeletal animation instead of displaying/interpolating different frames/poses of vertices
 		surf->numposes = 1;
 
-		buffer = COM_Parse (buffer);
+		buffer = COM_Parse (static_cast<const char *>(buffer));
 		MD5EXPECT ("numverts");
 		surf->numverts_vbo = surf->numverts = MD5UINT ();
 
@@ -5177,9 +5186,9 @@ static void Mod_AppendMD3SkinFile (char *file_contents, int expected_skin_index,
 		// 1) New format    : if expected_skin_index < 0 a line lists all skins for a given framegroup in one go.
 		// 2) Legacy format : else if expected_skin_index >= 0 we only expect 1 skin name per-line, whose index
 		// is expected_skin_index.
-		for (int field_index = 1; field_index < nb_fields; field_index++)
+		for (size_t field_index = 1; field_index < nb_fields; field_index++)
 		{
-			int skin_index = ((expected_skin_index < 0) ? field_index - 1 : expected_skin_index);
+			int skin_index = ((expected_skin_index < 0) ? (int)field_index - 1 : expected_skin_index);
 
 			char *skin_name = q_strtrim (fields[field_index]);
 
@@ -5298,13 +5307,13 @@ static void Mod_LoadMD3SkinDefinitions (qmodel_t *mod, all_surfaces_def_t *surf_
 //
 SKIN_PATTERN_FUNC_DEF (MD3_Skinfile)
 {
-	if (surf_index >= surf_defs->numsurfaces)
+	if ((size_t)surf_index >= surf_defs->numsurfaces)
 		return;
 
-	if (skin_index >= surf_defs->surfaces[surf_index].numskins)
+	if ((size_t)skin_index >= surf_defs->surfaces[surf_index].numskins)
 		return;
 
-	if (framegroup_index >= surf_defs->surfaces[surf_index].skins[skin_index].numframegroups)
+	if ((size_t)framegroup_index >= surf_defs->surfaces[surf_index].skins[skin_index].numframegroups)
 		return;
 
 	// strip extension:
@@ -5414,7 +5423,7 @@ static void Mod_LoadMD3Model (qmodel_t *mod, const void *buffer)
 		Sys_Error ("MD3: %s has too many surfaces : %d (max %d)", mod->name, numsurfs, MAX_SURFACES);
 
 	// Collect the skin definitions from .skin files, if any;
-	all_surfaces_def_t *surf_def = Mem_Alloc (sizeof (all_surfaces_def_t));
+	all_surfaces_def_t *surf_def = static_cast<all_surfaces_def_t *> (Mem_Alloc (sizeof (all_surfaces_def_t)));
 
 	Mod_LoadMD3SkinDefinitions (mod, surf_def);
 

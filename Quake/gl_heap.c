@@ -207,13 +207,13 @@ static glheapsegment_t *GL_CreateHeapSegment (glheap_t *heap, atomic_uint32_t *n
 	if (segment->memory.handle != VK_NULL_HANDLE)
 		GL_SetObjectName ((uint64_t)segment->memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, heap->name);
 
-	segment->page_hdrs = Mem_Alloc (heap->num_pages_per_segment * sizeof (glheappagehdr_t));
-	segment->small_alloc_links = Mem_Alloc (heap->num_pages_per_segment * sizeof (glheapsmallalloclinks_t));
-	segment->small_alloc_masks = Mem_Alloc (heap->num_pages_per_segment * sizeof (uint64_t));
+	segment->page_hdrs = static_cast<glheappagehdr_t *> (Mem_Alloc (heap->num_pages_per_segment * sizeof (glheappagehdr_t)));
+	segment->small_alloc_links = static_cast<glheapsmallalloclinks_t *> (Mem_Alloc (heap->num_pages_per_segment * sizeof (glheapsmallalloclinks_t)));
+	segment->small_alloc_masks = static_cast<uint64_t *> (Mem_Alloc (heap->num_pages_per_segment * sizeof (uint64_t)));
 	for (int i = 0; i < NUM_BLOCK_SIZE_CLASSES; ++i)
 	{
-		segment->free_blocks_bitfields[i] = Mem_Alloc (((heap->num_pages_per_segment + 63) / 64) * sizeof (uint64_t));
-		segment->free_blocks_skip_bitfields[i] = Mem_Alloc (((heap->num_pages_per_segment + 4095) / 4096) * sizeof (uint64_t));
+		segment->free_blocks_bitfields[i] = static_cast<uint64_t *> (Mem_Alloc (((heap->num_pages_per_segment + 63) / 64) * sizeof (uint64_t)));
+		segment->free_blocks_skip_bitfields[i] = static_cast<uint64_t *> (Mem_Alloc (((heap->num_pages_per_segment + 4095) / 4096) * sizeof (uint64_t)));
 		segment->free_blocks_bitfields[i][0] = 0x1;
 		segment->free_blocks_skip_bitfields[i][0] = 0x1;
 	}
@@ -417,7 +417,7 @@ static void GL_HeapSmallAllocateFromBlock (
 		GL_HeapRemovePageFromSmallFreeList (segment, block_page_index, small_alloc_bucket);
 	}
 
-	allocation->alloc_type = ALLOC_TYPE_SMALL_ALLOC + small_alloc_bucket;
+	allocation->alloc_type = static_cast<alloc_type_t> (ALLOC_TYPE_SMALL_ALLOC + small_alloc_bucket);
 	allocation->offset = (block_page_index * heap->page_size) + (slot_index * small_alloc_size);
 #ifndef NDEBUG
 	allocation->small_alloc_slot = slot_index;
@@ -590,7 +590,7 @@ glheap_t *GL_HeapCreate (VkDeviceSize segment_size, uint32_t page_size, uint32_t
 	assert (segment_size >= page_size);
 	assert ((segment_size % page_size) == 0);
 	assert ((segment_size / page_size) <= MAX_PAGES);
-	glheap_t *heap = Mem_Alloc (sizeof (glheap_t));
+	glheap_t *heap = static_cast<glheap_t *> (Mem_Alloc (sizeof (glheap_t)));
 	heap->segment_size = segment_size;
 	heap->num_pages_per_segment = segment_size / page_size;
 	heap->num_masks_per_segment = (heap->num_pages_per_segment + 63) / 64;
@@ -638,7 +638,7 @@ glheapallocation_t *GL_HeapAllocate (glheap_t *heap, VkDeviceSize size, VkDevice
 	assert (size > 0);
 	assert (alignment > 0);
 
-	glheapallocation_t *allocation = Mem_Alloc (sizeof (glheapallocation_t));
+	glheapallocation_t *allocation = static_cast<glheapallocation_t *> (Mem_Alloc (sizeof (glheapallocation_t)));
 	allocation->size = size;
 
 	++heap->stats.num_allocations;
@@ -668,7 +668,7 @@ glheapallocation_t *GL_HeapAllocate (glheap_t *heap, VkDeviceSize size, VkDevice
 		{
 			if (mask_page_offset == num_segments)
 			{
-				heap->segments = Mem_Realloc (heap->segments, sizeof (glheapsegment_t *) * (num_segments + 1));
+				heap->segments = static_cast<glheapsegment_t **> (Mem_Realloc (heap->segments, sizeof (glheapsegment_t *) * (num_segments + 1)));
 				heap->segments[mask_page_offset] = GL_CreateHeapSegment (heap, num_allocations);
 				++heap->stats.num_blocks_free;
 				++heap->num_segments;
@@ -689,7 +689,7 @@ glheapallocation_t *GL_HeapAllocate (glheap_t *heap, VkDeviceSize size, VkDevice
 		++heap->stats.num_dedicated_allocations;
 		heap->dedicated_alloc_bytes += allocation->size;
 		allocation->alloc_type = ALLOC_TYPE_DEDICATED;
-		allocation->memory = Mem_Alloc (sizeof (vulkan_memory_t));
+		allocation->memory = static_cast<vulkan_memory_t *> (Mem_Alloc (sizeof (vulkan_memory_t)));
 
 		ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
 		memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;

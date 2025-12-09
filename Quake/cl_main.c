@@ -537,7 +537,7 @@ static qboolean CL_AttachEntity (entity_t *ent, float frac)
 			return false; // parent isn't valid
 		parent = &cl.entities[tagent];
 
-		if (tagent == cl.viewentity)
+		if (tagent == (unsigned int)cl.viewentity)
 			ent->eflags |= EFLAGS_EXTERIORMODEL;
 
 		if (!parent->model)
@@ -650,8 +650,8 @@ void CL_RelinkEntities (void)
 	if (cl_numvisedicts + 256 > cl_maxvisedicts)
 	{
 		cl_maxvisedicts += cl_maxvisedicts ? 256 : 4096;
-		cl_visedicts = Mem_Realloc (cl_visedicts, sizeof (*cl_visedicts) * cl_maxvisedicts);
-		cl_visedicts_alpha = Mem_Realloc (cl_visedicts_alpha, sizeof (*cl_visedicts_alpha) * cl_maxvisedicts);
+		cl_visedicts = static_cast<entity_t **> (Mem_Realloc (cl_visedicts, sizeof (*cl_visedicts) * cl_maxvisedicts));
+		cl_visedicts_alpha = static_cast<entity_t **> (Mem_Realloc (cl_visedicts_alpha, sizeof (*cl_visedicts_alpha) * cl_maxvisedicts));
 	}
 	cl_numvisedicts = 0;
 

@@ -472,7 +472,7 @@ void Con_DebugLog (const char *msg)
 		return;
 
 	size_t msg_len = strlen (msg);
-	if (write (log_fd, msg, msg_len) != msg_len)
+	if (write (log_fd, msg, msg_len) != (ssize_t)msg_len)
 		return; // Nonsense to supress warning
 }
 

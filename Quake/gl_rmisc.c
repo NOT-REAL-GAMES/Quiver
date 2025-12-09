@@ -1022,10 +1022,10 @@ static void R_AddDynamicBufferGarbage (vulkan_memory_t memory, dynbuffer_t *buff
 		int	 old_num_memory_garbage = *num_garbage;
 		*num_garbage += 1;
 		if (device_memory_garbage[current_garbage_index] == NULL)
-			device_memory_garbage[current_garbage_index] = Mem_Alloc (sizeof (vulkan_memory_t) * (*num_garbage));
+			device_memory_garbage[current_garbage_index] = static_cast<vulkan_memory_t *> (Mem_Alloc (sizeof (vulkan_memory_t) * (*num_garbage)));
 		else
 			device_memory_garbage[current_garbage_index] =
-				Mem_Realloc (device_memory_garbage[current_garbage_index], sizeof (vulkan_memory_t) * (*num_garbage));
+				static_cast<vulkan_memory_t *> (Mem_Realloc (device_memory_garbage[current_garbage_index], sizeof (vulkan_memory_t) * (*num_garbage)));
 		device_memory_garbage[current_garbage_index][old_num_memory_garbage] = memory;
 	}
 
@@ -1034,9 +1034,9 @@ static void R_AddDynamicBufferGarbage (vulkan_memory_t memory, dynbuffer_t *buff
 		int	 old_num_buffer_garbage = *num_garbage;
 		*num_garbage += NUM_DYNAMIC_BUFFERS;
 		if (buffer_garbage[current_garbage_index] == NULL)
-			buffer_garbage[current_garbage_index] = Mem_Alloc (sizeof (VkBuffer) * (*num_garbage));
+			buffer_garbage[current_garbage_index] = static_cast<VkBuffer *> (Mem_Alloc (sizeof (VkBuffer) * (*num_garbage)));
 		else
-			buffer_garbage[current_garbage_index] = Mem_Realloc (buffer_garbage[current_garbage_index], sizeof (VkBuffer) * (*num_garbage));
+			buffer_garbage[current_garbage_index] = static_cast<VkBuffer *> (Mem_Realloc (buffer_garbage[current_garbage_index], sizeof (VkBuffer) * (*num_garbage)));
 		for (int i = 0; i < NUM_DYNAMIC_BUFFERS; ++i)
 			buffer_garbage[current_garbage_index][old_num_buffer_garbage + i] = buffers[i].buffer;
 	}
@@ -1047,10 +1047,10 @@ static void R_AddDynamicBufferGarbage (vulkan_memory_t memory, dynbuffer_t *buff
 		int	 old_num_desc_set_garbage = *num_garbage;
 		*num_garbage += 2;
 		if (descriptor_set_garbage[current_garbage_index] == NULL)
-			descriptor_set_garbage[current_garbage_index] = Mem_Alloc (sizeof (VkDescriptorSet) * (*num_garbage));
+			descriptor_set_garbage[current_garbage_index] = static_cast<VkDescriptorSet *> (Mem_Alloc (sizeof (VkDescriptorSet) * (*num_garbage)));
 		else
 			descriptor_set_garbage[current_garbage_index] =
-				Mem_Realloc (descriptor_set_garbage[current_garbage_index], sizeof (VkDescriptorSet) * (*num_garbage));
+				static_cast<VkDescriptorSet *> (Mem_Realloc (descriptor_set_garbage[current_garbage_index], sizeof (VkDescriptorSet) * (*num_garbage)));
 		for (int i = 0; i < 2; ++i)
 			descriptor_set_garbage[current_garbage_index][old_num_desc_set_garbage + i] = descriptor_sets[i];
 	}

@@ -93,6 +93,12 @@ int main (int argc, char **argv)
 	// write output:
 	{
 		fprintf (fout, "// clang-format off\n");
+		fprintf (fout, "#ifdef __cplusplus\nextern \"C\" {\n#endif\n");
+		fprintf (fout, "extern const unsigned char %s[];\n", argv[struct_name_index]);
+		fprintf (fout, "extern const int %s_size;\n", argv[struct_name_index]);
+		if (use_compression)
+			fprintf (fout, "extern const int %s_decompressed_size;\n", argv[struct_name_index]);
+		fprintf (fout, "#ifdef __cplusplus\n}\n#endif\n");
 		fprintf (fout, "const unsigned char %s[] = {\n", argv[struct_name_index]);
 
 		uint8_t *output_bytes = (use_compression ? compressed_bytes_buffer : original_bytes_buffer);

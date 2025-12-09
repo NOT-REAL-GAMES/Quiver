@@ -1,9 +1,9 @@
 HOST_OS =$(shell uname|sed -e s/_.*//|tr '[:upper:]' '[:lower:]')
 
-CC = gcc
+CC = g++
 # HOST_CC is for bintoc which is run on the host OS, not
 #         the target OS: cross-compile friendliness.
-HOST_CC = gcc
+HOST_CC = g++
 LINKER = $(CC)
 STRIP ?= strip
 WINDRES ?= windres
@@ -12,7 +12,7 @@ DEBUG ?= 0
 
 CHECK_GCC = $(shell if echo | $(CC) $(1) -Werror -S -o /dev/null -xc - > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi;)
 
-CFLAGS += -MMD -Wall -Wno-trigraphs -Werror -std=gnu11
+CFLAGS += -MMD -Wall -Wno-trigraphs -Werror -std=gnu++20
 ifneq ($(HOST_OS),darwin)
 CFLAGS += -D_FILE_OFFSET_BITS=64
 endif

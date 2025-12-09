@@ -87,7 +87,9 @@
 /* Make sure the types really have the right
  * sizes: These macros are from SDL headers.
  */
-#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+#if defined(__cplusplus)
+#define COMPILE_TIME_ASSERT(name, x) static_assert (x, #x)
+#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 #define COMPILE_TIME_ASSERT(name, x) _Static_assert (x, #x)
 #else /* universal, but may trigger -Wunused-local-typedefs */
 #define COMPILE_TIME_ASSERT(name, x) typedef int dummy_##name[(x) * 2 - 1]
@@ -106,6 +108,9 @@ typedef enum
 } THE_DUMMY_ENUM;
 COMPILE_TIME_ASSERT (enum, sizeof (THE_DUMMY_ENUM) == sizeof (int));
 
+/* Helper macro for offsetof with variable array index (C++ doesn't allow VLA in offsetof) */
+#define OFFSETOF_ARRAY(type, member, index) (offsetof (type, member) + (index) * sizeof (((type *)0)->member[0]))
+
 /* Provide a substitute for offsetof() if we don't have one.
  * This variant works on most (but not *all*) systems...
  */
@@ -119,7 +124,10 @@ typedef unsigned char byte;
 
 #undef true
 #undef false
-#if defined __STDC_VERSION__ && (__STDC_VERSION__ >= 199901L)
+#if defined(__cplusplus)
+/* C++ has native bool */
+typedef bool qboolean;
+#elif defined __STDC_VERSION__ && (__STDC_VERSION__ >= 199901L)
 #include <stdbool.h>
 typedef bool qboolean;
 #else
@@ -224,7 +232,7 @@ typedef ptrdiff_t ssize_t;
 #define FUNC_NOCLONE
 #endif
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && !defined(__cplusplus)
 #define inline __inline
 #endif /* _MSC_VER */
 

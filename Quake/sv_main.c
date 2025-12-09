@@ -49,7 +49,7 @@ static qboolean SV_UsePredThinkPos (edict_t *ent)
 	extern cvar_t r_lerpmove;
 	if (!sv_smoothplatformlerps.value || (!isDedicated && !r_lerpmove.value))
 		return false;
-	if (ent->v.movetype != MOVETYPE_STEP)
+	if (ent->v.movetype != (float)MOVETYPE_STEP)
 		return false;
 	if (!((int)ent->v.flags & FL_ONGROUND))
 		return false;
@@ -429,7 +429,7 @@ static void MSGFTE_WriteEntityUpdate (unsigned int bits, entity_state_t *state, 
 #endif
 }
 
-static struct entity_num_state_s *snapshot_entstate;
+static entity_num_state_t *snapshot_entstate;
 static size_t					  snapshot_numents;
 static size_t					  snapshot_maxents;
 
@@ -482,14 +482,14 @@ static void SVFTE_SetupFrames (client_t *client)
 	}
 
 	client->numframes = 64; // must be power-of-two
-	client->frames = Mem_Alloc (sizeof (*client->frames) * client->numframes);
+	client->frames = static_cast<deltaframe_t *> (Mem_Alloc (sizeof (*client->frames) * client->numframes));
 	client->lastacksequence = (int)0x80000000;
 	memset (client->frames, 0, sizeof (*client->frames) * client->numframes);
 	for (fr = 0; fr < client->numframes; fr++)
 		client->frames[fr].sequence = client->lastacksequence;
 
 	client->numpendingentities = qcvm->num_edicts;
-	client->pendingentities_bits = Mem_Alloc (client->numpendingentities * sizeof (*client->pendingentities_bits));
+	client->pendingentities_bits = static_cast<unsigned int *> (Mem_Alloc (client->numpendingentities * sizeof (*client->pendingentities_bits)));
 
 	client->pendingentities_bits[0] = UF_REMOVE;
 }
@@ -641,12 +641,12 @@ static void SVFTE_WriteStats (client_t *client, sizebuf_t *msg)
 }
 static void SVFTE_CalcEntityDeltas (client_t *client)
 {
-	struct entity_num_state_s *olds, *news, *oldstop, *newstop;
+	entity_num_state_t *olds, *news, *oldstop, *newstop;
 
 	if ((int)client->numpendingentities < qcvm->num_edicts)
 	{
 		int newmax = qcvm->num_edicts + 64;
-		client->pendingentities_bits = Mem_Realloc (client->pendingentities_bits, sizeof (*client->pendingentities_bits) * newmax);
+		client->pendingentities_bits = static_cast<unsigned int *> (Mem_Realloc (client->pendingentities_bits, sizeof (*client->pendingentities_bits) * newmax));
 		memset (client->pendingentities_bits + client->numpendingentities, 0, sizeof (*client->pendingentities_bits) * (newmax - client->numpendingentities));
 		client->numpendingentities = newmax;
 	}
@@ -709,7 +709,7 @@ static void SVFTE_CalcEntityDeltas (client_t *client)
 }
 static void SVFTE_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflowsize)
 {
-	struct entity_num_state_s *state, *stateend;
+	entity_num_state_t *state, *stateend;
 	unsigned int			   entbits, logbits, netbits;
 	size_t					   entnum;
 	int						   sequence = NET_QSocketGetSequenceOut (client->netconnection);
@@ -796,7 +796,7 @@ static void SVFTE_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_
 		if (frame->numents == frame->maxents)
 		{
 			frame->maxents += 64;
-			frame->ents = Mem_Realloc (frame->ents, sizeof (*frame->ents) * frame->maxents);
+			frame->ents = static_cast<deltaframe_ent_t *> (Mem_Realloc (frame->ents, sizeof (*frame->ents) * frame->maxents));
 		}
 		frame->ents[frame->numents].num = entnum;
 		frame->ents[frame->numents].ebits = logbits;
@@ -862,7 +862,7 @@ void SV_BuildEntityState (edict_t *ent, entity_state_t *state)
 	state->effects = (int)ent->v.effects & sv.effectsmask;
 	if ((val = GetEdictFieldValue (ent, qcvm->extfields.modelflags)))
 		state->effects |= ((unsigned int)val->_float) << 24;
-	if (ent->v.movetype == MOVETYPE_STEP)
+	if (ent->v.movetype == (float)MOVETYPE_STEP)
 		state->eflags |= EFLAGS_STEP;
 
 	state->pmovetype = 0;
@@ -886,7 +886,7 @@ static void SVFTE_BuildSnapshotForClient (client_t *client)
 	unsigned char eflags;
 	int			  proged = EDICT_TO_PROG (clent);
 
-	struct entity_num_state_s *ents = snapshot_entstate;
+	entity_num_state_t *ents = snapshot_entstate;
 	size_t					   numents = 0;
 	size_t					   maxents = snapshot_maxents;
 
@@ -943,7 +943,7 @@ static void SVFTE_BuildSnapshotForClient (client_t *client)
 		if (numents == maxents)
 		{
 			maxents += 64;
-			ents = Mem_Realloc (ents, maxents * sizeof (*ents));
+			ents = static_cast<entity_num_state_t *> (Mem_Realloc (ents, maxents * sizeof (*ents)));
 		}
 
 		ents[numents].num = e;
@@ -1113,7 +1113,7 @@ static void SV_Protocol_f (void)
 			sv_protocol_pext2 = pext2;
 			if (sv.active)
 			{
-				if (prot == sv_protocol && pext1 == sv_protocol_pext1 && pext2 == sv_protocol_pext2)
+				if (prot == sv_protocol && (unsigned int)pext1 == sv_protocol_pext1 && (unsigned int)pext2 == sv_protocol_pext2)
 					Con_Printf ("specified protocol already active.\n");
 				else
 					Con_Printf ("changes will not take effect until the next level load.\n");
@@ -2009,14 +2009,14 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 				// prioritize point-sized projectiles that do something on impact
 				if (size < 50 && ent->v.touch)
 				{
-					if (ent->v.movetype == MOVETYPE_FLYMISSILE || ent->v.movetype == MOVETYPE_FLY)
+					if (ent->v.movetype == (float)MOVETYPE_FLYMISSILE || ent->v.movetype == (float)MOVETYPE_FLY)
 					{
 						vec3_t to_self;
 						VectorSubtract (org, ent->v.origin, to_self);
 						float direction = DotProduct (ent->v.velocity, to_self); // if >0, coming toward us; otherwise rockets always get priority
 						size = (direction > 0 || strstr (model, "miss") || strstr (model, "rocket")) ? 3072 : 768; // set a 32-/16-sided cube's size
 					}
-					else if (ent->v.movetype == MOVETYPE_BOUNCE || ent->v.movetype == MOVETYPE_TOSS)
+					else if (ent->v.movetype == (float)MOVETYPE_BOUNCE || ent->v.movetype == (float)MOVETYPE_TOSS)
 						// for gibs, set size to a 16-sided cube. for grenades / lavaballs, 32-sided cube
 						size = (ent->v.nextthink > 0 && !strstr (model, "gib")) ? 3072 : 768;
 				}
@@ -2093,7 +2093,7 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 		if (ent->v.angles[2] != ent->baseline.angles[2])
 			bits |= U_ANGLE3;
 
-		if (ent->v.movetype == MOVETYPE_STEP)
+		if (ent->v.movetype == (float)MOVETYPE_STEP)
 			bits |= U_STEP; // don't mess up the step animation
 
 		if (ent->baseline.colormap != ent->v.colormap)
@@ -2862,7 +2862,7 @@ void SV_SendClientMessages (void)
 				if (!SV_SendPrespawnModelPrecaches ())
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_SOUNDS)
@@ -2870,7 +2870,7 @@ void SV_SendClientMessages (void)
 				if (!SV_SendPrespawnSoundPrecaches ())
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_PARTICLES)
@@ -2879,7 +2879,7 @@ void SV_SendClientMessages (void)
 				if (host_client->signonidx < 0)
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_BASELINES)
@@ -2888,7 +2888,7 @@ void SV_SendClientMessages (void)
 				if (host_client->signonidx < 0)
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_STATICS)
@@ -2897,7 +2897,7 @@ void SV_SendClientMessages (void)
 				if (host_client->signonidx < 0)
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_AMBIENTS)
@@ -2906,7 +2906,7 @@ void SV_SendClientMessages (void)
 				if (host_client->signonidx < 0)
 				{
 					host_client->signonidx = 0;
-					host_client->sendsignon++;
+					host_client->sendsignon = static_cast<prespawn_state_t>(host_client->sendsignon + 1);
 				}
 			}
 			if (host_client->sendsignon == PRESPAWN_SIGNONMSG)

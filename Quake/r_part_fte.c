@@ -260,19 +260,21 @@ typedef struct skytriblock_s
 
 // this is the required render state for each particle
 // dynamic per-particle stuff isn't important. only static state.
+typedef enum
+{
+	PT_NORMAL,
+	PT_SPARK,
+	PT_SPARKFAN,
+	PT_TEXTUREDSPARK,
+	PT_BEAM,
+	PT_CDECAL,
+	PT_UDECAL,
+	PT_INVISIBLE
+} plooks_type_e;
+
 typedef struct
 {
-	enum
-	{
-		PT_NORMAL,
-		PT_SPARK,
-		PT_SPARKFAN,
-		PT_TEXTUREDSPARK,
-		PT_BEAM,
-		PT_CDECAL,
-		PT_UDECAL,
-		PT_INVISIBLE
-	} type;
+	plooks_type_e type;
 
 	blendmode_t	 blendmode;
 	gltexture_t *texture;
@@ -302,6 +304,30 @@ typedef struct
 	float pitch;
 	float weight;
 } partsounds_t;
+
+typedef enum
+{
+	SM_BOX,		   // box = even spread within the area
+	SM_CIRCLE,	   // circle = around edge of a circle
+	SM_BALL,	   // ball = filled sphere
+	SM_SPIRAL,	   // spiral = spiral trail
+	SM_TRACER,	   // tracer = tracer trail
+	SM_TELEBOX,	   // telebox = q1-style telebox
+	SM_LAVASPLASH, // lavasplash = q1-style lavasplash
+	SM_UNICIRCLE,  // unicircle = uniform circle
+	SM_FIELD,	   // field = synced field (brightfield, etc)
+	SM_DISTBALL,   // uneven distributed ball
+	SM_MESHSURFACE // distributed roughly evenly over the surface of the mesh
+} spawnmode_e;
+
+typedef enum
+{
+	RAMP_NONE,
+	RAMP_DELTA,
+	RAMP_NEAREST,
+	RAMP_LERP
+} rampmode_e;
+
 // TODO: merge in alpha with rgb to gain benefit of vector opts
 typedef struct part_type_s
 {
@@ -374,20 +400,7 @@ typedef struct part_type_s
 	float spawnparam2;
 	/*	float spawnparam3; */
 
-	enum
-	{
-		SM_BOX,		   // box = even spread within the area
-		SM_CIRCLE,	   // circle = around edge of a circle
-		SM_BALL,	   // ball = filled sphere
-		SM_SPIRAL,	   // spiral = spiral trail
-		SM_TRACER,	   // tracer = tracer trail
-		SM_TELEBOX,	   // telebox = q1-style telebox
-		SM_LAVASPLASH, // lavasplash = q1-style lavasplash
-		SM_UNICIRCLE,  // unicircle = uniform circle
-		SM_FIELD,	   // field = synced field (brightfield, etc)
-		SM_DISTBALL,   // uneven distributed ball
-		SM_MESHSURFACE // distributed roughly evenly over the surface of the mesh
-	} spawnmode;
+	spawnmode_e spawnmode;
 
 	float  gravity;
 	vec3_t friction;
@@ -404,13 +417,7 @@ typedef struct part_type_s
 	// PT_NODLSHADOW
 	int	   dl_cubemapnum;
 
-	enum
-	{
-		RAMP_NONE,
-		RAMP_DELTA,
-		RAMP_NEAREST,
-		RAMP_LERP
-	} rampmode;
+	rampmode_e rampmode;
 	int		rampindexes;
 	ramp_t *ramp;
 
@@ -634,8 +641,8 @@ static part_type_t *part_run_list;
 
 static struct
 {
-	char *oldn;
-	char *newn;
+	const char *oldn;
+	const char *newn;
 } legacynames[] = {
 	{"t_rocket", "TR_ROCKET"},
 	{"t_grenade", "TR_GRENADE"},
@@ -644,7 +651,7 @@ static struct
 	{"te_plasma", "TE_TEI_PLASMAHIT"},
 	{"te_smoke", "TE_TEI_SMOKE"},
 
-	{NULL}};
+	{NULL, NULL}};
 
 static struct partalias_s
 {
@@ -652,17 +659,20 @@ static struct partalias_s
 	const char		   *from;
 	const char		   *to;
 } *partaliaslist;
+
+typedef enum
+{
+	AE_TRAIL,
+	AE_EMIT,
+} aeeffect_e;
+
 typedef struct associatedeffect_s
 {
 	struct associatedeffect_s *next;
 	char					   mname[MAX_QPATH];
 	char					   pname[MAX_QPATH];
 	unsigned int			   flags;
-	enum
-	{
-		AE_TRAIL,
-		AE_EMIT,
-	} type;
+	aeeffect_e				   type;
 } associatedeffect_t;
 static associatedeffect_t *associatedeffect;
 static void				   PScript_AssociateEffect_f (void)
@@ -670,7 +680,7 @@ static void				   PScript_AssociateEffect_f (void)
 	const char		   *modelname = Cmd_Argv (1);
 	const char		   *effectname = Cmd_Argv (2);
 	unsigned int		flags = 0;
-	int					type;
+	aeeffect_e			type;
 	associatedeffect_t *ae;
 	int					i;
 
@@ -714,7 +724,7 @@ static void				   PScript_AssociateEffect_f (void)
 	}
 	if (!ae)
 	{
-		ae = Mem_Alloc (sizeof (*ae));
+		ae = static_cast<associatedeffect_t *> (Mem_Alloc (sizeof (*ae)));
 		strcpy (ae->mname, modelname);
 		ae->next = associatedeffect;
 		associatedeffect = ae;
@@ -761,7 +771,7 @@ static void P_PartRedirect_f (void)
 	// create a new entry.
 	if (*to && q_strcasecmp (from, to))
 	{
-		l = Mem_Alloc (sizeof (*l) + strlen (from) + strlen (to) + 2);
+		l = static_cast<partalias_s *> (Mem_Alloc (sizeof (*l) + strlen (from) + strlen (to) + 2));
 		l->from = (char *)(l + 1);
 		strcpy ((char *)l->from, from);
 		l->to = l->from + strlen (l->from) + 1;
@@ -802,7 +812,7 @@ static part_type_t *P_GetParticleType (const char *config, const char *name)
 	part_type_t *ptype;
 	part_type_t *oldlist = part_type;
 	char		 cfgbuf[MAX_QPATH];
-	char		*dot = strchr (name, '.');
+	const char	*dot = strchr (name, '.');
 	if (dot && (dot - name) < MAX_QPATH - 1)
 	{
 		config = cfgbuf;
@@ -826,7 +836,7 @@ static part_type_t *P_GetParticleType (const char *config, const char *name)
 			if (!q_strcasecmp (ptype->config, config)) // must be an exact match.
 				return ptype;
 	}
-	part_type = Mem_Realloc (part_type, sizeof (part_type_t) * (numparticletypes + 1));
+	part_type = static_cast<part_type_t *> (Mem_Realloc (part_type, sizeof (part_type_t) * (numparticletypes + 1)));
 	ptype = &part_type[numparticletypes++];
 	memset (ptype, 0, sizeof (*ptype));
 	q_strlcpy (ptype->name, name, sizeof (ptype->name));
@@ -879,12 +889,12 @@ static void PScript_RetintEffect (part_type_t *to, part_type_t *from, const char
 	// make sure 'to' has its own copy of any lists, so that we don't have issues when freeing this memory again.
 	if (to->sounds)
 	{
-		to->sounds = Mem_Alloc (to->numsounds * sizeof (*to->sounds));
+		to->sounds = static_cast<partsounds_t *> (Mem_Alloc (to->numsounds * sizeof (*to->sounds)));
 		memcpy (to->sounds, from->sounds, to->numsounds * sizeof (*to->sounds));
 	}
 	if (to->ramp)
 	{
-		to->ramp = Mem_Alloc (to->rampindexes * sizeof (*to->ramp));
+		to->ramp = static_cast<ramp_t *> (Mem_Alloc (to->rampindexes * sizeof (*to->ramp)));
 		memcpy (to->ramp, from->ramp, to->rampindexes * sizeof (*to->ramp));
 	}
 
@@ -908,7 +918,7 @@ int PScript_FindParticleType (const char *fullname)
 	int			 i;
 	part_type_t *ptype = NULL;
 	char		 cfg[MAX_QPATH];
-	char		*dot;
+	const char	*dot;
 	const char	*name = fullname;
 
 	// check particle aliases, mostly for tex_sky1 -> weather.te_rain for example, or whatever
@@ -1040,9 +1050,12 @@ static void P_LoadTexture (part_type_t *ptype, qboolean warn)
 
 			if (data)
 			{
-				ptype->looks.texture = TexMgr_LoadImage (
-					NULL, texname, fwidth, fheight, fmt, data, filename, 0,
-					(ptype->looks.premul ? TEXPREF_PREMULTIPLY : 0) | (ptype->looks.nearest ? TEXPREF_NEAREST : 0) | TEXPREF_NOPICMIP | TEXPREF_ALPHA);
+				textureflags_t texflags = TEXPREF_NOPICMIP | TEXPREF_ALPHA;
+				if (ptype->looks.premul)
+					texflags = texflags | TEXPREF_PREMULTIPLY;
+				if (ptype->looks.nearest)
+					texflags = texflags | TEXPREF_NEAREST;
+				ptype->looks.texture = TexMgr_LoadImage (NULL, texname, fwidth, fheight, fmt, data, filename, 0, texflags);
 			}
 		}
 	}
@@ -1494,7 +1507,7 @@ reparse:
 			if (*buf == '{')
 			{
 				int	  nest = 1;
-				char *str = Mem_Alloc (3);
+				char *str = static_cast<char *> (Mem_Alloc (3));
 				int	  slen = 2;
 				str[0] = '{';
 				str[1] = '\n';
@@ -1513,7 +1526,7 @@ reparse:
 						--nest;
 					if (*buf == '{')
 						nest++;
-					str = Mem_Realloc (str, slen + strlen (buf) + 2);
+					str = static_cast<char *> (Mem_Realloc (str, slen + strlen (buf) + 2));
 					strcpy (str + slen, buf);
 					slen += strlen (str + slen);
 					str[slen++] = '\n';
@@ -1852,7 +1865,7 @@ reparse:
 		else if (!strcmp (var, "sound"))
 		{
 			const char *e;
-			ptype->sounds = Mem_Realloc (ptype->sounds, sizeof (partsounds_t) * (ptype->numsounds + 1));
+			ptype->sounds = static_cast<partsounds_t *> (Mem_Realloc (ptype->sounds, sizeof (partsounds_t) * (ptype->numsounds + 1)));
 			q_strlcpy (ptype->sounds[ptype->numsounds].name, Cmd_Argv (1), sizeof (ptype->sounds[ptype->numsounds].name));
 			if (*ptype->sounds[ptype->numsounds].name)
 				S_PrecacheSound (ptype->sounds[ptype->numsounds].name);
@@ -2287,7 +2300,7 @@ reparse:
 			i = 1;
 			while (i < Cmd_Argc ())
 			{
-				ptype->ramp = Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1));
+				ptype->ramp = static_cast<ramp_t *> (Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1)));
 
 				cidx = atoi (Cmd_Argv (i));
 				ptype->ramp[ptype->rampindexes].alpha = cidx > 255 ? 0.5 : 1;
@@ -2306,7 +2319,7 @@ reparse:
 		else if (!strcmp (var, "rampindex"))
 		{
 			int cidx;
-			ptype->ramp = Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1));
+			ptype->ramp = static_cast<ramp_t *> (Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1)));
 
 			cidx = atoi (value);
 			ptype->ramp[ptype->rampindexes].alpha = cidx > 255 ? 0.5 : 1;
@@ -2328,7 +2341,7 @@ reparse:
 		}
 		else if (!strcmp (var, "ramp"))
 		{
-			ptype->ramp = Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1));
+			ptype->ramp = static_cast<ramp_t *> (Mem_Realloc (ptype->ramp, sizeof (ramp_t) * (ptype->rampindexes + 1)));
 
 			ptype->ramp[ptype->rampindexes].rgb[0] = atof (value) / 255;
 			if (Cmd_Argc () > 3) // seperate rgb
@@ -3291,7 +3304,7 @@ void PScript_RecalculateSkyTris (void)
 			char		key[128];
 			const char *data = COM_Parse (m->entities);
 			int		   *remaps;
-			remaps = Mem_Alloc (sizeof (*remaps) * m->numtextures);
+			remaps = static_cast<int *> (Mem_Alloc (sizeof (*remaps) * m->numtextures));
 			if (!remaps)
 				break;
 			for (t = 0; t < m->numtextures; t++)
@@ -3418,7 +3431,7 @@ static qboolean P_LoadParticleSet (char *name, qboolean implicit, qboolean showw
 		if (!strcmp (cfg->name, name))
 			return false;
 	}
-	cfg = Mem_Alloc (sizeof (*cfg) + strlen (name));
+	cfg = static_cast<pcfg_t *> (Mem_Alloc (sizeof (*cfg) + strlen (name)));
 	if (!cfg)
 		return false;
 	strcpy (cfg->name, name);
@@ -3590,7 +3603,7 @@ static void R_Part_SkyTri (qmodel_t *mod, float *v1, float *v2, float *v3, msurf
 	skytriblock_t *mem = mod->skytrimem;
 	if (!mem || mem->count == countof (mem->tris))
 	{
-		mod->skytrimem = Mem_Alloc (sizeof (*mod->skytrimem));
+		mod->skytrimem = static_cast<skytriblock_t *> (Mem_Alloc (sizeof (*mod->skytrimem)));
 		mod->skytrimem->next = mem;
 		mod->skytrimem->count = 0;
 		mem = mod->skytrimem;
@@ -3806,7 +3819,7 @@ typedef struct
 } decalctx_t;
 static void PScript_AddDecals (void *vctx, vec3_t *points, size_t numtris)
 {
-	decalctx_t	   *ctx = vctx;
+	decalctx_t	   *ctx = static_cast<decalctx_t *> (vctx);
 	part_type_t	   *ptype = ctx->ptype;
 	clippeddecal_t *d;
 	unsigned int	i;
@@ -5439,9 +5452,9 @@ int PScript_ParticleTrail (vec3_t startpos, vec3_t end, int type, float timeinte
 
 static int			   current_buffer_index = 0;
 static VkBuffer		   vertex_buffers[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
-static vulkan_memory_t vertex_buffers_memory[2] = {{VK_NULL_HANDLE, 0, 0}, {VK_NULL_HANDLE, 0, 0}};
+static vulkan_memory_t vertex_buffers_memory[2] = {{VK_NULL_HANDLE, 0, VULKAN_MEMORY_TYPE_DEVICE}, {VK_NULL_HANDLE, 0, VULKAN_MEMORY_TYPE_DEVICE}};
 static VkBuffer		   index_buffers[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
-static vulkan_memory_t index_buffers_memory[2] = {{VK_NULL_HANDLE, 0, 0}, {VK_NULL_HANDLE, 0, 0}};
+static vulkan_memory_t index_buffers_memory[2] = {{VK_NULL_HANDLE, 0, VULKAN_MEMORY_TYPE_DEVICE}, {VK_NULL_HANDLE, 0, VULKAN_MEMORY_TYPE_DEVICE}};
 
 static void ReallocateVertexBuffer ()
 {
@@ -6076,7 +6089,8 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 	static float flurrytime;
 	qboolean	 doflurry;
 	int			 batchflags;
-	unsigned int i, o;
+	unsigned int i;
+	int			 o;
 
 	if (r_plooksdirty)
 	{
@@ -6152,7 +6166,7 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 				if (cl_numstris == cl_maxstris)
 				{
 					cl_maxstris += 8;
-					cl_stris = Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris);
+					cl_stris = static_cast<scenetris_t *> (Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris));
 				}
 				scenetri = &cl_stris[cl_numstris++];
 				scenetri->texture = type->looks.texture;
@@ -6240,7 +6254,7 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 					if (cl_numstris == cl_maxstris)
 					{
 						cl_maxstris += 8;
-						cl_stris = Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris);
+						cl_stris = static_cast<scenetris_t *> (Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris));
 					}
 					scenetri = &cl_stris[cl_numstris++];
 					scenetri->texture = scenetri[-1].texture;
@@ -6297,7 +6311,7 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 			if (cl_numstris == cl_maxstris)
 			{
 				cl_maxstris += 8;
-				cl_stris = Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris);
+				cl_stris = static_cast<scenetris_t *> (Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris));
 			}
 			scenetri = &cl_stris[cl_numstris++];
 			scenetri->texture = type->looks.texture;
@@ -6321,7 +6335,7 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 						if (cl_numstris == cl_maxstris)
 						{
 							cl_maxstris += 8;
-							cl_stris = Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris);
+							cl_stris = static_cast<scenetris_t *> (Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris));
 						}
 						scenetri = &cl_stris[cl_numstris++];
 						scenetri->texture = scenetri[-1].texture;
@@ -6656,7 +6670,7 @@ static void PScript_DrawParticleTypes (cb_context_t *cbx, float pframetime)
 					if (cl_numstris == cl_maxstris)
 					{
 						cl_maxstris += 8;
-						cl_stris = Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris);
+						cl_stris = static_cast<scenetris_t *> (Mem_Realloc (cl_stris, sizeof (*cl_stris) * cl_maxstris));
 					}
 					scenetri = &cl_stris[cl_numstris++];
 					scenetri->texture = scenetri[-1].texture;

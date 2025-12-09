@@ -25,6 +25,29 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // server.h
 
+// Forward declarations for nested structs (needed for C++)
+typedef struct ambientsound_s
+{
+	vec3_t		 origin;
+	unsigned int soundindex;
+	float		 volume;
+	float		 attenuation;
+} ambientsound_t;
+
+typedef struct svcustomstat_s
+{
+	int		idx;
+	int		type;
+	int		fld;
+	eval_t *ptr;
+} svcustomstat_t;
+
+typedef struct entity_num_state_s
+{
+	unsigned int   num; // ascending order, there can be gaps.
+	entity_state_t state;
+} entity_num_state_t;
+
 typedef struct
 {
 	int				 maxclients;
@@ -86,23 +109,11 @@ typedef struct
 	int				num_statics;
 	int				max_statics;
 
-	struct ambientsound_s
-	{
-		vec3_t		 origin;
-		unsigned int soundindex;
-		float		 volume;
-		float		 attenuation;
-	}  *ambientsounds;
-	int num_ambients;
-	int max_ambients;
+	ambientsound_t *ambientsounds;
+	int				num_ambients;
+	int				max_ambients;
 
-	struct svcustomstat_s
-	{
-		int		idx;
-		int		type;
-		int		fld;
-		eval_t *ptr;
-	} customstats[MAX_CL_STATS * 2]; // strings or numeric...
+	svcustomstat_t customstats[MAX_CL_STATS * 2]; // strings or numeric...
 	size_t numcustomstats;
 
 	int effectsmask; // only enable colored quad/penta dlights in 2021 release
@@ -112,24 +123,50 @@ typedef struct
 #define NUM_BASIC_SPAWN_PARMS 16
 #define NUM_TOTAL_SPAWN_PARMS 64
 
+typedef enum
+{
+	PRESPAWN_DONE,
+	PRESPAWN_FLUSH = 1,
+	//		PRESPAWN_SERVERINFO,
+	PRESPAWN_MODELS,
+	PRESPAWN_SOUNDS,
+	PRESPAWN_PARTICLES,
+	PRESPAWN_BASELINES,
+	PRESPAWN_STATICS,
+	PRESPAWN_AMBIENTS,
+	PRESPAWN_SIGNONMSG,
+} prespawn_state_t;
+
+// Struct for delta frame entity tracking
+typedef struct deltaframe_ent_s
+{
+	unsigned int num;
+	unsigned int ebits;
+	unsigned int csqcbits;
+} deltaframe_ent_t;
+
+// quick overview of how this stuff actually works:
+// when the server notices a gap in the ack sequence, we walk through the dropped frames and reflag everything that was dropped.
+// if the server isn't tracking enough frames, then we just treat those as dropped;
+// small note: when an entity is new, it re-flags itself as new for the next packet too, this reduces the immediate impact of packetloss on new
+// entities. reflagged state includes stats updates, entity updates, and entity removes.
+typedef struct deltaframe_s
+{
+	int				  sequence; // to see if its stale
+	float			  timestamp;
+	unsigned int	  resendstatsnum[MAX_CL_STATS / 32];
+	unsigned int	  resendstatsstr[MAX_CL_STATS / 32];
+	deltaframe_ent_t *ents;
+	int				  numents; // doesn't contain an entry for every entity, just ones that were sent this frame. no 0 bits
+	int				  maxents;
+} deltaframe_t;
+
 typedef struct client_s
 {
-	qboolean active;   // false = client is free
-	qboolean spawned;  // false = don't send datagrams (set when client acked the first entities)
-	qboolean dropasap; // has been told to go to another level
-	enum
-	{
-		PRESPAWN_DONE,
-		PRESPAWN_FLUSH = 1,
-		//		PRESPAWN_SERVERINFO,
-		PRESPAWN_MODELS,
-		PRESPAWN_SOUNDS,
-		PRESPAWN_PARTICLES,
-		PRESPAWN_BASELINES,
-		PRESPAWN_STATICS,
-		PRESPAWN_AMBIENTS,
-		PRESPAWN_SIGNONMSG,
-	} sendsignon; // only valid before spawned
+	qboolean		 active;	 // false = client is free
+	qboolean		 spawned;	 // false = don't send datagrams (set when client acked the first entities)
+	qboolean		 dropasap;	 // has been told to go to another level
+	prespawn_state_t sendsignon; // only valid before spawned
 	int			 signonidx;
 	unsigned int signon_sounds; //
 	unsigned int signon_models; //
@@ -174,39 +211,17 @@ typedef struct client_s
 	int			 oldstats_i[MAX_CL_STATS];			// previous values of stats. if these differ from the current values, reflag resendstats.
 	float		 oldstats_f[MAX_CL_STATS];			// previous values of stats. if these differ from the current values, reflag resendstats.
 	char		*oldstats_s[MAX_CL_STATS];
-	struct entity_num_state_s
-	{
-		unsigned int   num; // ascending order, there can be gaps.
-		entity_state_t state;
-	}			 *previousentities;
+	entity_num_state_t *previousentities;
 	size_t		  numpreviousentities;
 	size_t		  maxpreviousentities;
 	unsigned int  snapshotresume;
 	unsigned int *pendingentities_bits; // UF_ flags for each entity
-	size_t		  numpendingentities;	// realloc if too small
-#define SENDFLAG_PRESENT 0x80000000u	// tracks that we previously sent one of these ents (resulting in a remove if the ent gets remove()d).
-#define SENDFLAG_REMOVE	 0x40000000u	// for packetloss to signal that we need to resend a remove.
-#define SENDFLAG_USABLE	 0x00ffffffu	// SendFlags bits that the qc is actually able to use (don't get confused if the mod uses SendFlags=-1).
-	struct deltaframe_s
-	{ // quick overview of how this stuff actually works:
-		// when the server notices a gap in the ack sequence, we walk through the dropped frames and reflag everything that was dropped.
-		// if the server isn't tracking enough frames, then we just treat those as dropped;
-		// small note: when an entity is new, it re-flags itself as new for the next packet too, this reduces the immediate impact of packetloss on new
-		// entities. reflagged state includes stats updates, entity updates, and entity removes.
-		int			 sequence; // to see if its stale
-		float		 timestamp;
-		unsigned int resendstatsnum[MAX_CL_STATS / 32];
-		unsigned int resendstatsstr[MAX_CL_STATS / 32];
-		struct
-		{
-			unsigned int num;
-			unsigned int ebits;
-			unsigned int csqcbits;
-		}  *ents;
-		int numents; // doesn't contain an entry for every entity, just ones that were sent this frame. no 0 bits
-		int maxents;
-	}		*frames;
-	size_t	 numframes; // preallocated power-of-two
+	size_t numpendingentities; // realloc if too small
+#define SENDFLAG_PRESENT 0x80000000u // tracks that we previously sent one of these ents (resulting in a remove if the ent gets remove()d).
+#define SENDFLAG_REMOVE	 0x40000000u // for packetloss to signal that we need to resend a remove.
+#define SENDFLAG_USABLE	 0x00ffffffu // SendFlags bits that the qc is actually able to use (don't get confused if the mod uses SendFlags=-1).
+	deltaframe_t *frames;
+	size_t		  numframes; // preallocated power-of-two
 	int		 lastacksequence;
 	int		 lastmovemessage;
 	double	 lastmovetime;

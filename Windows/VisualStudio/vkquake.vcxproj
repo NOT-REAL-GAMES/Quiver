@@ -69,12 +69,12 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
-      <CompileAs>CompileAsC</CompileAs>
+      <CompileAs>CompileAsCpp</CompileAs>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <ExceptionHandling>false</ExceptionHandling>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DisableSpecificWarnings>4100;4127;4389;4702;4706</DisableSpecificWarnings>
-      <LanguageStandard_C>stdc11</LanguageStandard_C>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <UseStandardPreprocessor>false</UseStandardPreprocessor>
       <PrecompiledHeaderFile>quakedef.h</PrecompiledHeaderFile>
     </ClCompile>
@@ -105,13 +105,13 @@ copy "$(SolutionDir)\..\SDL2\lib64\*.dll" "$(TargetDir)"</Command>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <CompileAs>CompileAsC</CompileAs>
+      <CompileAs>CompileAsCpp</CompileAs>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <ExceptionHandling>false</ExceptionHandling>
       <TreatWarningAsError>true</TreatWarningAsError>
       <DisableSpecificWarnings>4100;4127;4389;4702;4706</DisableSpecificWarnings>
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <LanguageStandard_C>stdc11</LanguageStandard_C>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <UseStandardPreprocessor>false</UseStandardPreprocessor>
       <PrecompiledHeaderFile>quakedef.h</PrecompiledHeaderFile>
     </ClCompile>

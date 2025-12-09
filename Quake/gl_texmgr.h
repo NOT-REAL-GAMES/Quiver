@@ -49,6 +49,15 @@ typedef enum
 } textureflags_t;
 // clang-format on
 
+#ifdef __cplusplus
+inline textureflags_t operator| (textureflags_t a, textureflags_t b) { return static_cast<textureflags_t> (static_cast<int> (a) | static_cast<int> (b)); }
+inline textureflags_t operator& (textureflags_t a, textureflags_t b) { return static_cast<textureflags_t> (static_cast<int> (a) & static_cast<int> (b)); }
+inline textureflags_t operator~ (textureflags_t a) { return static_cast<textureflags_t> (~static_cast<int> (a)); }
+inline textureflags_t &operator|= (textureflags_t &a, textureflags_t b) { return a = a | b; }
+inline textureflags_t &operator&= (textureflags_t &a, textureflags_t b) { return a = a & b; }
+inline textureflags_t &operator-= (textureflags_t &a, textureflags_t b) { return a = static_cast<textureflags_t> (static_cast<int> (a) & ~static_cast<int> (b)); }
+#endif
+
 enum srcformat
 {
 	SRC_INDEXED,
@@ -120,7 +129,7 @@ void		 TexMgr_LoadPalette (void);
 // IMAGE LOADING
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
-	unsigned flags);
+	textureflags_t flags);
 void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants);
 void TexMgr_ReloadNobrightImages (void);
 

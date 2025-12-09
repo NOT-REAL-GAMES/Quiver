@@ -139,9 +139,9 @@ hull_t *SV_HullForEntity (edict_t *ent, vec3_t mins, vec3_t maxs, vec3_t offset)
 	hull_t	 *hull;
 
 	// decide which clipping hull to use, based on the size
-	if (ent->v.solid == SOLID_BSP)
+	if (ent->v.solid == (float)SOLID_BSP)
 	{ // explicit hulls in the BSP model
-		if (ent->v.movetype != MOVETYPE_PUSH && !pr_checkextension.value)
+		if (ent->v.movetype != (float)MOVETYPE_PUSH && !pr_checkextension.value)
 			Con_Warning (
 				"SOLID_BSP without MOVETYPE_PUSH (%s at %f %f %f)\n", PR_GetString (ent->v.classname), ent->v.origin[0], ent->v.origin[1], ent->v.origin[2]);
 
@@ -295,7 +295,7 @@ static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, edict_t **list
 		touch = EDICT_FROM_AREA (l);
 		if (touch == ent)
 			continue;
-		if (!touch->v.touch || touch->v.solid != SOLID_TRIGGER)
+		if (!touch->v.touch || touch->v.solid != (float)SOLID_TRIGGER)
 			continue;
 		if (ent->v.absmin[0] > touch->v.absmax[0] || ent->v.absmin[1] > touch->v.absmax[1] || ent->v.absmin[2] > touch->v.absmax[2] ||
 			ent->v.absmax[0] < touch->v.absmin[0] || ent->v.absmax[1] < touch->v.absmin[1] || ent->v.absmax[2] < touch->v.absmin[2])
@@ -346,7 +346,7 @@ void SV_TouchLinks (edict_t *ent)
 		// edicts later in the list no longer touch
 		if (touch == ent)
 			continue;
-		if (!touch->v.touch || touch->v.solid != SOLID_TRIGGER)
+		if (!touch->v.touch || touch->v.solid != (float)SOLID_TRIGGER)
 			continue;
 		if (ent->v.absmin[0] > touch->v.absmax[0] || ent->v.absmin[1] > touch->v.absmax[1] || ent->v.absmin[2] > touch->v.absmax[2] ||
 			ent->v.absmax[0] < touch->v.absmin[0] || ent->v.absmax[1] < touch->v.absmin[1] || ent->v.absmax[2] < touch->v.absmin[2])
@@ -430,7 +430,7 @@ void SV_LinkEdict (edict_t *ent, qboolean touch_triggers)
 		return;
 
 	// set the abs box
-	if (ent->v.solid == SOLID_BSP && pr_checkextension.value && IsOriginWithinMinMax (ent->v.origin, ent->v.mins, ent->v.maxs) &&
+	if (ent->v.solid == (float)SOLID_BSP && pr_checkextension.value && IsOriginWithinMinMax (ent->v.origin, ent->v.mins, ent->v.maxs) &&
 		!IsAxisAlignedDeg (ent->v.angles))
 	{ // expand for rotation the lame way. hopefully there's an origin brush in there.
 		int	   i;
@@ -483,7 +483,7 @@ void SV_LinkEdict (edict_t *ent, qboolean touch_triggers)
 	if (ent->v.modelindex)
 		SV_FindTouchedLeafs (ent, qcvm->worldmodel->nodes);
 
-	if (ent->v.solid == SOLID_NOT)
+	if (ent->v.solid == (float)SOLID_NOT)
 		return;
 
 	// find the first node that the ent's box crosses
@@ -502,7 +502,7 @@ void SV_LinkEdict (edict_t *ent, qboolean touch_triggers)
 
 	// link it in
 
-	if (ent->v.solid == SOLID_TRIGGER)
+	if (ent->v.solid == (float)SOLID_TRIGGER)
 		InsertLinkBefore (&ent->area, &node->trigger_edicts);
 	else
 		InsertLinkBefore (&ent->area, &node->solid_edicts);
@@ -942,7 +942,7 @@ trace_t SV_ClipMoveToEntity (edict_t *ent, vec3_t start, vec3_t mins, vec3_t max
 	VectorSubtract (end, offset, end_l);
 
 	// trace a line through the apropriate clipping hull
-	if (ent->v.solid == SOLID_BSP && pr_checkextension.value && !IsAxisAlignedDeg (ent->v.angles) &&
+	if (ent->v.solid == (float)SOLID_BSP && pr_checkextension.value && !IsAxisAlignedDeg (ent->v.angles) &&
 		qcvm->edicts != ent) // don't rotate the world entity's collisions (its not networked, and some maps are buggy, resulting in screwed collisions)
 	{
 #define DotProductTranspose(v, m, a) ((v)[0] * (m)[0][a] + (v)[1] * (m)[1][a] + (v)[2] * (m)[2][a])
@@ -999,14 +999,14 @@ static void SV_ClipToLinks (areanode_t *node, moveclip_t *clip)
 	{
 		next = l->next;
 		touch = EDICT_FROM_AREA (l);
-		if (touch->v.solid == SOLID_NOT)
+		if (touch->v.solid == (float)SOLID_NOT)
 			continue;
 		if (touch == clip->passedict)
 			continue;
-		if (touch->v.solid == SOLID_TRIGGER)
+		if (touch->v.solid == (float)SOLID_TRIGGER)
 			Sys_Error ("Trigger in clipping list");
 
-		if (clip->type == MOVE_NOMONSTERS && touch->v.solid != SOLID_BSP)
+		if (clip->type == MOVE_NOMONSTERS && touch->v.solid != (float)SOLID_BSP)
 			continue;
 
 		if (clip->boxmins[0] > touch->v.absmax[0] || clip->boxmins[1] > touch->v.absmax[1] || clip->boxmins[2] > touch->v.absmax[2] ||

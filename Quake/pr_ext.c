@@ -489,7 +489,7 @@ static void PF_strzone (void)
 	}
 	len++; /*for the null*/
 
-	buf = Mem_Alloc (len);
+	buf = static_cast<char *> (Mem_Alloc (len));
 	G_INT (OFS_RETURN) = PR_SetEngineString (buf);
 	id = -1 - G_INT (OFS_RETURN);
 	if (id >= qcvm->knownzonesize)
@@ -497,7 +497,7 @@ static void PF_strzone (void)
 		int old_size = (qcvm->knownzonesize + 7) >> 3;
 		qcvm->knownzonesize = (id + 32) & ~7;
 		int new_size = (qcvm->knownzonesize + 7) >> 3;
-		qcvm->knownzone = Mem_Realloc (qcvm->knownzone, new_size);
+		qcvm->knownzone = static_cast<unsigned char *> (Mem_Realloc (qcvm->knownzone, new_size));
 		memset (qcvm->knownzone + old_size, 0, new_size - old_size);
 	}
 	qcvm->knownzone[id >> 3] |= 1u << (id & 7);
@@ -1606,7 +1606,7 @@ static void PF_tokenizebyseparator (void)
 			if (found)
 			{
 				tlen = qctoken[qctoken_count].end - qctoken[qctoken_count].start;
-				qctoken[qctoken_count].token = Mem_Alloc (tlen + 1);
+				qctoken[qctoken_count].token = static_cast<char *> (Mem_Alloc (tlen + 1));
 				memcpy (qctoken[qctoken_count].token, start + qctoken[qctoken_count].start, tlen);
 				qctoken[qctoken_count].token[tlen] = 0;
 
@@ -1933,7 +1933,7 @@ static void PF_frameforname (void)
 	aliashdr_t	*alias;
 
 	G_FLOAT (OFS_RETURN) = -1;
-	if (mod && mod->type == mod_alias && (alias = Mod_Extradata (mod)))
+	if (mod && mod->type == mod_alias && (alias = static_cast<aliashdr_t *> (Mod_Extradata (mod))))
 	{
 		int i;
 		for (i = 0; i < alias->numframes; i++)
@@ -1953,7 +1953,7 @@ static void PF_frametoname (void)
 	qmodel_t	*mod = qcvm->GetModel (modelindex);
 	aliashdr_t	*alias;
 
-	if (mod && mod->type == mod_alias && (alias = Mod_Extradata (mod)) && framenum < (unsigned int)alias->numframes)
+	if (mod && mod->type == mod_alias && (alias = static_cast<aliashdr_t *> (Mod_Extradata (mod))) && framenum < (unsigned int)alias->numframes)
 		G_INT (OFS_RETURN) = PR_SetEngineString (alias->frames[framenum].name);
 	else
 		G_INT (OFS_RETURN) = 0;
@@ -1965,7 +1965,7 @@ static void PF_frameduration (void)
 	qmodel_t	*mod = qcvm->GetModel (modelindex);
 	aliashdr_t	*alias;
 
-	if (mod && mod->type == mod_alias && (alias = Mod_Extradata (mod)) && framenum < (unsigned int)alias->numframes)
+	if (mod && mod->type == mod_alias && (alias = static_cast<aliashdr_t *> (Mod_Extradata (mod))) && framenum < (unsigned int)alias->numframes)
 		G_FLOAT (OFS_RETURN) = alias->frames[framenum].numposes * alias->frames[framenum].interval;
 }
 static void PF_getsurfacenumpoints (void)
@@ -3156,7 +3156,7 @@ static void PF_buf_copy (void)
 
 	// copy new data over.
 	strbuflist[bufto].used = strbuflist[bufto].allocated = strbuflist[buffrom].used;
-	strbuflist[bufto].strings = Mem_Alloc (strbuflist[buffrom].used * sizeof (char *));
+	strbuflist[bufto].strings = static_cast<char **> (Mem_Alloc (strbuflist[buffrom].used * sizeof (char *)));
 	for (i = 0; i < strbuflist[buffrom].used; i++)
 		strbuflist[bufto].strings[i] = strbuflist[buffrom].strings[i] ? q_strdup (strbuflist[buffrom].strings[i]) : NULL;
 }
@@ -3315,12 +3315,12 @@ static void PF_bufstr_set (void)
 	{
 		oldcount = strbuflist[bufno].allocated;
 		strbuflist[bufno].allocated = (index + 256);
-		strbuflist[bufno].strings = Mem_Realloc (strbuflist[bufno].strings, strbuflist[bufno].allocated * sizeof (char *));
+		strbuflist[bufno].strings = static_cast<char **> (Mem_Realloc (strbuflist[bufno].strings, strbuflist[bufno].allocated * sizeof (char *)));
 		memset (strbuflist[bufno].strings + oldcount, 0, (strbuflist[bufno].allocated - oldcount) * sizeof (char *));
 	}
 	if (strbuflist[bufno].strings[index])
 		Mem_Free (strbuflist[bufno].strings[index]);
-	strbuflist[bufno].strings[index] = Mem_Alloc (strlen (string) + 1);
+	strbuflist[bufno].strings[index] = static_cast<char *> (Mem_Alloc (strlen (string) + 1));
 	strcpy (strbuflist[bufno].strings[index], string);
 
 	if (index >= strbuflist[bufno].used)
@@ -3349,14 +3349,14 @@ static int PF_bufstr_add_internal (unsigned int bufno, const char *string, int a
 		unsigned int oldcount;
 		oldcount = strbuflist[bufno].allocated;
 		strbuflist[bufno].allocated = (index + 256);
-		strbuflist[bufno].strings = Mem_Realloc (strbuflist[bufno].strings, strbuflist[bufno].allocated * sizeof (char *));
+		strbuflist[bufno].strings = static_cast<char **> (Mem_Realloc (strbuflist[bufno].strings, strbuflist[bufno].allocated * sizeof (char *)));
 		memset (strbuflist[bufno].strings + oldcount, 0, (strbuflist[bufno].allocated - oldcount) * sizeof (char *));
 	}
 
 	// add in the new string.
 	if (strbuflist[bufno].strings[index])
 		Mem_Free (strbuflist[bufno].strings[index]);
-	strbuflist[bufno].strings[index] = Mem_Alloc (strlen (string) + 1);
+	strbuflist[bufno].strings[index] = static_cast<char *> (Mem_Alloc (strlen (string) + 1));
 	strcpy (strbuflist[bufno].strings[index], string);
 
 	if (index >= strbuflist[bufno].used)
@@ -3924,7 +3924,7 @@ static void SV_Multicast (multicast_t to, float *org, int msg_entity, unsigned i
 static void PF_multicast (void)
 {
 	float	   *org = G_VECTOR (OFS_PARM0);
-	multicast_t to = G_FLOAT (OFS_PARM1);
+	multicast_t to = static_cast<multicast_t> ((int)G_FLOAT (OFS_PARM1));
 	SV_Multicast (to, org, NUM_FOR_EDICT (PROG_TO_EDICT (pr_global_struct->msg_entity)), 0);
 }
 static void PF_randomvector (void)
@@ -4431,7 +4431,7 @@ static void PF_cl_pointparticles (void)
 static void PF_cl_getstat_int (void)
 {
 	int stnum = G_FLOAT (OFS_PARM0);
-	if (stnum < 0 || stnum > countof (cl.stats))
+	if (stnum < 0 || stnum > (int)countof (cl.stats))
 		G_INT (OFS_RETURN) = 0;
 	else
 		G_INT (OFS_RETURN) = cl.stats[stnum];
@@ -4439,7 +4439,7 @@ static void PF_cl_getstat_int (void)
 static void PF_cl_getstat_float (void)
 {
 	int stnum = G_FLOAT (OFS_PARM0);
-	if (stnum < 0 || stnum > countof (cl.stats))
+	if (stnum < 0 || stnum > (int)countof (cl.stats))
 		G_FLOAT (OFS_RETURN) = 0;
 	else if (qcvm->argc > 1)
 	{
@@ -4453,7 +4453,7 @@ static void PF_cl_getstat_float (void)
 static void PF_cl_getstat_string (void)
 {
 	int stnum = G_FLOAT (OFS_PARM0);
-	if (stnum < 0 || stnum > countof (cl.statss) || !cl.statss[stnum])
+	if (stnum < 0 || stnum > (int)countof (cl.statss) || !cl.statss[stnum])
 		G_INT (OFS_RETURN) = 0;
 	else
 	{
@@ -4463,12 +4463,13 @@ static void PF_cl_getstat_string (void)
 	}
 }
 
-static struct
+typedef struct qcpic_entry_s
 {
 	char		 name[MAX_QPATH];
 	unsigned int flags;
 	qpic_t		*pic;
-}			 *qcpics;
+} qcpic_entry_t;
+static qcpic_entry_t *qcpics;
 static size_t numqcpics;
 static size_t maxqcpics;
 void		  PR_ReloadPics (qboolean purge)
@@ -4508,7 +4509,7 @@ static qpic_t *DrawQC_CachePic (const char *picname, unsigned int flags)
 	if (i + 1 > maxqcpics)
 	{
 		maxqcpics = i + 32;
-		qcpics = Mem_Realloc (qcpics, maxqcpics * sizeof (*qcpics));
+		qcpics = static_cast<qcpic_entry_t *> (Mem_Realloc (qcpics, maxqcpics * sizeof (*qcpics)));
 	}
 
 	strcpy (qcpics[i].name, picname);
@@ -4606,8 +4607,6 @@ static void			DrawQC_CharacterQuad (cb_context_t *cbx, float x, float y, int num
 }
 static void PF_cl_drawcharacter (void)
 {
-	extern gltexture_t *char_texture;
-
 	float *pos = G_VECTOR (OFS_PARM0);
 	int	   charcode = (int)G_FLOAT (OFS_PARM1) & 0xff;
 	float *size = G_VECTOR (OFS_PARM2);
@@ -5655,9 +5654,9 @@ void PR_EnableExtensions (ddef_t *pr_globaldefs)
 	}
 #undef QCEXTFUNC
 
-#define QCEXTGLOBAL_FLOAT(n)  qcvm->extglobals.n = PR_FindExtGlobal (ev_float, #n);
-#define QCEXTGLOBAL_INT(n)	  qcvm->extglobals.n = PR_FindExtGlobal (ev_ext_integer, #n);
-#define QCEXTGLOBAL_VECTOR(n) qcvm->extglobals.n = PR_FindExtGlobal (ev_vector, #n);
+#define QCEXTGLOBAL_FLOAT(n)  qcvm->extglobals.n = static_cast<float *> (PR_FindExtGlobal (ev_float, #n));
+#define QCEXTGLOBAL_INT(n)	  qcvm->extglobals.n = static_cast<int *> (PR_FindExtGlobal (ev_ext_integer, #n));
+#define QCEXTGLOBAL_VECTOR(n) qcvm->extglobals.n = static_cast<float *> (PR_FindExtGlobal (ev_vector, #n));
 	QCEXTGLOBALS_COMMON
 	QCEXTGLOBALS_GAME
 	QCEXTGLOBALS_CSQC

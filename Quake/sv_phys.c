@@ -76,7 +76,7 @@ void SV_CheckAllEnts (void)
 	{
 		if (check->free)
 			continue;
-		if (check->v.movetype == MOVETYPE_PUSH || check->v.movetype == MOVETYPE_NONE || check->v.movetype == MOVETYPE_NOCLIP)
+		if (check->v.movetype == (float)MOVETYPE_PUSH || check->v.movetype == (float)MOVETYPE_NONE || check->v.movetype == (float)MOVETYPE_NOCLIP)
 			continue;
 
 		if (SV_TestEntityPosition (check))
@@ -186,14 +186,14 @@ static void SV_Impact (edict_t *e1, edict_t *e2)
 	old_other = pr_global_struct->other;
 
 	pr_global_struct->time = qcvm->time;
-	if (e1->v.touch && e1->v.solid != SOLID_NOT)
+	if (e1->v.touch && e1->v.solid != (float)SOLID_NOT)
 	{
 		pr_global_struct->self = EDICT_TO_PROG (e1);
 		pr_global_struct->other = EDICT_TO_PROG (e2);
 		PR_ExecuteProgram (e1->v.touch);
 	}
 
-	if (e2->v.touch && e2->v.solid != SOLID_NOT)
+	if (e2->v.touch && e2->v.solid != (float)SOLID_NOT)
 	{
 		pr_global_struct->self = EDICT_TO_PROG (e2);
 		pr_global_struct->other = EDICT_TO_PROG (e1);
@@ -308,7 +308,7 @@ static int SV_FlyMove (edict_t *ent, float time, trace_t *steptrace)
 		if (trace.plane.normal[2] > 0.7)
 		{
 			blocked |= 1; // floor
-			if (trace.ent->v.solid == SOLID_BSP)
+			if (trace.ent->v.solid == (float)SOLID_BSP)
 			{
 				ent->v.flags = (int)ent->v.flags | FL_ONGROUND;
 				ent->v.groundentity = EDICT_TO_PROG (trace.ent);
@@ -429,9 +429,9 @@ static trace_t SV_PushEntity (edict_t *ent, vec3_t push)
 
 	VectorAdd (ent->v.origin, push, end);
 
-	if (ent->v.movetype == MOVETYPE_FLYMISSILE)
+	if (ent->v.movetype == (float)MOVETYPE_FLYMISSILE)
 		trace = SV_Move (ent->v.origin, ent->v.mins, ent->v.maxs, end, MOVE_MISSILE, ent);
-	else if (ent->v.solid == SOLID_TRIGGER || ent->v.solid == SOLID_NOT)
+	else if (ent->v.solid == (float)SOLID_TRIGGER || ent->v.solid == (float)SOLID_NOT)
 		// only clip against bmodels
 		trace = SV_Move (ent->v.origin, ent->v.mins, ent->v.maxs, end, MOVE_NOMONSTERS, ent);
 	else
@@ -517,7 +517,7 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 		if (check->free)
 			continue;
 
-		if (check->v.movetype == MOVETYPE_PUSH || check->v.movetype == MOVETYPE_NONE || check->v.movetype == MOVETYPE_NOCLIP)
+		if (check->v.movetype == (float)MOVETYPE_PUSH || check->v.movetype == (float)MOVETYPE_NONE || check->v.movetype == (float)MOVETYPE_NOCLIP)
 			continue;
 
 		qboolean riding = false;
@@ -547,7 +547,7 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 			riding = true;
 
 		// remove the onground flag for non-players
-		if (check->v.movetype != MOVETYPE_WALK)
+		if (check->v.movetype != (float)MOVETYPE_WALK)
 			check->v.flags = (int)check->v.flags & ~FL_ONGROUND;
 
 		VectorCopy (check->v.origin, entorig);
@@ -557,9 +557,9 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 
 		// QIP fix for end.bsp
 		solid_backup = pusher->v.solid;
-		if (solid_backup == SOLID_BSP		   // everything that blocks: bsp models = map brushes = doors, plats, etc.
-			|| solid_backup == SOLID_BBOX	   // normally boxes
-			|| solid_backup == SOLID_SLIDEBOX) // normally monsters
+		if (solid_backup == (float)SOLID_BSP		   // everything that blocks: bsp models = map brushes = doors, plats, etc.
+			|| solid_backup == (float)SOLID_BBOX	   // normally boxes
+			|| solid_backup == (float)SOLID_SLIDEBOX) // normally monsters
 		{
 			// try moving the contacted entity
 			pusher->v.solid = SOLID_NOT;
@@ -584,7 +584,7 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 			if (check->v.mins[0] == check->v.maxs[0])
 				continue;
 
-			if (check->v.solid == SOLID_NOT || check->v.solid == SOLID_TRIGGER)
+			if (check->v.solid == (float)SOLID_NOT || check->v.solid == (float)SOLID_TRIGGER)
 			{ // corpse
 				check->v.mins[0] = check->v.mins[1] = 0;
 				VectorCopy (check->v.mins, check->v.maxs);
@@ -903,7 +903,7 @@ static void SV_WalkMove (edict_t *ent)
 	if (!oldonground && ent->v.waterlevel == 0)
 		return; // don't stair up while jumping
 
-	if (ent->v.movetype != MOVETYPE_WALK)
+	if (ent->v.movetype != (float)MOVETYPE_WALK)
 		return; // gibbed by a trigger
 
 	if (sv_nostep.value)
@@ -954,7 +954,7 @@ static void SV_WalkMove (edict_t *ent)
 
 	if (downtrace.plane.normal[2] > 0.7)
 	{
-		if (ent->v.solid == SOLID_BSP)
+		if (ent->v.solid == (float)SOLID_BSP)
 		{
 			ent->v.flags = (int)ent->v.flags | FL_ONGROUND;
 			ent->v.groundentity = EDICT_TO_PROG (downtrace.ent);
@@ -1153,7 +1153,7 @@ static void SV_Physics_Toss (edict_t *ent)
 	SV_CheckVelocity (ent);
 
 	// add gravity
-	if (ent->v.movetype != MOVETYPE_FLY && ent->v.movetype != MOVETYPE_FLYMISSILE)
+	if (ent->v.movetype != (float)MOVETYPE_FLY && ent->v.movetype != (float)MOVETYPE_FLYMISSILE)
 		SV_AddGravity (ent);
 
 	// move angles
@@ -1167,7 +1167,7 @@ static void SV_Physics_Toss (edict_t *ent)
 	if (ent->free)
 		return;
 
-	if (ent->v.movetype == MOVETYPE_BOUNCE)
+	if (ent->v.movetype == (float)MOVETYPE_BOUNCE)
 		backoff = 1.5;
 	else
 		backoff = 1;
@@ -1177,7 +1177,7 @@ static void SV_Physics_Toss (edict_t *ent)
 	// stop if on ground
 	if (trace.plane.normal[2] > 0.7)
 	{
-		if (ent->v.movetype != MOVETYPE_BOUNCE ||
+		if (ent->v.movetype != (float)MOVETYPE_BOUNCE ||
 			(sv_gameplayfix_bouncedownslopes.value ? DotProduct (trace.plane.normal, ent->v.velocity) : ent->v.velocity[2]) < 60)
 		{
 			ent->v.flags = (int)ent->v.flags | FL_ONGROUND;
@@ -1309,7 +1309,7 @@ void SV_Physics (void)
 		{
 			if (check->free)
 				continue;
-			if (check->v.movetype == MOVETYPE_PUSH || check->v.movetype == MOVETYPE_NONE || check->v.movetype == MOVETYPE_NOCLIP)
+			if (check->v.movetype == (float)MOVETYPE_PUSH || check->v.movetype == (float)MOVETYPE_NONE || check->v.movetype == (float)MOVETYPE_NOCLIP)
 				continue;
 
 			pushable_ent_cache[num_pushable_ent_cache++] = check;
@@ -1329,17 +1329,17 @@ void SV_Physics (void)
 
 		if (i > 0 && i <= svs.maxclients && qcvm == &sv.qcvm)
 			SV_Physics_Client (ent, i);
-		else if (ent->v.movetype == MOVETYPE_PUSH)
+		else if (ent->v.movetype == (float)MOVETYPE_PUSH)
 			SV_Physics_Pusher (ent);
-		else if (ent->v.movetype == MOVETYPE_NONE)
+		else if (ent->v.movetype == (float)MOVETYPE_NONE)
 			SV_Physics_None (ent);
-		else if (ent->v.movetype == MOVETYPE_NOCLIP)
+		else if (ent->v.movetype == (float)MOVETYPE_NOCLIP)
 			SV_Physics_Noclip (ent);
-		else if (ent->v.movetype == MOVETYPE_STEP)
+		else if (ent->v.movetype == (float)MOVETYPE_STEP)
 			SV_Physics_Step (ent);
 		else if (
-			ent->v.movetype == MOVETYPE_TOSS || ent->v.movetype == MOVETYPE_GIB || ent->v.movetype == MOVETYPE_BOUNCE || ent->v.movetype == MOVETYPE_FLY ||
-			ent->v.movetype == MOVETYPE_FLYMISSILE)
+			ent->v.movetype == (float)MOVETYPE_TOSS || ent->v.movetype == (float)MOVETYPE_GIB || ent->v.movetype == (float)MOVETYPE_BOUNCE || ent->v.movetype == (float)MOVETYPE_FLY ||
+			ent->v.movetype == (float)MOVETYPE_FLYMISSILE)
 			SV_Physics_Toss (ent);
 		else
 			Host_EndGame ("SV_Physics: bad movetype %i", (int)ent->v.movetype);
@@ -1349,7 +1349,7 @@ void SV_Physics (void)
 		// lerp timing, but only if interval is not 0.1 (which client assumes)
 		ent->sendinterval = false;
 		if (!ent->free && ent->v.nextthink > qcvm->time &&
-			(ent->v.movetype == MOVETYPE_STEP || ent->v.movetype == MOVETYPE_WALK || ent->v.frame != ent->oldframe))
+			(ent->v.movetype == (float)MOVETYPE_STEP || ent->v.movetype == (float)MOVETYPE_WALK || ent->v.frame != ent->oldframe))
 		{
 			int j = Q_rint ((ent->v.nextthink - ent->oldthinktime) * 255);
 			if (j >= 0 && j < 256 && j != 25 && j != 26) // 25 and 26 are close enough to 0.1 to not send

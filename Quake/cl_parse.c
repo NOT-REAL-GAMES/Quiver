@@ -1481,8 +1481,8 @@ static void CL_ParseStatic (int version) // johnfitz -- added a parameter
 	if (i >= cl.max_static_entities)
 	{
 		int		   ec = 64;
-		entity_t **newstatics = Mem_Realloc (cl.static_entities, sizeof (*newstatics) * (cl.max_static_entities + ec));
-		entity_t  *newents = Mem_Alloc (sizeof (*newents) * ec);
+		entity_t **newstatics = static_cast<entity_t **> (Mem_Realloc (cl.static_entities, sizeof (*newstatics) * (cl.max_static_entities + ec)));
+		entity_t  *newents = static_cast<entity_t *> (Mem_Alloc (sizeof (*newents) * ec));
 		if (!newstatics || !newents)
 			Host_Error ("Too many static entities");
 		cl.static_entities = newstatics;
