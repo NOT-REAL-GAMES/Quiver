@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // world.c -- world query functions
 
 #include "quakedef.h"
+#include "kd_model.h"
 
 // FTE-opimized world queries
 
@@ -1268,6 +1269,10 @@ trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, e
 
 	// clip to world
 	clip.trace = SV_ClipMoveToEntity (qcvm->edicts, start, mins, maxs, end, clip.hitcontents);
+
+	// Also clip to kd-tree world if loaded
+	if (KD_ClipMoveToWorld (start, mins, maxs, end, &clip.trace))
+		clip.trace.ent = qcvm->edicts;  // kd-tree hit is world geometry
 
 	clip.start = start;
 	clip.end = end;

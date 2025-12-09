@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // on the same machine.
 
 #include "quakedef.h"
+#include "kd_model.h"
 
 static void		 Mod_LoadSpriteModel (qmodel_t *mod, void *buffer);
 static void		 Mod_LoadBrushModel (qmodel_t *mod, const char *loadname, void *buffer);
@@ -691,6 +692,21 @@ static qmodel_t *Mod_LoadModel (qmodel_t *mod, qboolean crash)
 		// by construction this is a "native" MD3 model, NOT a .mdl replacement so enhanced_replacement_loaded = false here
 		assert (!enhanced_replacement_loaded);
 		Mod_LoadMD3Model (mod, (const void *)buf);
+	}
+	break;
+
+	//
+	case KDFORMAT_MAGIC:
+	{
+		// Kd-tree map file (.qkd)
+		mod->type = mod_brush;
+		mod->kdmodel = KD_LoadModel (mod->name);
+		if (!mod->kdmodel)
+			Sys_Error ("Mod_LoadModel: couldn't load kd-tree map %s", mod->name);
+
+		// Copy bounds from kd-tree model
+		VectorCopy (mod->kdmodel->mins, mod->mins);
+		VectorCopy (mod->kdmodel->maxs, mod->maxs);
 	}
 	break;
 

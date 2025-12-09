@@ -84,7 +84,7 @@ endif
 COMMON_LIBS+= -lMoltenVK
 endif
 
-LIBS := $(COMMON_LIBS) $(CODECLIBS)
+LIBS := $(COMMON_LIBS) $(CODECLIBS) $(JOLT_LIB)
 
 # ---------------------------
 # targets / rules

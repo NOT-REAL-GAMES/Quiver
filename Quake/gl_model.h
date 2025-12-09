@@ -28,6 +28,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "spritegn.h"
 #include "atomics.h"
 
+// Forward declaration for kd-tree model
+struct kdmodel_s;
+
 /*
 
 d*_t structures are on-disk representations
@@ -678,6 +681,9 @@ typedef struct qmodel_s
 	VkAccelerationStructureKHR blas;
 	VkBuffer				   blas_buffer;
 	VkDeviceAddress			   blas_address;
+
+	// Kd-tree model (for .qkd files, NULL for BSP)
+	struct kdmodel_s *kdmodel;
 } qmodel_t;
 
 //============================================================================

@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "tasks.h"
 #include "atomics.h"
+#include "kd_model.h"
 
 int r_visframecount; // bumped when going to a new PVS
 int r_framecount;	 // used for dlight push checking
@@ -825,6 +826,9 @@ static void R_DrawWorldTask (int index, void *use_tasks)
 		R_DrawIndirectBrushes (cbx, false, false, false, use_tasks ? index : -1);
 	else
 		R_DrawWorld (cbx, index);
+
+	// Draw kd-tree debug surfaces if loaded
+	KD_DrawDebugSurfaces (cbx);
 }
 
 /*

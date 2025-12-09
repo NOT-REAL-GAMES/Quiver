@@ -25,6 +25,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "bgmusic.h"
 #include "tasks.h"
+#include "kd_model.h"
+#include "jolt_physics.h"
 #include <setjmp.h>
 #ifdef _DEBUG
 #include "gl_heap.h"
@@ -1083,6 +1085,11 @@ void Host_Init (void)
 	}
 	PR_Init ();
 	Mod_Init ();
+	Jolt_Init ();
+	KD_Init ();
+	KD_RenderInit ();
+	KD_WorldInit ();
+	KD_CompileInit ();
 	NET_Init ();
 	SV_Init ();
 
@@ -1182,4 +1189,6 @@ void Host_Shutdown (void)
 	LOG_Close ();
 
 	LOC_Shutdown ();
+
+	Jolt_Shutdown ();
 }
