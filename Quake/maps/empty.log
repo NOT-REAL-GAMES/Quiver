@@ -1,0 +1,86 @@
+---- qbsp / ericw-tools 2.0.0-alpha10 ----
+
+--- Options Summary ---
+
+Input file: /home/tremor/Desktop/Quiver/Quake/maps/empty.map
+Output file: /home/tremor/Desktop/Quiver/Quake/maps/empty.bsp
+
+INFO: using built-in palette.
+WARNING: No wad or _wad key exists in the worldmodel
+     3 entities
+     2 unique textures
+     4 texinfos
+    24 unique planes
+
+WARNING: 'worldextent': -inf is less than minimum value -3.4028235e+38.
+INFO: world extents calculated to -3.4028235e+38 units
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+     6 brushes
+    36 sides
+     8 side bevels
+
+            0 texture frames added
+WARNING: unable to find texture skip
+WARNING: unable to find texture metal1_1
+Processing hull 0...
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+INFO: calculating BSP for 0 brushes with 0 sides
+Processing hull 1...
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+Processing hull 2...
+WARNING: Quake/maps/empty.map[line 5]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 13]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 21]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 29]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 37]: no visible sides on brush
+WARNING: Quake/maps/empty.map[line 45]: no visible sides on brush
+Writing Quake/maps/empty.bsp as Quake BSP bsp29
+Wrote Quake/maps/empty.bsp
+
+count   lump name    byte size 
+      1 models               64
+      0 planes                0
+      1 vertexes             12
+      0 nodes                 0
+      0 texinfos              0
+      0 faces                 0
+      0 clipnodes             0
+      1 leafs                28
+      0 marksurfaces          0
+      1 edges                 4
+      0 surfedges             0
+      2 textures             12
+        lightdata             0
+        visdata               0
+        entdata             154
+
+0.001s seconds elapsed
+
+

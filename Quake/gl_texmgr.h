@@ -66,6 +66,7 @@ enum srcformat
 	SRC_SURF_INDICES,
 	SRC_RGBA_CUBEMAP,
 	SRC_INDEXED_PALETTE,
+	SRC_R8_3D, // Single-channel 3D texture (for noise, etc.)
 };
 
 typedef struct glheapallocation_s glheapallocation_t;
@@ -81,6 +82,7 @@ typedef struct gltexture_s
 								 // that owner came from, if owner != NULL, else 0
 	unsigned int		width;	 // size of image as it exists in opengl
 	unsigned int		height;	 // size of image as it exists in opengl
+	unsigned int		depth;	 // depth for 3D textures (0 or 1 for 2D)
 	textureflags_t		flags;
 	char				source_file[MAX_QPATH]; // relative filepath to data source, or "" if source is in memory
 	src_offset_t		source_offset;			// byte offset into file, or memory address
@@ -130,8 +132,9 @@ void		 TexMgr_LoadPalette (void);
 gltexture_t *TexMgr_LoadImage (
 	qmodel_t *owner, const char *name, int width, int height, enum srcformat format, byte *data, const char *source_file, src_offset_t source_offset,
 	textureflags_t flags);
-void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants);
-void TexMgr_ReloadNobrightImages (void);
+gltexture_t *TexMgr_LoadImage3D (qmodel_t *owner, const char *name, int width, int height, int depth, enum srcformat format, byte *data, textureflags_t flags);
+void		 TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants);
+void		 TexMgr_ReloadNobrightImages (void);
 
 void TexMgr_UpdateTextureDescriptorSets (void);
 

@@ -1,0 +1,106 @@
+---- qbsp / ericw-tools 2.0.0-alpha10 ----
+
+--- Options Summary ---
+
+Input file: /home/tremor/Desktop/Quiver/./test_room.map
+Output file: /home/tremor/Desktop/Quiver/./test_room.bsp
+
+INFO: using built-in palette.
+     2 entities
+     3 unique textures
+    13 texinfos
+    44 unique planes
+
+INFO: world extents calculated to 8392 units
+     6 brushes
+    36 sides
+     4 side bevels
+
+            0 texture frames added
+WARNING: unable to find texture skip
+WARNING: unable to find texture __TB_empty
+Processing hull 0...
+    1 SKY brushes
+    5 SOLID brushes
+    6 brushes total
+    36 visible sides
+INFO: calculating BSP for 6 brushes with 36 sides
+     6 brushes
+    36 visible faces
+    149 nodes
+     12 expensive split nodes
+    137 mid-split nodes
+    150 leaves
+     10 SOLID | SKY leafs
+     47 SOLID leafs
+      9 SKY leafs
+     84 EMPTY leafs
+    150 leafs total
+    11 max tree height
+     8 avg tree height
+    589 tree portals
+    83 outside leaves
+    0 detail filled leafs
+     6 brushes
+     6 visible faces
+    30 non-visible faces
+    113 nodes
+     96 non-visible nodes
+    113 expensive split nodes
+    114 leaves
+      7 SOLID | SKY leafs
+      9 SKY leafs
+     33 SOLID leafs
+     65 EMPTY leafs
+    114 leafs total
+    13 max tree height
+     8 avg tree height
+    488 tree portals
+    64 outside leaves
+    0 detail filled leafs
+    488 tree portals
+    12 sides visible
+        7 makefaces
+    2,544 subdivided
+    71 nodes pruned
+    10 player-occupiable leaves
+    10 clusters of leaves
+    14 vis portals
+     1 EMPTY leafs
+     6 SOLID | SKY leafs
+     9 SKY leafs
+    27 SOLID leafs
+    43 leafs total
+    12 max tree height
+     8 avg tree height
+      176 edges added by tjunctions
+    2,550 faces optimized through MWT
+    5,276 triangles computed from MWT
+       35 faces created via optimization of MWT triangles
+    5,223 edges
+    2,585 faces
+Processing hull 1...
+Processing hull 2...
+Writing ./test_room.bsp as Quake BSP bsp29
+Wrote ./test_room.bsp
+
+count   lump name    byte size 
+      1 models               64
+     26 planes              520
+   2640 vertexes          31680
+     42 nodes              1008
+      6 texinfos            240
+   2585 faces             51700
+     12 clipnodes            96
+     11 leafs               308
+   2585 marksurfaces       5170
+   5224 edges             20896
+  10446 surfedges         41784
+      3 textures          43576
+        lightdata             0
+        visdata               0
+        entdata             171
+
+0.030s seconds elapsed
+
+

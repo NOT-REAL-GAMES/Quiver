@@ -1667,6 +1667,54 @@ void R_CreatePipelineLayouts ()
 	}
 
 	{
+		// Sky Atmosphere pipeline layout (no textures, just push constants)
+		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
+		push_constant_range.offset = 0;
+		push_constant_range.size = 28 * sizeof (float); // mvp(16) + fog_color(3) + fog_density(1) + eye_pos(3) + time(1) + sun_dir(3) + sun_intensity(1)
+		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+
+		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
+		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipeline_layout_create_info.setLayoutCount = 0;
+		pipeline_layout_create_info.pSetLayouts = NULL;
+		pipeline_layout_create_info.pushConstantRangeCount = 1;
+		pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+
+		err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.sky_atmosphere_pipeline_layout.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreatePipelineLayout failed");
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_atmosphere_pipeline_layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "sky_atmosphere_pipeline_layout");
+		vulkan_globals.sky_atmosphere_pipeline_layout.push_constant_range = push_constant_range;
+	}
+
+	{
+		// Sky Clouds pipeline layout (3D noise texture + push constants)
+		VkDescriptorSetLayout clouds_descriptor_set_layouts[1] = {
+			vulkan_globals.single_texture_set_layout.handle,
+		};
+
+		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
+		push_constant_range.offset = 0;
+		// mvp(16) + fog_color(3) + fog_density(1) + eye_pos(3) + time(1) + sun_dir(3) + sun_intensity(1)
+		// + cloud_height(1) + cloud_thickness(1) + cloud_density(1) + cloud_coverage(1) + cloud_speed(1) = 33 floats
+		push_constant_range.size = 33 * sizeof (float);
+		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+
+		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
+		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipeline_layout_create_info.setLayoutCount = 1;
+		pipeline_layout_create_info.pSetLayouts = clouds_descriptor_set_layouts;
+		pipeline_layout_create_info.pushConstantRangeCount = 1;
+		pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+
+		err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.sky_clouds_pipeline_layout.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreatePipelineLayout failed");
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_pipeline_layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "sky_clouds_pipeline_layout");
+		vulkan_globals.sky_clouds_pipeline_layout.push_constant_range = push_constant_range;
+	}
+
+	{
 		// Postprocess
 		VkDescriptorSetLayout postprocess_descriptor_set_layouts[1] = {
 			vulkan_globals.input_attachment_set_layout.handle,
@@ -2115,6 +2163,9 @@ DECLARE_SHADER_MODULE (sky_layer_frag);
 DECLARE_SHADER_MODULE (sky_box_frag);
 DECLARE_SHADER_MODULE (sky_cube_vert);
 DECLARE_SHADER_MODULE (sky_cube_frag);
+DECLARE_SHADER_MODULE (sky_atmosphere_vert);
+DECLARE_SHADER_MODULE (sky_atmosphere_frag);
+DECLARE_SHADER_MODULE (sky_clouds_frag);
 DECLARE_SHADER_MODULE (postprocess_vert);
 DECLARE_SHADER_MODULE (postprocess_frag);
 DECLARE_SHADER_MODULE (screen_effects_8bit_comp);
@@ -2716,6 +2767,39 @@ static void R_CreateSkyPipelines ()
 			Sys_Error ("vkCreateGraphicsPipelines failed (sky_layer_pipeline)");
 		GL_SetObjectName ((uint64_t)vulkan_globals.sky_layer_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_layer_indirect" : "sky_layer");
 		vulkan_globals.sky_layer_pipeline[i].layout = vulkan_globals.sky_pipeline_layout[1];
+
+		// Sky Atmosphere pipeline
+		infos.shader_stages[0].module = sky_atmosphere_vert_module;
+		infos.shader_stages[1].module = sky_atmosphere_frag_module;
+		infos.graphics_pipeline.layout = vulkan_globals.sky_atmosphere_pipeline_layout.handle;
+		assert (vulkan_globals.sky_atmosphere_pipeline[i].handle == VK_NULL_HANDLE);
+		err = vkCreateGraphicsPipelines (
+			vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.sky_atmosphere_pipeline[i].handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateGraphicsPipelines failed (sky_atmosphere_pipeline)");
+		GL_SetObjectName (
+			(uint64_t)vulkan_globals.sky_atmosphere_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_atmosphere_indirect" : "sky_atmosphere");
+		vulkan_globals.sky_atmosphere_pipeline[i].layout = vulkan_globals.sky_atmosphere_pipeline_layout;
+
+		// Sky Clouds pipeline (with alpha blending)
+		infos.shader_stages[0].module = sky_atmosphere_vert_module; // Reuse vertex shader
+		infos.shader_stages[1].module = sky_clouds_frag_module;
+		infos.graphics_pipeline.layout = vulkan_globals.sky_clouds_pipeline_layout.handle;
+		infos.blend_attachment_state.blendEnable = VK_TRUE;
+		infos.blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		infos.blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		infos.blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
+		infos.blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		infos.blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		infos.blend_attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
+		assert (vulkan_globals.sky_clouds_pipeline[i].handle == VK_NULL_HANDLE);
+		err =
+			vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.sky_clouds_pipeline[i].handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateGraphicsPipelines failed (sky_clouds_pipeline)");
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_clouds_indirect" : "sky_clouds");
+		vulkan_globals.sky_clouds_pipeline[i].layout = vulkan_globals.sky_clouds_pipeline_layout;
+		infos.blend_attachment_state.blendEnable = VK_FALSE; // Reset for subsequent pipelines
 
 		if (i > 0)
 			break;
@@ -3350,6 +3434,9 @@ static void R_CreateShaderModules ()
 	CREATE_SHADER_MODULE (sky_box_frag);
 	CREATE_SHADER_MODULE (sky_cube_vert);
 	CREATE_SHADER_MODULE (sky_cube_frag);
+	CREATE_SHADER_MODULE (sky_atmosphere_vert);
+	CREATE_SHADER_MODULE (sky_atmosphere_frag);
+	CREATE_SHADER_MODULE (sky_clouds_frag);
 	CREATE_SHADER_MODULE (postprocess_vert);
 	CREATE_SHADER_MODULE (postprocess_frag);
 	CREATE_SHADER_MODULE (screen_effects_8bit_comp);
@@ -3394,6 +3481,9 @@ static void R_DestroyShaderModules ()
 	DESTROY_SHADER_MODULE (sky_box_frag);
 	DESTROY_SHADER_MODULE (sky_cube_vert);
 	DESTROY_SHADER_MODULE (sky_cube_frag);
+	DESTROY_SHADER_MODULE (sky_atmosphere_vert);
+	DESTROY_SHADER_MODULE (sky_atmosphere_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_frag);
 	DESTROY_SHADER_MODULE (postprocess_vert);
 	DESTROY_SHADER_MODULE (postprocess_frag);
 	DESTROY_SHADER_MODULE (screen_effects_8bit_comp);
@@ -3496,6 +3586,10 @@ void R_DestroyPipelines (void)
 		vulkan_globals.sky_cube_pipeline[i].handle = VK_NULL_HANDLE;
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_layer_pipeline[i].handle, NULL);
 		vulkan_globals.sky_layer_pipeline[i].handle = VK_NULL_HANDLE;
+		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_atmosphere_pipeline[i].handle, NULL);
+		vulkan_globals.sky_atmosphere_pipeline[i].handle = VK_NULL_HANDLE;
+		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_clouds_pipeline[i].handle, NULL);
+		vulkan_globals.sky_clouds_pipeline[i].handle = VK_NULL_HANDLE;
 	}
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_box_pipeline.handle, NULL);
 	vulkan_globals.sky_box_pipeline.handle = VK_NULL_HANDLE;

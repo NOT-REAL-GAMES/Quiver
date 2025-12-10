@@ -1267,8 +1267,17 @@ trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, e
 	else
 		clip.hitcontents = CONTENTMASK_ANYSOLID;
 
-	// clip to world
-	clip.trace = SV_ClipMoveToEntity (qcvm->edicts, start, mins, maxs, end, clip.hitcontents);
+	// clip to world (skip BSP if kd_noclip_bsp is set and kd model is active)
+	if (!KD_ShouldSkipBSPCollision())
+		clip.trace = SV_ClipMoveToEntity (qcvm->edicts, start, mins, maxs, end, clip.hitcontents);
+	else
+	{
+		// Initialize trace for kd-only collision
+		memset (&clip.trace, 0, sizeof(clip.trace));
+		clip.trace.fraction = 1;
+		clip.trace.allsolid = false;
+		VectorCopy (end, clip.trace.endpos);
+	}
 
 	// Also clip to kd-tree world if loaded
 	if (KD_ClipMoveToWorld (start, mins, maxs, end, &clip.trace))

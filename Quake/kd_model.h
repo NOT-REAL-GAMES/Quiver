@@ -234,7 +234,11 @@ void       KD_Init (void);
 // Rendering (kd_render.c)
 void       KD_RenderInit (void);
 void       KD_DrawDebugSurfaces (cb_context_t *cbx);
+void       KD_DrawSkySurfaces (cb_context_t *cbx, float color[3]);
 kdmodel_t *KD_GetDebugModel (void);
+void       KD_SetDebugModel (kdmodel_t *model);
+qboolean   KD_ShouldSkipBSPCollision (void);
+qboolean   KD_ShouldSkipBSPRendering (void);
 
 // Compiler (kd_compile.c)
 void       KD_CompileInit (void);

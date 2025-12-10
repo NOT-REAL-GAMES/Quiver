@@ -1457,7 +1457,176 @@ gltexture_t *TexMgr_LoadImage (
 	case SRC_INDEXED_PALETTE:
 		TexMgr_LoadImage8Valve (glt, data);
 		break;
+	case SRC_R8_3D:
+		// 3D textures are handled separately by TexMgr_LoadImage3D
+		break;
 	}
+
+	return glt;
+}
+
+/*
+================
+TexMgr_LoadImage3D -- load a 3D texture (e.g., for volumetric effects)
+================
+*/
+gltexture_t *TexMgr_LoadImage3D (qmodel_t *owner, const char *name, int width, int height, int depth, enum srcformat format, byte *data, textureflags_t flags)
+{
+	gltexture_t *glt;
+	VkResult	 err;
+
+	if (isDedicated)
+		return NULL;
+
+	glt = TexMgr_NewTexture ();
+
+	// copy data
+	glt->owner = owner;
+	q_strlcpy (glt->name, name, sizeof (glt->name));
+	glt->path_id = 0;
+	glt->width = width;
+	glt->height = height;
+	glt->depth = depth;
+	glt->flags = flags;
+	glt->shirt = -1;
+	glt->pants = -1;
+	glt->source_file[0] = '\0';
+	glt->source_offset = 0;
+	glt->source_format = format;
+	glt->source_width = width;
+	glt->source_height = height;
+	glt->source_crc = 0;
+
+	SDL_LockMutex (texmgr_mutex);
+
+	// Create 3D image
+	VkFormat vk_format = (format == SRC_R8_3D) ? VK_FORMAT_R8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
+
+	ZEROED_STRUCT (VkImageCreateInfo, image_create_info);
+	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_create_info.imageType = VK_IMAGE_TYPE_3D;
+	image_create_info.format = vk_format;
+	image_create_info.extent.width = width;
+	image_create_info.extent.height = height;
+	image_create_info.extent.depth = depth;
+	image_create_info.mipLevels = 1;
+	image_create_info.arrayLayers = 1;
+	image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &glt->image);
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkCreateImage failed for 3D texture");
+	GL_SetObjectName ((uint64_t)glt->image, VK_OBJECT_TYPE_IMAGE, va ("%s image", glt->name));
+
+	VkMemoryRequirements memory_requirements;
+	vkGetImageMemoryRequirements (vulkan_globals.device, glt->image, &memory_requirements);
+
+	glt->allocation = GL_HeapAllocate (texmgr_heap, memory_requirements.size, memory_requirements.alignment, &num_vulkan_tex_allocations);
+	err = vkBindImageMemory (vulkan_globals.device, glt->image, GL_HeapGetAllocationMemory (glt->allocation), GL_HeapGetAllocationOffset (glt->allocation));
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkBindImageMemory failed for 3D texture");
+
+	// Create 3D image view
+	ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
+	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	image_view_create_info.image = glt->image;
+	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+	image_view_create_info.format = vk_format;
+	image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_R;
+	image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_R; // Replicate R to all channels for single-channel
+	image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_R;
+	image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_R;
+	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_create_info.subresourceRange.baseMipLevel = 0;
+	image_view_create_info.subresourceRange.levelCount = 1;
+	image_view_create_info.subresourceRange.baseArrayLayer = 0;
+	image_view_create_info.subresourceRange.layerCount = 1;
+
+	err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &glt->image_view);
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkCreateImageView failed for 3D texture");
+	GL_SetObjectName ((uint64_t)glt->image_view, VK_OBJECT_TYPE_IMAGE_VIEW, va ("%s image view", glt->name));
+
+	glt->target_image_view = VK_NULL_HANDLE;
+	glt->frame_buffer = VK_NULL_HANDLE;
+	glt->storage_descriptor_set = VK_NULL_HANDLE;
+
+	// Allocate descriptor set
+	glt->descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.single_texture_set_layout);
+	GL_SetObjectName ((uint64_t)glt->descriptor_set, VK_OBJECT_TYPE_DESCRIPTOR_SET, va ("%s desc set", glt->name));
+
+	// Update descriptor with linear sampler for smooth 3D texture sampling
+	ZEROED_STRUCT (VkDescriptorImageInfo, image_info);
+	image_info.imageView = glt->image_view;
+	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	image_info.sampler = vulkan_globals.linear_sampler; // Use linear filtering for smooth noise
+
+	ZEROED_STRUCT (VkWriteDescriptorSet, texture_write);
+	texture_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	texture_write.dstSet = glt->descriptor_set;
+	texture_write.dstBinding = 0;
+	texture_write.dstArrayElement = 0;
+	texture_write.descriptorCount = 1;
+	texture_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	texture_write.pImageInfo = &image_info;
+
+	vkUpdateDescriptorSets (vulkan_globals.device, 1, &texture_write, 0, NULL);
+
+	SDL_UnlockMutex (texmgr_mutex);
+
+	// Upload data
+	int bytes_per_pixel = (format == SRC_R8_3D) ? 1 : 4;
+	int staging_size = width * height * depth * bytes_per_pixel;
+
+	VkBuffer		staging_buffer;
+	VkCommandBuffer command_buffer;
+	int				staging_offset;
+	unsigned char  *staging_memory = R_StagingAllocate (staging_size, 4, &command_buffer, &staging_buffer, &staging_offset);
+
+	ZEROED_STRUCT (VkBufferImageCopy, region);
+	region.bufferOffset = staging_offset;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.layerCount = 1;
+	region.imageSubresource.mipLevel = 0;
+	region.imageExtent.width = width;
+	region.imageExtent.height = height;
+	region.imageExtent.depth = depth;
+
+	// Transition to transfer dst
+	ZEROED_STRUCT (VkImageMemoryBarrier, image_memory_barrier);
+	image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	image_memory_barrier.image = glt->image;
+	image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_memory_barrier.subresourceRange.baseMipLevel = 0;
+	image_memory_barrier.subresourceRange.levelCount = 1;
+	image_memory_barrier.subresourceRange.baseArrayLayer = 0;
+	image_memory_barrier.subresourceRange.layerCount = 1;
+
+	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	image_memory_barrier.srcAccessMask = 0;
+	image_memory_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	vkCmdPipelineBarrier (command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &image_memory_barrier);
+
+	vkCmdCopyBufferToImage (command_buffer, staging_buffer, glt->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+	// Transition to shader read
+	image_memory_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	image_memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	vkCmdPipelineBarrier (command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &image_memory_barrier);
+
+	// Copy data to staging buffer
+	R_StagingBeginCopy ();
+	memcpy (staging_memory, data, staging_size);
+	R_StagingEndCopy ();
 
 	return glt;
 }
@@ -1598,6 +1767,9 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 		break;
 	case SRC_INDEXED_PALETTE:
 		TexMgr_LoadImage8Valve (glt, data);
+		break;
+	case SRC_R8_3D:
+		// 3D textures cannot be reloaded this way
 		break;
 	}
 

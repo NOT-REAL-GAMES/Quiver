@@ -1,0 +1,108 @@
+---- qbsp / ericw-tools 2.0.0-alpha10 ----
+
+--- Options Summary ---
+
+Input file: /home/tremor/Desktop/Quiver/./test_box.map
+Output file: /home/tremor/Desktop/Quiver/./test_box.bsp
+
+INFO: using built-in palette.
+WARNING: No wad or _wad key exists in the worldmodel
+     2 entities
+     2 unique textures
+     4 texinfos
+    24 unique planes
+
+INFO: world extents calculated to 65736 units
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+     6 brushes
+    36 sides
+
+            0 texture frames added
+WARNING: unable to find texture skip
+WARNING: unable to find texture metal1_1
+Processing hull 0...
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+    2 SOLID brushes
+    2 brushes total
+    12 visible sides
+INFO: calculating BSP for 2 brushes with 12 sides
+     2 brushes
+    12 visible faces
+    12 nodes
+    12 mid-split nodes
+    13 leaves
+     2 SOLID leafs
+    11 EMPTY leafs
+    13 leafs total
+    8 max tree height
+    5 avg tree height
+    66 tree portals
+WARNING: Reached occupant "info_player_start" at (0 0 24), no filling performed.
+Leak file written to ./test_box.pts
+            2 portals written to ./test_box.leak.prt
+    66 tree portals
+    24 sides visible
+         12 makefaces
+    345,728 subdivided
+     2 SOLID leafs
+    11 EMPTY leafs
+    13 leafs total
+    8 max tree height
+    5 avg tree height
+      4,672 edges added by tjunctions
+    345,740 faces optimized through MWT
+    696,152 triangles computed from MWT
+      1,168 faces created via optimization of MWT triangles
+    694,984 edges
+    346,908 faces
+Processing hull 1...
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+WARNING: Reached occupant "info_player_start" at (0 0 24), no filling performed.
+Processing hull 2...
+WARNING: ./test_box.map[line 26]: no visible sides on brush
+WARNING: ./test_box.map[line 35]: no visible sides on brush
+WARNING: ./test_box.map[line 44]: no visible sides on brush
+WARNING: ./test_box.map[line 53]: no visible sides on brush
+WARNING: Reached occupant "info_player_start" at (0 0 24), no filling performed.
+LIMITS EXCEEDED ON dnode_t::mins
+NOTE: limits exceeded for Quake BSP - switching to Quake BSP2
+Writing ./test_box.bsp as Quake BSP2 bsp2
+Wrote ./test_box.bsp
+
+count   lump name    byte size 
+      1 models               64
+     22 planes              440
+ 348080 vertexes        4176960
+     12 nodes               528
+      3 texinfos            120
+ 346908 faces           9713424
+     24 clipnodes           288
+     12 leafs               528
+ 346908 marksurfaces    1387632
+ 694985 edges           5559880
+1389968 surfedges       5559872
+      2 textures             12
+        lightdata             0
+        visdata               0
+        entdata              84
+
+474.402s seconds elapsed
+
+

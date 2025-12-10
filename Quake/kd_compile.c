@@ -78,6 +78,7 @@ typedef struct cface_s
 	int         num_verts;
 	vec3_t      *verts;         // Dynamically allocated
 	char        texture[64];
+	int         texture_num;    // Index into map_textures array
 	float       texvecs[2][4];
 	int         contents;       // Contents behind this face
 	vec3_t      mins, maxs;
@@ -727,8 +728,9 @@ static int CreateBaseWindingRaw (vec3_t normal, float dist, vec3_t *verts)
 	vec3_t center;
 	VectorScale(normal, dist, center);
 
-	// Use a reasonable size - 8192 is typical Quake map bounds
-	float size = 8192.0f;
+	// Use a large size to accommodate big maps (65536 units = typical max Quake coordinate)
+	// Must be larger than half the map size to ensure proper clipping
+	float size = 65536.0f;
 
 	VectorMA(center, -size, right, verts[0]);
 	VectorMA(verts[0], -size, forward, verts[0]);
@@ -769,13 +771,14 @@ static void GenerateTexCoords (cface_t *face, cbrushside_t *side)
 		v_axis = 1;
 	}
 
-	// Set up texture vectors (1/64 scale by default)
-	float scale = 1.0f / 64.0f;
+	// Set up texture vectors
+	// texvecs map world units to texture pixels, renderer then divides by texture size
+	// Standard Quake: 1 world unit = 1 texture pixel at scale 1.0
 	memset(face->texvecs, 0, sizeof(face->texvecs));
-	face->texvecs[0][u_axis] = scale / side->scale[0];
-	face->texvecs[1][v_axis] = scale / side->scale[1];
-	face->texvecs[0][3] = side->texvecs[0][3] * scale;
-	face->texvecs[1][3] = side->texvecs[1][3] * scale;
+	face->texvecs[0][u_axis] = 1.0f / side->scale[0];
+	face->texvecs[1][v_axis] = 1.0f / side->scale[1];
+	face->texvecs[0][3] = side->texvecs[0][3];  // Offset in texture pixels
+	face->texvecs[1][3] = side->texvecs[1][3];
 }
 
 // Convert a brush to faces
@@ -870,6 +873,7 @@ static void BrushToFaces (cbrush_t *brush)
 		face->verts = (vec3_t *)malloc(num_verts * sizeof(vec3_t));
 		memcpy(face->verts, temp_verts, num_verts * sizeof(vec3_t));
 		q_strlcpy(face->texture, side->texture, sizeof(face->texture));
+		face->texture_num = FindOrCreateTexture(side->texture);  // Register texture now
 		face->contents = brush->contents;
 
 		// Calculate face bounds
@@ -1153,6 +1157,11 @@ static void WriteQKDFile (const char *filename)
 	header.lumps[KD_LUMP_ENTITIES].length = entities_len;
 	offset += entities_len;
 
+	// Textures lump
+	header.lumps[KD_LUMP_TEXTURES].offset = offset;
+	header.lumps[KD_LUMP_TEXTURES].length = num_map_textures * sizeof(dkdtexture_t);
+	offset += header.lumps[KD_LUMP_TEXTURES].length;
+
 	// Planes lump
 	header.lumps[KD_LUMP_PLANES].offset = offset;
 	header.lumps[KD_LUMP_PLANES].length = num_map_planes * sizeof(dkdplane_t);
@@ -1192,6 +1201,18 @@ static void WriteQKDFile (const char *filename)
 
 	// Write entities
 	fwrite(entities, entities_len, 1, f);
+
+	// Write textures
+	for (int i = 0; i < num_map_textures; i++)
+	{
+		dkdtexture_t dt;
+		memset(&dt, 0, sizeof(dt));
+		q_strlcpy(dt.name, map_textures[i], sizeof(dt.name));
+		dt.width = 64;   // Default, will be resolved at load time
+		dt.height = 64;
+		dt.flags = 0;
+		fwrite(&dt, sizeof(dt), 1, f);
+	}
 
 	// Write planes
 	for (int i = 0; i < num_map_planes; i++)
@@ -1292,7 +1313,7 @@ static void WriteQKDFile (const char *filename)
 		}
 
 		ds.flags = 0;
-		ds.texture_num = FindOrCreateTexture(face->texture);
+		ds.texture_num = face->texture_num;  // Already computed during face generation
 		ds.first_vertex = vert_offset;
 		ds.num_vertices = face->num_verts;
 		ds.lightmap_s = ds.lightmap_t = 0;

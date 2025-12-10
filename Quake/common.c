@@ -2532,6 +2532,7 @@ static void COM_Game_f (void)
 			Draw_NewGame ();
 			R_NewGame ();
 			M_NewGame ();
+			Sky_NewGame ();
 		}
 		ExtraMaps_NewGame ();
 		Host_Resetdemos ();

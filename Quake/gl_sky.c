@@ -24,6 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // gl_sky.c
 
 #include "quakedef.h"
+#include "kd_model.h"
+#include "noise_gen.h"
 
 float Fog_GetDensity (void);
 void  Fog_GetColor (float *c);
@@ -37,12 +39,47 @@ char skybox_name[1024]; // name of current skybox, or "" if no skybox
 gltexture_t *skybox_textures[6];
 gltexture_t *skybox_cubemap;
 gltexture_t *solidskytexture, *alphaskytexture;
+gltexture_t *cloud_noise_texture; // 3D noise texture for volumetric clouds
 
 extern cvar_t gl_farclip;
 cvar_t		  r_fastsky = {"r_fastsky", "0", CVAR_NONE};
 cvar_t		  r_sky_quality = {"r_sky_quality", "12", CVAR_NONE};
 cvar_t		  r_skyalpha = {"r_skyalpha", "1", CVAR_NONE};
 cvar_t		  r_skyfog = {"r_skyfog", "0.5", CVAR_NONE};
+
+// Atmospheric sky cvars
+cvar_t r_atmosphere = {"r_atmosphere", "1", CVAR_ARCHIVE};
+cvar_t r_atmosphere_quality = {"r_atmosphere_quality", "2", CVAR_ARCHIVE}; // 0=off, 1=low, 2=med, 3=high
+cvar_t r_sun_angle = {"r_sun_angle", "45", CVAR_NONE};					   // Sun elevation (degrees)
+cvar_t r_sun_azimuth = {"r_sun_azimuth", "0", CVAR_NONE};				   // Sun horizontal angle (degrees)
+cvar_t r_sun_intensity = {"r_sun_intensity", "1.0", CVAR_NONE};			   // Sun brightness multiplier
+
+// Volumetric cloud cvars
+cvar_t r_clouds = {"r_clouds", "1", CVAR_ARCHIVE};
+cvar_t r_clouds_density = {"r_clouds_density", "0.5", CVAR_NONE};	 // Cloud opacity
+cvar_t r_clouds_coverage = {"r_clouds_coverage", "0.4", CVAR_NONE};	 // Sky coverage amount
+cvar_t r_clouds_speed = {"r_clouds_speed", "0.01", CVAR_NONE};		 // Wind animation speed
+cvar_t r_clouds_height = {"r_clouds_height", "2000", CVAR_NONE};	 // Cloud layer base height (Quake units)
+cvar_t r_clouds_thickness = {"r_clouds_thickness", "1500", CVAR_NONE}; // Cloud layer thickness
+
+/*
+================
+Sky_ComputeSunDir
+
+Compute sun direction from angle (elevation) and azimuth cvars
+================
+*/
+static void Sky_ComputeSunDir (vec3_t sun_dir)
+{
+	float angle_rad = r_sun_angle.value * M_PI / 180.0f;
+	float azimuth_rad = r_sun_azimuth.value * M_PI / 180.0f;
+
+	// Convert spherical to cartesian (Y is up in Quake)
+	float cos_elev = cosf (angle_rad);
+	sun_dir[0] = cos_elev * sinf (azimuth_rad);
+	sun_dir[1] = cos_elev * cosf (azimuth_rad);
+	sun_dir[2] = sinf (angle_rad);
+}
 
 static const int skytexorder[6] = {0, 2, 1, 3, 4, 5}; // for skybox
 
@@ -360,6 +397,20 @@ void Sky_NewMap (void)
 
 	skyfog = r_skyfog.value;
 
+	// Generate cloud noise texture if not already created
+	if (!cloud_noise_texture)
+	{
+		const int noise_size = 128;
+		byte	 *noise_data = Noise_Generate3DTexture (noise_size);
+		if (noise_data)
+		{
+			cloud_noise_texture =
+				TexMgr_LoadImage3D (NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data, TEXPREF_PERSIST | TEXPREF_LINEAR);
+			Mem_Free (noise_data);
+			Con_DPrintf ("Generated %dx%dx%d cloud noise texture\n", noise_size, noise_size, noise_size);
+		}
+	}
+
 	//
 	// read worldspawn (this is so ugly, and shouldn't it be done on the server?)
 	//
@@ -464,14 +515,57 @@ void Sky_Init (void)
 	Cvar_RegisterVariable (&r_skyfog);
 	Cvar_SetCallback (&r_skyfog, R_SetSkyfog_f);
 
+	// Atmospheric sky cvars
+	Cvar_RegisterVariable (&r_atmosphere);
+	Cvar_RegisterVariable (&r_atmosphere_quality);
+	Cvar_RegisterVariable (&r_sun_angle);
+	Cvar_RegisterVariable (&r_sun_azimuth);
+	Cvar_RegisterVariable (&r_sun_intensity);
+
+	// Volumetric cloud cvars
+	Cvar_RegisterVariable (&r_clouds);
+	Cvar_RegisterVariable (&r_clouds_density);
+	Cvar_RegisterVariable (&r_clouds_coverage);
+	Cvar_RegisterVariable (&r_clouds_speed);
+	Cvar_RegisterVariable (&r_clouds_height);
+	Cvar_RegisterVariable (&r_clouds_thickness);
+
 	Cmd_AddCommand ("sky", Sky_SkyCommand_f);
 
 	skybox_name[0] = 0;
 	for (i = 0; i < 6; i++)
 		skybox_textures[i] = NULL;
 	skybox_cubemap = NULL;
+	cloud_noise_texture = NULL;
 
 	load_skytexture_mutex = SDL_CreateMutex ();
+}
+
+/*
+=============
+Sky_NewGame
+
+Called when a new game starts - regenerate cloud noise texture
+=============
+*/
+void Sky_NewGame (void)
+{
+	// Generate 3D noise texture for volumetric clouds (128^3 = 2MB)
+	if (cloud_noise_texture)
+	{
+		TexMgr_FreeTexture (cloud_noise_texture);
+		cloud_noise_texture = NULL;
+	}
+
+	const int noise_size = 128;
+	byte	 *noise_data = Noise_Generate3DTexture (noise_size);
+	if (noise_data)
+	{
+		cloud_noise_texture =
+			TexMgr_LoadImage3D (NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data, TEXPREF_PERSIST | TEXPREF_LINEAR);
+		Mem_Free (noise_data);
+		Con_DPrintf ("Generated %dx%dx%d cloud noise texture\n", noise_size, noise_size, noise_size);
+	}
 }
 
 //==============================================================================
@@ -878,6 +972,84 @@ void Sky_EmitSkyBoxVertex (basicvertex_t *vertex, float s, float t, int axis)
 
 /*
 ==============
+Sky_DrawSkyDome
+
+Draws a sky dome (hemisphere) for KD maps that don't have sky geometry.
+Uses the same vertex format as sky surfaces.
+==============
+*/
+static void Sky_DrawSkyDome (cb_context_t *cbx, int *skypolys)
+{
+	// Draw a simple hemisphere dome around the player
+	const int   slices = 16;
+	const int   stacks = 8;
+	const float radius = 4096.0f; // Large enough to be beyond anything in the scene
+
+	vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+
+	// Draw each stack as a triangle strip converted to triangles
+	for (int stack = 0; stack < stacks; stack++)
+	{
+		float phi0 = (M_PI / 2.0f) * (float)stack / (float)stacks;       // 0 to PI/2
+		float phi1 = (M_PI / 2.0f) * (float)(stack + 1) / (float)stacks;
+
+		float z0 = sinf (phi0) * radius;
+		float z1 = sinf (phi1) * radius;
+		float r0 = cosf (phi0) * radius;
+		float r1 = cosf (phi1) * radius;
+
+		for (int slice = 0; slice < slices; slice++)
+		{
+			float theta0 = (2.0f * M_PI) * (float)slice / (float)slices;
+			float theta1 = (2.0f * M_PI) * (float)(slice + 1) / (float)slices;
+
+			// Create a quad (two triangles) for this segment
+			VkBuffer	   buffer;
+			VkDeviceSize   buffer_offset;
+			basicvertex_t *vertices = (basicvertex_t *)R_VertexAllocate (4 * sizeof (basicvertex_t), &buffer, &buffer_offset);
+
+			// Bottom left
+			vertices[0].position[0] = r_origin[0] + r0 * cosf (theta0);
+			vertices[0].position[1] = r_origin[1] + r0 * sinf (theta0);
+			vertices[0].position[2] = r_origin[2] + z0;
+			vertices[0].texcoord[0] = 0;
+			vertices[0].texcoord[1] = 0;
+			vertices[0].color[0] = vertices[0].color[1] = vertices[0].color[2] = vertices[0].color[3] = 255;
+
+			// Top left
+			vertices[1].position[0] = r_origin[0] + r1 * cosf (theta0);
+			vertices[1].position[1] = r_origin[1] + r1 * sinf (theta0);
+			vertices[1].position[2] = r_origin[2] + z1;
+			vertices[1].texcoord[0] = 0;
+			vertices[1].texcoord[1] = 1;
+			vertices[1].color[0] = vertices[1].color[1] = vertices[1].color[2] = vertices[1].color[3] = 255;
+
+			// Top right
+			vertices[2].position[0] = r_origin[0] + r1 * cosf (theta1);
+			vertices[2].position[1] = r_origin[1] + r1 * sinf (theta1);
+			vertices[2].position[2] = r_origin[2] + z1;
+			vertices[2].texcoord[0] = 1;
+			vertices[2].texcoord[1] = 1;
+			vertices[2].color[0] = vertices[2].color[1] = vertices[2].color[2] = vertices[2].color[3] = 255;
+
+			// Bottom right
+			vertices[3].position[0] = r_origin[0] + r0 * cosf (theta1);
+			vertices[3].position[1] = r_origin[1] + r0 * sinf (theta1);
+			vertices[3].position[2] = r_origin[2] + z0;
+			vertices[3].texcoord[0] = 1;
+			vertices[3].texcoord[1] = 0;
+			vertices[3].color[0] = vertices[3].color[1] = vertices[3].color[2] = vertices[3].color[3] = 255;
+
+			vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
+			vkCmdDrawIndexed (cbx->cb, 6, 1, 0, 0, 0);
+
+			++(*skypolys);
+		}
+	}
+}
+
+/*
+==============
 Sky_DrawSkyBox
 
 FIXME: eliminate cracks by adding an extra vert on tjuncs
@@ -945,6 +1117,13 @@ void Sky_DrawSky (cb_context_t *cbx)
 	if (r_lightmap_cheatsafe)
 		return;
 
+	// For KD maps, force non-indirect mode to ensure correct vertex format
+	// The indirect pipelines use worldvertex_t (28 bytes) but KD sky dome uses basicvertex_t (24 bytes)
+	extern qboolean indirect;
+	qboolean saved_indirect = indirect;
+	if (KD_ShouldSkipBSPRendering ())
+		indirect = false;
+
 	R_BeginDebugUtilsLabel (cbx, "Sky");
 
 	const qboolean flat_color = r_fastsky.value || (Fog_GetDensity () > 0 && skyfog >= 1);
@@ -993,19 +1172,45 @@ void Sky_DrawSky (cb_context_t *cbx)
 	}
 	else if (!skybox_name[0])
 	{
-		if (!solidskytexture || !alphaskytexture)
+		// Use atmospheric sky if r_atmosphere is enabled
+		if (r_atmosphere.value)
 		{
-			R_EndDebugUtilsLabel (cbx);
-			return;
+			float atmosphere_constants[28];
+			memcpy (atmosphere_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
+			atmosphere_constants[16] = CLAMP (0.0f, color[0], 1.0f); // fog_color
+			atmosphere_constants[17] = CLAMP (0.0f, color[1], 1.0f);
+			atmosphere_constants[18] = CLAMP (0.0f, color[2], 1.0f);
+			atmosphere_constants[19] = fog_density;
+			memcpy (&atmosphere_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg)); // eye_pos
+			atmosphere_constants[23] = cl.time; // time
+
+			vec3_t sun_dir;
+			Sky_ComputeSunDir (sun_dir);
+			atmosphere_constants[24] = sun_dir[0]; // sun_dir
+			atmosphere_constants[25] = sun_dir[1];
+			atmosphere_constants[26] = sun_dir[2];
+			atmosphere_constants[27] = r_sun_intensity.value; // sun_intensity
+
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[indirect]);
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 28 * sizeof (float), atmosphere_constants);
 		}
-		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect]);
-		VkDescriptorSet descriptor_sets[2] = {solidskytexture->descriptor_set, alphaskytexture->descriptor_set};
-		vkCmdBindDescriptorSets (
-			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect].layout.handle, 0, 2, descriptor_sets, 0, NULL);
-		memcpy (&constant_values[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
-		constant_values[23] = cl.time - (int)cl.time / 16 * 16;
-		constant_values[24] = r_skyalpha.value;
-		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 25 * sizeof (float), constant_values);
+		else
+		{
+			// Fallback to scrolling sky layer
+			if (!solidskytexture || !alphaskytexture)
+			{
+				R_EndDebugUtilsLabel (cbx);
+				return;
+			}
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect]);
+			VkDescriptorSet descriptor_sets[2] = {solidskytexture->descriptor_set, alphaskytexture->descriptor_set};
+			vkCmdBindDescriptorSets (
+				cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect].layout.handle, 0, 2, descriptor_sets, 0, NULL);
+			memcpy (&constant_values[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
+			constant_values[23] = cl.time - (int)cl.time / 16 * 16;
+			constant_values[24] = r_skyalpha.value;
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 25 * sizeof (float), constant_values);
+		}
 	}
 	else
 	{
@@ -1029,7 +1234,12 @@ void Sky_DrawSky (cb_context_t *cbx)
 		else if (skybox_cubemap)
 			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[0]);
 		else if (!skybox_name[0])
-			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[0]);
+		{
+			if (r_atmosphere.value)
+				R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[0]);
+			else
+				R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[0]);
+		}
 		else
 			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_stencil_pipeline[0]);
 	}
@@ -1037,6 +1247,34 @@ void Sky_DrawSky (cb_context_t *cbx)
 		Sky_ProcessTextureChains (cbx, color, &skypolys);
 
 	Sky_ProcessEntities (cbx, color);
+
+	// Process KD map sky surfaces
+	KD_DrawSkySurfaces (cbx, color);
+
+	// For KD maps without BSP sky geometry, draw a sky dome
+	if (KD_ShouldSkipBSPRendering () && r_atmosphere.value && !flat_color && !skybox_cubemap && !skybox_name[0])
+	{
+		// Always use non-indirect pipeline (index 0) for sky dome - it uses basicvertex_t format
+		// The indirect pipeline (index 1) expects worldvertex_t which has a different stride
+		float kd_atmosphere_constants[28];
+		memcpy (kd_atmosphere_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
+		kd_atmosphere_constants[16] = CLAMP (0.0f, color[0], 1.0f);
+		kd_atmosphere_constants[17] = CLAMP (0.0f, color[1], 1.0f);
+		kd_atmosphere_constants[18] = CLAMP (0.0f, color[2], 1.0f);
+		kd_atmosphere_constants[19] = fog_density;
+		memcpy (&kd_atmosphere_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
+		kd_atmosphere_constants[23] = cl.time;
+		vec3_t kd_sun_dir;
+		Sky_ComputeSunDir (kd_sun_dir);
+		kd_atmosphere_constants[24] = kd_sun_dir[0];
+		kd_atmosphere_constants[25] = kd_sun_dir[1];
+		kd_atmosphere_constants[26] = kd_sun_dir[2];
+		kd_atmosphere_constants[27] = r_sun_intensity.value;
+
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[0]);
+		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 28 * sizeof (float), kd_atmosphere_constants);
+		Sky_DrawSkyDome (cbx, &skypolys);
+	}
 
 	//
 	// render slow sky: non-cubemap skybox
@@ -1047,9 +1285,74 @@ void Sky_DrawSky (cb_context_t *cbx)
 		Sky_DrawSkyBox (cbx, &skypolys);
 	}
 
+	//
+	// render volumetric clouds (over atmosphere or skybox)
+	// Clouds are rendered by re-drawing sky geometry with the clouds pipeline
+	//
+	if (r_clouds.value && cloud_noise_texture && !flat_color)
+	{
+		R_BeginDebugUtilsLabel (cbx, "Volumetric Clouds");
+
+		// Clouds push constants: mvp(16) + fog(4) + eye(3) + time(1) + sun(4) + cloud_params(5) = 33 floats
+		float clouds_constants[33];
+		memcpy (clouds_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
+		clouds_constants[16] = CLAMP (0.0f, color[0], 1.0f);
+		clouds_constants[17] = CLAMP (0.0f, color[1], 1.0f);
+		clouds_constants[18] = CLAMP (0.0f, color[2], 1.0f);
+		clouds_constants[19] = fog_density;
+		memcpy (&clouds_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
+		clouds_constants[23] = cl.time;
+
+		vec3_t sun_dir;
+		Sky_ComputeSunDir (sun_dir);
+		clouds_constants[24] = sun_dir[0];
+		clouds_constants[25] = sun_dir[1];
+		clouds_constants[26] = sun_dir[2];
+		clouds_constants[27] = r_sun_intensity.value;
+		clouds_constants[28] = r_clouds_height.value;
+		clouds_constants[29] = r_clouds_thickness.value;
+		clouds_constants[30] = r_clouds_density.value;
+		clouds_constants[31] = r_clouds_coverage.value;
+		clouds_constants[32] = r_clouds_speed.value;
+
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline[indirect ? 1 : 0]);
+		vkCmdBindDescriptorSets (
+			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline_layout.handle, 0, 1, &cloud_noise_texture->descriptor_set, 0, NULL);
+		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 33 * sizeof (float), clouds_constants);
+
+		// Re-draw sky geometry with clouds pipeline (alpha blended over atmosphere)
+		if (indirect)
+		{
+			R_DrawIndirectBrushes (cbx, false, false, true, -1);
+		}
+		else
+		{
+			// Re-process sky texture chains with the clouds pipeline bound
+			Sky_ProcessTextureChains (cbx, color, &skypolys);
+		}
+
+		// Also process entities and KD sky with clouds
+		Sky_ProcessEntities (cbx, color);
+		KD_DrawSkySurfaces (cbx, color);
+
+		// Draw clouds on sky dome for KD maps
+		if (KD_ShouldSkipBSPRendering () && !skybox_cubemap && !skybox_name[0])
+		{
+			// Always use non-indirect pipeline (index 0) for sky dome - it uses basicvertex_t format
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline[0]);
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 33 * sizeof (float), clouds_constants);
+			Sky_DrawSkyDome (cbx, &skypolys);
+		}
+
+		R_EndDebugUtilsLabel (cbx);
+	}
+
 	Atomic_AddUInt32 (&rs_skypolys, skypolys);
 
 	R_EndDebugUtilsLabel (cbx);
+
+	// Restore indirect mode
+	indirect = saved_indirect;
 }
 
 /*

@@ -163,6 +163,9 @@ SHADER_OBJS = \
 	sky_box_frag.o \
 	sky_cube_frag.o \
 	sky_cube_vert.o \
+	sky_atmosphere_frag.o \
+	sky_atmosphere_vert.o \
+	sky_clouds_frag.o \
 	postprocess_frag.o \
 	postprocess_vert.o \
 	world_frag.o \
@@ -248,6 +251,7 @@ OBJS := strlcat.o \
 	kd_world.o \
 	kd_compile.o \
 	kd_svo.o \
+	noise_gen.o \
 	jolt_physics.o \
 	embedded_pak.o \
 	$(SYSOBJ_SYS) $(SYSOBJ_MAIN)

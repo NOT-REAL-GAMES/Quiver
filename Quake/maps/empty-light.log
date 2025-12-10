@@ -1,0 +1,14 @@
+---- light / ericw-tools 2.0.0-alpha10 ----
+LoadBSPFile: 'Quake/maps/empty.bsp'
+BSP is version Quake BSP bsp29
+INFO: using built-in palette.
+load: WARNING: filesystem error: cannot get file size: Is a directory [Quake/maps/]
+ConvertTextures: WARNING: invalid size data for 
+ConvertTextures: WARNING: Texture  duplicated
+Loading extended texinfo flags from Quake/maps/empty.texinfo.json...
+Loading extended content flags from Quake/maps/empty.content.json...
+3 entities read, 1 are lights.
+
+--- Options Summary ---
+
+DecompressAllVis: invalid visofs for leaf 0

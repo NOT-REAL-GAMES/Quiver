@@ -1,0 +1,36 @@
+---- light / ericw-tools 2.0.0-alpha10 ----
+LoadBSPFile: './test_room.bsp'
+BSP is version Quake BSP bsp29
+INFO: using built-in palette.
+load: WARNING: filesystem error: cannot get file size: Is a directory [./]
+ConvertTextures: WARNING: invalid size data for 
+ConvertTextures: WARNING: Texture  duplicated
+Loading extended texinfo flags from ./test_room.texinfo.json...
+Loading extended content flags from ./test_room.content.json...
+WARNING: entity at () (worldspawn) has empty key/value "wad" ""
+2 entities read, 0 are lights.
+
+--- Options Summary ---
+
+DecompressAllVis: invalid visofs for leaf 0
+Embree_TraceInit: Embree version: 4.4.0
+Embree_TraceInit: 
+	0 sky faces
+	24 solid faces
+	0 filtered faces
+	0 shadow-casting skip faces
+SetupLights: 0 initial lights
+SetupLights: 0 after surface lights
+SetupLights: 0 after jittering
+Final count: 0 lights, 0 suns in use.
+0 surface light points in use.
+map uses color: false
+lightmap size (total): 0
+Lighting Completed.
+
+0 switchable light styles (32 max)
+Writing ./test_room.bsp as Quake BSP bsp29
+0.002s seconds elapsed
+0 empty lightmaps
+
+

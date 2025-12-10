@@ -296,6 +296,10 @@ typedef struct
 	vulkan_pipeline_t		 sky_box_pipeline;
 	vulkan_pipeline_t		 sky_cube_pipeline[2];
 	vulkan_pipeline_t		 sky_layer_pipeline[2];
+	vulkan_pipeline_layout_t sky_atmosphere_pipeline_layout;
+	vulkan_pipeline_t		 sky_atmosphere_pipeline[2]; // direct, indirect
+	vulkan_pipeline_layout_t sky_clouds_pipeline_layout;
+	vulkan_pipeline_t		 sky_clouds_pipeline[2]; // direct, indirect
 	vulkan_pipeline_t		 alias_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 md5_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 postprocess_pipeline;
@@ -602,8 +606,10 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr);
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 
 void		Sky_Init (void);
+void		Sky_NewGame (void);
 void		Sky_ClearAll (void);
 void		Sky_DrawSky (cb_context_t *cbx);
+void		Sky_ProcessPoly (cb_context_t *cbx, glpoly_t *p, float color[3]);
 qboolean	Sky_NeedStencil ();
 void		Sky_NewMap (void);
 void		Sky_LoadTexture (qmodel_t *mod, texture_t *mt, int tex_index);

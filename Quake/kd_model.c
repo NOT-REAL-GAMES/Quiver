@@ -29,6 +29,87 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 static byte *kd_mod_base; // Base pointer for lump access during loading
 
 //=============================================================================
+// Texture Loading Helpers
+//=============================================================================
+
+static wad_t *kd_texture_wads = NULL;
+static qboolean kd_texture_wads_loaded = false;
+
+/*
+=================
+KD_LoadTextureFromWad
+
+Load a texture from WAD files and create a gltexture
+=================
+*/
+static gltexture_t *KD_LoadTextureFromWad (const char *name)
+{
+	lumpinfo_t *info;
+	wad_t      *wad = NULL;
+	miptex_t    mt;
+	byte       *data;
+	int         pixels;
+	gltexture_t *glt;
+	char        texname[64];
+
+	// Load WADs if not already loaded
+	if (!kd_texture_wads && !kd_texture_wads_loaded)
+	{
+		kd_texture_wads_loaded = true;
+		kd_texture_wads = W_LoadWadList ("gfx/wiz.wad;gfx/medieval.wad;gfx/metal.wad;gfx/base.wad;gfx/rune.wad");
+	}
+
+	if (!kd_texture_wads)
+		return NULL;
+
+	// Look for the texture in loaded WADs
+	info = W_GetLumpinfoList (kd_texture_wads, name, &wad);
+	if (!info || !wad)
+		return NULL;
+
+	if (info->type != TYP_MIPTEX)
+		return NULL;
+
+	// Read miptex header
+	FS_fseek (&wad->fh, info->filepos, SEEK_SET);
+	if (FS_fread (&mt, 1, sizeof(miptex_t), &wad->fh) != sizeof(miptex_t))
+		return NULL;
+
+	mt.width = LittleLong (mt.width);
+	mt.height = LittleLong (mt.height);
+	for (int i = 0; i < MIPLEVELS; i++)
+		mt.offsets[i] = LittleLong (mt.offsets[i]);
+
+	if (mt.width == 0 || mt.height == 0 || mt.width > 4096 || mt.height > 4096)
+		return NULL;
+
+	if (mt.offsets[0] == 0)
+		return NULL;
+
+	// Read pixel data (just mip level 0)
+	pixels = mt.width * mt.height;
+	data = (byte *)Mem_Alloc (pixels);
+	if (!data)
+		return NULL;
+
+	FS_fseek (&wad->fh, info->filepos + mt.offsets[0], SEEK_SET);
+	if (FS_fread (data, 1, pixels, &wad->fh) != (size_t)pixels)
+	{
+		Mem_Free (data);
+		return NULL;
+	}
+
+	// Create GL texture
+	q_snprintf (texname, sizeof(texname), "kd:%s", name);
+	glt = TexMgr_LoadImage (NULL, texname, mt.width, mt.height, SRC_INDEXED, data,
+	                        "", (src_offset_t)0, TEXPREF_MIPMAP | TEXPREF_PERSIST);
+
+	Mem_Free (data);
+
+	return glt;
+}
+
+//=============================================================================
 // Lump Loading Functions
 //=============================================================================
 
@@ -177,6 +258,11 @@ static void KD_LoadNodes (kdmodel_t *model, dkdlump_t *lump)
 		model->headnode = NULL;
 }
 
+// Forward declarations for texture loading (defined later, used by KD_LoadSurfaces)
+static dkdtexture_t *kd_temp_textures;
+static int           kd_num_temp_textures;
+static gltexture_t  *KD_LoadTextureFromWad (const char *name);
+
 /*
 =================
 KD_LoadSurfaces
@@ -205,12 +291,24 @@ static void KD_LoadSurfaces (kdmodel_t *model, dkdlump_t *lump)
 			out->plane = NULL;
 
 		out->flags = LittleLong (in->flags);
+		out->texture = NULL;
+		out->gltexture = NULL;
 
+		// Resolve texture from temp texture array
 		int tex_num = LittleLong (in->texture_num);
-		if (tex_num >= 0 && tex_num < model->num_textures && model->textures)
-			out->texture = model->textures[tex_num];
-		else
-			out->texture = NULL;
+		if (tex_num >= 0 && tex_num < kd_num_temp_textures && kd_temp_textures)
+		{
+			const char *texname = kd_temp_textures[tex_num].name;
+			if (texname[0])
+			{
+				// Try to load the texture from WAD
+				out->gltexture = KD_LoadTextureFromWad (texname);
+				if (out->gltexture)
+					Con_DPrintf ("KD: Surface %d using texture '%s'\n", i, texname);
+				else
+					Con_DPrintf ("KD: Surface %d texture '%s' not found\n", i, texname);
+			}
+		}
 
 		out->first_vertex = LittleLong (in->first_vertex);
 		out->num_vertices = LittleLong (in->num_vertices);
@@ -386,6 +484,35 @@ static void KD_LoadEntities (kdmodel_t *model, dkdlump_t *lump)
 	model->entities[lump->length] = '\0';
 }
 
+/*
+=================
+KD_LoadTextures
+
+Load texture names into temporary storage for use by KD_LoadSurfaces
+=================
+*/
+static void KD_LoadTextures (kdmodel_t *model, dkdlump_t *lump)
+{
+	if (lump->length == 0)
+	{
+		model->num_textures = 0;
+		kd_temp_textures = NULL;
+		kd_num_temp_textures = 0;
+		return;
+	}
+
+	if (lump->length % sizeof (dkdtexture_t))
+		Sys_Error ("KD_LoadTextures: invalid lump size");
+
+	model->num_textures = lump->length / sizeof (dkdtexture_t);
+	kd_num_temp_textures = model->num_textures;
+
+	// Point to texture data in the loaded file (valid until Mem_Free(buf))
+	kd_temp_textures = reinterpret_cast<dkdtexture_t *>(kd_mod_base + lump->offset);
+
+	Con_Printf ("KD: Found %d textures in file\n", model->num_textures);
+}
+
 //=============================================================================
 // Main Loading Functions
 //=============================================================================
@@ -449,14 +576,18 @@ kdmodel_t *KD_LoadModel (const char *name)
 	KD_LoadEntities (model, &lumps[KD_LUMP_ENTITIES]);
 	KD_LoadPlanes (model, &lumps[KD_LUMP_PLANES]);
 	KD_LoadVertices (model, &lumps[KD_LUMP_VERTICES]);
-	// TODO: KD_LoadTextures (model, &lumps[KD_LUMP_TEXTURES]);
+	KD_LoadTextures (model, &lumps[KD_LUMP_TEXTURES]);  // Must be before surfaces
 	KD_LoadLeaves (model, &lumps[KD_LUMP_KDLEAVES]);
 	KD_LoadNodes (model, &lumps[KD_LUMP_KDNODES]);
-	KD_LoadSurfaces (model, &lumps[KD_LUMP_SURFACES]);
+	KD_LoadSurfaces (model, &lumps[KD_LUMP_SURFACES]);  // Resolves texture names to gltextures
 	KD_LoadZones (model, &lumps[KD_LUMP_ZONES]);
 	KD_LoadSubmodels (model, &lumps[KD_LUMP_MODELS]);
 	KD_LoadVisibility (model, &lumps[KD_LUMP_VISIBILITY]);
 	KD_LoadLighting (model, &lumps[KD_LUMP_LIGHTMAPS]);
+
+	// Clear temp texture data (it was pointing into buf which will be freed)
+	kd_temp_textures = NULL;
+	kd_num_temp_textures = 0;
 
 	// Compute overall bounds from headnode or submodel 0
 	if (model->num_submodels > 0)

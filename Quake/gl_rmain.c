@@ -822,10 +822,15 @@ static void R_DrawWorldTask (int index, void *use_tasks)
 	cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[SCBX_WORLD][index];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
-	if (indirect)
-		R_DrawIndirectBrushes (cbx, false, false, false, use_tasks ? index : -1);
-	else
-		R_DrawWorld (cbx, index);
+
+	// Skip BSP rendering if kd_norender_bsp is set and kd model is active
+	if (!KD_ShouldSkipBSPRendering())
+	{
+		if (indirect)
+			R_DrawIndirectBrushes (cbx, false, false, false, use_tasks ? index : -1);
+		else
+			R_DrawWorld (cbx, index);
+	}
 
 	// Draw kd-tree debug surfaces if loaded
 	KD_DrawDebugSurfaces (cbx);
@@ -841,7 +846,11 @@ static void R_DrawSkyTask (void *unused)
 	cb_context_t *cbx = vulkan_globals.secondary_cb_contexts[SCBX_SKY];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
-	R_DrawWorld_Water (cbx, false); // draw opaque water before sky (more likely to occlude)
+	if (!KD_ShouldSkipBSPRendering())
+	{
+		R_DrawWorld_Water (cbx, false); // draw opaque water before sky (more likely to occlude)
+	}
+	// Always draw sky - KD maps need it too (rendered as fullscreen background)
 	Sky_DrawSky (cbx);
 }
 
@@ -855,7 +864,8 @@ static void R_DrawWaterTask (void *unused)
 	cb_context_t *cbx = vulkan_globals.secondary_cb_contexts[SCBX_WATER];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
-	R_DrawWorld_Water (cbx, true); // transparent worldmodel water only
+	if (!KD_ShouldSkipBSPRendering())
+		R_DrawWorld_Water (cbx, true); // transparent worldmodel water only
 }
 
 /*

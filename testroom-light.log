@@ -1,0 +1,7 @@
+---- light / ericw-tools 2.0.0-alpha10 ----
+LoadBSPFile: './testroom.bsp'
+************ ERROR ************
+LoadBSPFile: Unable to load "./testroom.bsp"
+
+
+
