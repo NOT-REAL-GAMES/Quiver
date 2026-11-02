@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "octree_engine.h"
 #include <sys/stat.h>
 #ifndef _WIN32
 #include <dirent.h>
@@ -925,7 +926,7 @@ static void Host_Changelevel_f (void)
 
 	// johnfitz -- check for client having map before anything else
 	q_snprintf (level, sizeof (level), "maps/%s.bsp", Cmd_Argv (1));
-	if (!COM_FileExists (level, NULL))
+	if (!Mod_IsVirtualWorld (level) && !COM_FileExists (level, NULL))
 		Host_Error ("cannot find map %s", level);
 	// johnfitz
 
@@ -966,6 +967,7 @@ static void Host_Restart_f (void)
 		return;
 	}
 
+	OW_PrepareRestart ();
 	q_strlcpy (mapname, sv.name, sizeof (mapname)); // mapname gets cleared in spawnserver
 	PR_SwitchQCVM (&sv.qcvm);
 	SV_SpawnServer (mapname);
@@ -1076,6 +1078,12 @@ static void Host_Savegame_f (void)
 
 	if (cmd_source != src_command)
 		return;
+
+	if (OW_ServerActive ())
+	{
+		Con_Printf ("Use world_save to persist terrain and the canonical entity checkpoint.\n");
+		return;
+	}
 
 	if (!sv.active)
 	{
@@ -1405,6 +1413,13 @@ static void Host_Loadgame_f (void)
 
 	data = COM_ParseStringNewline (data);
 	q_strlcpy (mapname, com_token, sizeof (mapname));
+	if (!strcmp (mapname, "__octree"))
+	{
+		Mem_Free (start);
+		start = NULL;
+		Con_Printf ("Use world_load to load an octree world.\n");
+		return;
+	}
 	data = COM_ParseFloatNewline (data, &time);
 
 	if (fastload && (!sv.active || cls.signon != SIGNONS || svs.maxclients != 1))
@@ -1918,6 +1933,8 @@ static void Host_Kill_f (void)
 		Cmd_ForwardToServer ();
 		return;
 	}
+	if (OW_IsEmptyMap ())
+		return; // The native free-fly camera has no gameplay death/respawn.
 
 	if (sv_player->v.health <= 0)
 	{
@@ -2028,6 +2045,24 @@ static void Host_Spawn_f (void)
 	{ // loaded games are fully inited already
 		// if this is the last client to be connected, unpause
 		sv.paused = false;
+	}
+	else if (OW_IsEmptyMap ())
+	{
+		ent = host_client->edict;
+		SV_UnlinkEdict (ent);
+		memset (&ent->v, 0, qcvm->progs->entityfields * 4);
+		ent->free = false;
+		ent->v.classname = PR_SetEngineString ("freefly_camera");
+		ent->v.netname = PR_SetEngineString (host_client->name);
+		ent->v.colormap = NUM_FOR_EDICT (ent);
+		ent->v.team = (host_client->colors & 15) + 1;
+		ent->v.health = 100;
+		ent->v.flags = FL_CLIENT;
+		ent->v.movetype = MOVETYPE_NOCLIP;
+		ent->v.solid = SOLID_NOT;
+		ent->v.origin[2] = 96;
+		VectorCopy (ent->v.origin, ent->v.oldorigin);
+		SV_LinkEdict (ent, false);
 	}
 	else
 	{

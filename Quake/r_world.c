@@ -1154,6 +1154,9 @@ R_DrawTextureChains_Water -- johnfitz
 */
 void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *ent, texchain_t chain, qboolean opaque_only, qboolean transparent_only)
 {
+	if (!model->numsurfaces || bmodel_vertex_buffer == VK_NULL_HANDLE)
+		return;
+
 	int			i;
 	msurface_t *s;
 	texture_t  *t;
@@ -1234,6 +1237,9 @@ R_DrawTextureChains_Multitexture
 */
 void R_DrawTextureChains_Multitexture (cb_context_t *cbx, qmodel_t *model, entity_t *ent, texchain_t chain, const float alpha, int texstart, int texend)
 {
+	if (!model->numsurfaces || bmodel_vertex_buffer == VK_NULL_HANDLE)
+		return;
+
 	int			 i;
 	msurface_t	*s;
 	texture_t	*t;

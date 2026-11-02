@@ -1057,7 +1057,7 @@ CreatePaletteOctree_f
 */
 void CreatePaletteOctree_f (void)
 {
-	unsigned int *colors_lut = Mem_Alloc (sizeof (unsigned int) * 256ull * 256ull * 256ull);
+	unsigned int *colors_lut = static_cast<unsigned int *> (Mem_Alloc (sizeof (unsigned int) * 256ull * 256ull * 256ull));
 
 	TexMgr_LoadPalette ();
 	MakeColorsLUT (colors_lut);

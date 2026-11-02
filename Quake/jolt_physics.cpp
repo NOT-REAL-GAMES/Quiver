@@ -22,10 +22,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
-#include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemSingleThreaded.h>
-#include <Jolt/Physics/PhysicsSettings.h>
-#include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
@@ -64,8 +60,6 @@ struct jolt_world_s
 //=============================================================================
 
 static bool             g_jolt_initialized = false;
-static TempAllocator   *g_temp_allocator = nullptr;
-static JobSystem       *g_job_system = nullptr;
 static jolt_world_t    *g_active_world = nullptr;
 
 //=============================================================================
@@ -114,11 +108,8 @@ void Jolt_Init(void)
 	// Register physics types
 	RegisterTypes();
 
-	// Create temp allocator (10 MB)
-	g_temp_allocator = new TempAllocatorImpl(10 * 1024 * 1024);
-
-	// Single-threaded job system (we only need collision queries, not simulation)
-	g_job_system = new JobSystemSingleThreaded(cMaxPhysicsJobs);
+	// Shape construction and collision queries allocate on demand. They do not
+	// use a PhysicsSystem update, so no fixed scratch heap or job pool is needed.
 
 	g_jolt_initialized = true;
 
@@ -136,13 +127,6 @@ void Jolt_Shutdown(void)
 		Jolt_FreeWorld(g_active_world);
 		g_active_world = nullptr;
 	}
-
-	// Cleanup
-	delete g_job_system;
-	g_job_system = nullptr;
-
-	delete g_temp_allocator;
-	g_temp_allocator = nullptr;
 
 	UnregisterTypes();
 
@@ -260,143 +244,173 @@ qboolean Jolt_TraceBox(jolt_world_t *world, vec3_t start, vec3_t mins, vec3_t ma
 	VectorCopy(end, trace->endpos);
 
 	if (!world || !world->mesh_shape)
-	{
 		return false;
+
+	// Check if this is a PURE vertical trace (gravity/floor check only)
+	// Must be going down AND have minimal horizontal movement
+	float horiz_dist = sqrtf((end[0] - start[0]) * (end[0] - start[0]) +
+	                         (end[1] - start[1]) * (end[1] - start[1]));
+	float vert_dist = start[2] - end[2];
+	bool pure_vertical = (abs(vert_dist) > 0.0f && abs(horiz_dist) == 0.0f);
+
+	if (false && pure_vertical)
+	{
+		// For pure vertical traces, use ray cast from feet to find floor
+		float feet_z = start[2] + mins[2];
+		Vec3 ray_start(start[0], start[1], feet_z + 0.1f); // Start just above feet
+		Vec3 ray_dir(0.0f, 0.0f, -vert_dist - 1.0f); // Straight down
+
+		RayCast ray(ray_start, ray_dir);
+		SubShapeIDCreator id_creator;
+		RayCastResult hit;
+		hit.mFraction = 1.0f + FLT_EPSILON;
+
+		bool has_hit = world->mesh_shape->CastRay(ray, id_creator, hit);
+
+		if (has_hit && hit.mFraction < 1.0f)
+		{
+			Vec3 floor_pos = ray_start + ray_dir * hit.mFraction;
+			float floor_z = floor_pos.GetZ();
+			Vec3 normal = world->mesh_shape->GetSurfaceNormal(hit.mSubShapeID2, floor_pos);
+
+			if (normal.GetZ() >= 0.7f)
+			{
+				// Calculate where player origin should be so feet touch floor
+				float target_z = floor_z - mins[2];
+				float drop = start[2] - target_z;
+
+				float frac;
+				if (drop <= 0.1f)
+				{
+					// Already on floor
+					frac = 0.0f;
+				}
+				else
+				{
+					frac = drop / vert_dist;
+					if (frac > 1.0f) frac = 1.0f;
+					if (frac < 0.0f) frac = 0.0f;
+				}
+
+				trace->fraction = frac;
+				trace->endpos[0] = start[0];
+				trace->endpos[1] = start[1];
+				trace->endpos[2] = start[2] - vert_dist * frac;
+
+				trace->plane.normal[0] = normal.GetX();
+				trace->plane.normal[1] = normal.GetY();
+				trace->plane.normal[2] = normal.GetZ();
+				trace->plane.dist = floor_z * normal.GetZ();
+
+				trace->contents = CONTENTS_SOLID;
+				return true;
+			}
+		}
+
+		// No floor found in pure vertical trace - continue as normal trace
 	}
 
-	// Calculate box half-extents
+	// For non-vertical traces, use shape cast for wall collision
 	Vec3 half_extents(
 		(maxs[0] - mins[0]) * 0.5f,
 		(maxs[1] - mins[1]) * 0.5f,
 		(maxs[2] - mins[2]) * 0.5f
 	);
 
-	// Calculate box center offset (mins/maxs may not be centered)
 	Vec3 center_offset(
 		(maxs[0] + mins[0]) * 0.5f,
 		(maxs[1] + mins[1]) * 0.5f,
 		(maxs[2] + mins[2]) * 0.5f
 	);
 
-	// Create box shape for the trace
+	if (half_extents.GetX() <= 0.0f) half_extents.SetX(0.5f);
+	if (half_extents.GetY() <= 0.0f) half_extents.SetY(0.5f);
+	if (half_extents.GetZ() <= 0.0f) half_extents.SetZ(0.5f);
+
 	BoxShapeSettings box_settings(half_extents);
 	box_settings.SetEmbedded();
 	Shape::ShapeResult box_result = box_settings.Create();
 	if (box_result.HasError())
-	{
 		return false;
-	}
 	RefConst<Shape> box_shape = box_result.Get();
 
-	// Convert positions to Jolt coordinates (apply center offset)
-	Vec3 jolt_start(start[0] + center_offset.GetX(),
-	                start[1] + center_offset.GetY(),
-	                start[2] + center_offset.GetZ());
-	Vec3 jolt_end(end[0] + center_offset.GetX(),
-	              end[1] + center_offset.GetY(),
-	              end[2] + center_offset.GetZ());
-	Vec3 direction = jolt_end - jolt_start;
-	float move_length = direction.Length();
+	// Lift trace start slightly to avoid floor contact when standing on ground
+	// This "ground clearance" prevents frac=0 floor hits during horizontal movement
+	const float GROUND_CLEARANCE = 0.25f;
 
-	// Handle zero-length traces
-	if (move_length < 0.001f)
-	{
-		// Point test - check if start position overlaps with world
-		CollideShapeSettings collide_settings;
-		AllHitCollisionCollector<CollideShapeCollector> collector;
+	Vec3 trace_start(
+		start[0] + center_offset.GetX(),
+		start[1] + center_offset.GetY(),
+		start[2] + center_offset.GetZ() + GROUND_CLEARANCE
+	);
+	Vec3 trace_end(
+		end[0] + center_offset.GetX(),
+		end[1] + center_offset.GetY(),
+		end[2] + center_offset.GetZ() + GROUND_CLEARANCE
+	);
 
-		// Transforms
-		Mat44 box_transform = Mat44::sTranslation(jolt_start);
-		Mat44 world_transform = Mat44::sIdentity();
+	Vec3 direction = trace_end - trace_start;
+	float trace_length = direction.Length();
 
-		// Use collision dispatch for shape vs shape collision
-		SubShapeIDCreator id_creator1, id_creator2;
-		CollisionDispatch::sCollideShapeVsShape(
-			box_shape, world->mesh_shape.GetPtr(),
-			Vec3::sReplicate(1.0f), Vec3::sReplicate(1.0f),
-			box_transform, world_transform,
-			id_creator1, id_creator2,
-			collide_settings, collector
-		);
-
-		if (collector.HadHit())
-		{
-			trace->startsolid = true;
-			trace->allsolid = true;
-			trace->fraction = 0.0f;
-			VectorCopy(start, trace->endpos);
-			return true;
-		}
+	if (trace_length < DIST_EPSILON)
 		return false;
-	}
 
-	// Create shape cast in world space
 	ShapeCast shape_cast = ShapeCast::sFromWorldTransform(
 		box_shape,
 		Vec3::sReplicate(1.0f),
-		Mat44::sTranslation(jolt_start),
+		Mat44::sTranslation(trace_start),
 		direction
 	);
 
-	// Settings for the cast
-	ShapeCastSettings cast_settings;
-	cast_settings.mBackFaceModeTriangles = EBackFaceMode::CollideWithBackFaces;
-	cast_settings.mBackFaceModeConvex = EBackFaceMode::CollideWithBackFaces;
+	ShapeCastSettings settings;
+	settings.mBackFaceModeTriangles = EBackFaceMode::IgnoreBackFaces;
+	settings.mBackFaceModeConvex = EBackFaceMode::IgnoreBackFaces;
+	settings.mReturnDeepestPoint = true;
 
-	// Perform cast against world mesh using collision dispatch
 	ClosestHitCollisionCollector<CastShapeCollector> collector;
-	SubShapeIDCreator id_creator1, id_creator2;
-	Mat44 world_transform = Mat44::sIdentity();
+	SubShapeIDCreator id1, id2;
 
 	CollisionDispatch::sCastShapeVsShapeWorldSpace(
-		shape_cast, cast_settings,
+		shape_cast,
+		settings,
 		world->mesh_shape.GetPtr(),
 		Vec3::sReplicate(1.0f),
 		ShapeFilter(),
-		world_transform,
-		id_creator1, id_creator2,
+		Mat44::sIdentity(),
+		id1, id2,
 		collector
 	);
 
-	if (collector.HadHit())
-	{
-		const ShapeCastResult &hit = collector.mHit;
+	// No hit - no collision
+	if (!collector.HadHit())
+		return false;
 
-		// Check for starting in solid
-		if (hit.mFraction <= 0.0f)
-		{
-			trace->startsolid = true;
-			trace->allsolid = true;
-			trace->fraction = 0.0f;
-			VectorCopy(start, trace->endpos);
-			return true;
-		}
+	const ShapeCastResult &hit = collector.mHit;
 
-		trace->fraction = hit.mFraction;
+	Vec3 normal = -hit.mPenetrationAxis.Normalized();
+	float normal_len = normal.Length();
+	if (normal_len < 0.5f || normal_len > 1.5f || std::isnan(normal_len))
+		return false;
 
-		// Calculate end position
-		Vec3 hit_pos = jolt_start + direction * hit.mFraction - center_offset;
-		trace->endpos[0] = hit_pos.GetX();
-		trace->endpos[1] = hit_pos.GetY();
-		trace->endpos[2] = hit_pos.GetZ();
+	float frac = hit.mFraction;
+	Vec3 contact_point = hit.mContactPointOn2;
 
-		// Get collision normal
-		Vec3 normal = -hit.mPenetrationAxis.Normalized();
+	// Clamp fraction
+	if (frac < 0.0f) frac = 0.0f;
+	if (frac > 1.0f) frac = 1.0f;
 
-		trace->plane.normal[0] = normal.GetX();
-		trace->plane.normal[1] = normal.GetY();
-		trace->plane.normal[2] = normal.GetZ();
+	trace->fraction = frac;
+	trace->endpos[0] = start[0] + (end[0] - start[0]) * frac;
+	trace->endpos[1] = start[1] + (end[1] - start[1]) * frac;
+	trace->endpos[2] = start[2] + (end[2] - start[2]) * frac;
 
-		// Calculate plane distance
-		trace->plane.dist = trace->endpos[0] * trace->plane.normal[0] +
-		                    trace->endpos[1] * trace->plane.normal[1] +
-		                    trace->endpos[2] * trace->plane.normal[2];
+	trace->plane.normal[0] = normal.GetX();
+	trace->plane.normal[1] = normal.GetY();
+	trace->plane.normal[2] = normal.GetZ();
+	trace->plane.dist = contact_point.Dot(normal);
 
-		trace->contents = CONTENTS_SOLID;
-		return true;
-	}
-
-	return false;
+	trace->contents = CONTENTS_SOLID;
+	return true;
 }
 
 qboolean Jolt_TraceLine(jolt_world_t *world, vec3_t start, vec3_t end, trace_t *trace)

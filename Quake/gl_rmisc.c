@@ -659,7 +659,7 @@ byte *R_StagingAllocate (int size, int alignment, VkCommandBuffer *command_buffe
 	}
 
 	stagingbuffer_t *staging_buffer = &staging_buffers[current_staging_buffer];
-	assert (alignment == Q_nextPow2 (alignment));
+	assert (static_cast<uint32_t> (alignment) == Q_nextPow2 (alignment));
 	staging_buffer->current_offset = q_align (staging_buffer->current_offset, alignment);
 
 	if ((staging_buffer->current_offset + size) >= vulkan_globals.staging_buffer_size && !staging_buffer->submitted)
@@ -1240,6 +1240,25 @@ void R_CreateDescriptorSetLayouts ()
 	}
 
 	{
+		VkDescriptorSetLayoutBinding bindings[2] = {};
+		for (uint32_t i = 0; i < 2; ++i)
+		{
+			bindings[i].binding = i;
+			bindings[i].descriptorCount = 1;
+			bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+		descriptor_set_layout_create_info.bindingCount = 2;
+		descriptor_set_layout_create_info.pBindings = bindings;
+		vulkan_globals.cloud_radiance_set_layout = {};
+		vulkan_globals.cloud_radiance_set_layout.num_combined_image_samplers = 2;
+		err = vkCreateDescriptorSetLayout (vulkan_globals.device, &descriptor_set_layout_create_info, NULL, &vulkan_globals.cloud_radiance_set_layout.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateDescriptorSetLayout failed (cloud radiance)");
+		GL_SetObjectName ((uint64_t)vulkan_globals.cloud_radiance_set_layout.handle, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "cloud radiance pair");
+	}
+
+	{
 		ZEROED_STRUCT (VkDescriptorSetLayoutBinding, ubo_layout_bindings);
 		ubo_layout_bindings.binding = 0;
 		ubo_layout_bindings.descriptorCount = 1;
@@ -1541,7 +1560,7 @@ void R_CreatePipelineLayouts ()
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 21 * sizeof (float);
+		push_constant_range.size = 31 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
@@ -1565,7 +1584,7 @@ void R_CreatePipelineLayouts ()
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 21 * sizeof (float);
+		push_constant_range.size = 31 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
@@ -1583,13 +1602,34 @@ void R_CreatePipelineLayouts ()
 	}
 
 	{
+		// Terrain uses interpolated normals and per-frame sunlight instead of a BSP lightmap.
+		VkDescriptorSetLayout terrain_descriptor_set_layouts[4] = {
+			vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle,
+			vulkan_globals.single_texture_set_layout.handle};
+		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
+		push_constant_range.size = 32 * sizeof (float);
+		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
+		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipeline_layout_create_info.setLayoutCount = countof (terrain_descriptor_set_layouts);
+		pipeline_layout_create_info.pSetLayouts = terrain_descriptor_set_layouts;
+		pipeline_layout_create_info.pushConstantRangeCount = 1;
+		pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
+		err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.terrain_pipeline_layout.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreatePipelineLayout failed (terrain)");
+		GL_SetObjectName ((uint64_t)vulkan_globals.terrain_pipeline_layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "terrain_pipeline_layout");
+		vulkan_globals.terrain_pipeline_layout.push_constant_range = push_constant_range;
+	}
+
+	{
 		// Alias
 		VkDescriptorSetLayout alias_descriptor_set_layouts[3] = {
 			vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle, vulkan_globals.ubo_set_layout.handle};
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 21 * sizeof (float);
+		push_constant_range.size = 31 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
@@ -1614,7 +1654,7 @@ void R_CreatePipelineLayouts ()
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 21 * sizeof (float);
+		push_constant_range.size = 31 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
@@ -1667,16 +1707,16 @@ void R_CreatePipelineLayouts ()
 	}
 
 	{
-		// Sky Atmosphere pipeline layout (no textures, just push constants)
+		// Sky atmosphere: optional cached unit-radiance texture and 116-byte constants.
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 28 * sizeof (float); // mvp(16) + fog_color(3) + fog_density(1) + eye_pos(3) + time(1) + sun_dir(3) + sun_intensity(1)
+		push_constant_range.size = 29 * sizeof (float); // existing 112 bytes plus use_lut
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
 		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipeline_layout_create_info.setLayoutCount = 0;
-		pipeline_layout_create_info.pSetLayouts = NULL;
+		pipeline_layout_create_info.setLayoutCount = 1;
+		pipeline_layout_create_info.pSetLayouts = &vulkan_globals.single_texture_set_layout.handle;
 		pipeline_layout_create_info.pushConstantRangeCount = 1;
 		pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
 
@@ -1689,20 +1729,21 @@ void R_CreatePipelineLayouts ()
 
 	{
 		// Sky Clouds pipeline layout (3D noise texture + push constants)
-		VkDescriptorSetLayout clouds_descriptor_set_layouts[1] = {
+		VkDescriptorSetLayout clouds_descriptor_set_layouts[2] = {
 			vulkan_globals.single_texture_set_layout.handle,
+			vulkan_globals.input_attachment_set_layout.handle,
 		};
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		// mvp(16) + fog_color(3) + fog_density(1) + eye_pos(3) + time(1) + sun_dir(3) + sun_intensity(1)
-		// + cloud_height(1) + cloud_thickness(1) + cloud_density(1) + cloud_coverage(1) + cloud_speed(1) = 33 floats
-		push_constant_range.size = 33 * sizeof (float);
+		// mvp(16) + packed_fog(1) + fog_density(1) + cloud_speed(1) + cloud_scale(1) + eye_pos(3) + time(1)
+		// + sun_dir(3) + sun_intensity(1) + cloud_height(1) + cloud_thickness(1) + cloud_density(1) + cloud_coverage(1) = 32 floats
+		push_constant_range.size = 32 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
 		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipeline_layout_create_info.setLayoutCount = 1;
+		pipeline_layout_create_info.setLayoutCount = 2;
 		pipeline_layout_create_info.pSetLayouts = clouds_descriptor_set_layouts;
 		pipeline_layout_create_info.pushConstantRangeCount = 1;
 		pipeline_layout_create_info.pPushConstantRanges = &push_constant_range;
@@ -1712,6 +1753,17 @@ void R_CreatePipelineLayouts ()
 			Sys_Error ("vkCreatePipelineLayout failed");
 		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_pipeline_layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "sky_clouds_pipeline_layout");
 		vulkan_globals.sky_clouds_pipeline_layout.push_constant_range = push_constant_range;
+		VkDescriptorSetLayout reduced_sets[4] = {
+			vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle, vulkan_globals.ubo_set_layout.handle,
+			vulkan_globals.cloud_radiance_set_layout.handle};
+		pipeline_layout_create_info.setLayoutCount = 4;
+		pipeline_layout_create_info.pSetLayouts = reduced_sets;
+		err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.sky_clouds_reduced_layout.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreatePipelineLayout failed (reduced clouds)");
+		vulkan_globals.sky_clouds_reduced_layout.push_constant_range = push_constant_range;
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_reduced_layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "sky_clouds_reduced_layout");
+
 	}
 
 	{
@@ -2149,11 +2201,14 @@ static VkVertexInputBindingDescription	 md5_vertex_binding_description;
 	} while (0)
 
 DECLARE_SHADER_MODULE (basic_vert);
+DECLARE_SHADER_MODULE (basic_sky_vert);
 DECLARE_SHADER_MODULE (basic_frag);
 DECLARE_SHADER_MODULE (basic_alphatest_frag);
 DECLARE_SHADER_MODULE (basic_notex_frag);
 DECLARE_SHADER_MODULE (world_vert);
 DECLARE_SHADER_MODULE (world_frag);
+DECLARE_SHADER_MODULE (terrain_vert);
+DECLARE_SHADER_MODULE (terrain_frag);
 DECLARE_SHADER_MODULE (alias_vert);
 DECLARE_SHADER_MODULE (alias_frag);
 DECLARE_SHADER_MODULE (alias_alphatest_frag);
@@ -2166,6 +2221,13 @@ DECLARE_SHADER_MODULE (sky_cube_frag);
 DECLARE_SHADER_MODULE (sky_atmosphere_vert);
 DECLARE_SHADER_MODULE (sky_atmosphere_frag);
 DECLARE_SHADER_MODULE (sky_clouds_frag);
+DECLARE_SHADER_MODULE (sky_clouds_msaa_frag);
+DECLARE_SHADER_MODULE (sky_clouds_vert);
+DECLARE_SHADER_MODULE (sky_clouds_reduced_vert);
+DECLARE_SHADER_MODULE (sky_clouds_reduced_frag);
+DECLARE_SHADER_MODULE (sky_clouds_reduced_msaa_frag);
+DECLARE_SHADER_MODULE (sky_clouds_composite_frag);
+DECLARE_SHADER_MODULE (sky_clouds_composite_msaa_frag);
 DECLARE_SHADER_MODULE (postprocess_vert);
 DECLARE_SHADER_MODULE (postprocess_frag);
 DECLARE_SHADER_MODULE (screen_effects_8bit_comp);
@@ -2697,6 +2759,7 @@ static void R_CreateSkyPipelines ()
 		VkResult				err;
 		pipeline_create_infos_t infos;
 		R_InitDefaultStates (&infos);
+		infos.shader_stages[0].module = basic_sky_vert_module;
 
 		if (i) // indirect vertex buffer has stride 28 (world) instead of 24 (basic)
 		{
@@ -2714,7 +2777,7 @@ static void R_CreateSkyPipelines ()
 		infos.shader_stages[1].module = VK_NULL_HANDLE;
 
 		infos.depth_stencil_state.depthTestEnable = VK_TRUE;
-		infos.depth_stencil_state.depthWriteEnable = VK_TRUE;
+		infos.depth_stencil_state.depthWriteEnable = VK_FALSE;
 		infos.depth_stencil_state.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 		infos.depth_stencil_state.stencilTestEnable = VK_TRUE;
 		infos.depth_stencil_state.front.compareOp = VK_COMPARE_OP_ALWAYS;
@@ -2725,6 +2788,19 @@ static void R_CreateSkyPipelines ()
 		infos.depth_stencil_state.front.writeMask = 0xFF;
 		infos.depth_stencil_state.front.reference = 0x1;
 		infos.blend_attachment_state.colorWriteMask = 0; // We only want to write stencil
+
+		// Restore portal depth only after clouds have sampled the opaque scene.
+		infos.depth_stencil_state.depthWriteEnable = VK_TRUE;
+		infos.depth_stencil_state.stencilTestEnable = VK_FALSE;
+		assert (vulkan_globals.sky_depth_pipeline[i].handle == VK_NULL_HANDLE);
+		err = vkCreateGraphicsPipelines (
+			vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.sky_depth_pipeline[i].handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateGraphicsPipelines failed (sky_depth_pipeline)");
+		vulkan_globals.sky_depth_pipeline[i].layout = vulkan_globals.sky_pipeline_layout[0];
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_depth_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_depth_indirect" : "sky_depth");
+		infos.depth_stencil_state.depthWriteEnable = VK_FALSE;
+		infos.depth_stencil_state.stencilTestEnable = VK_TRUE;
 
 		assert (vulkan_globals.sky_stencil_pipeline[i].handle == VK_NULL_HANDLE);
 		err = vkCreateGraphicsPipelines (
@@ -2781,25 +2857,6 @@ static void R_CreateSkyPipelines ()
 			(uint64_t)vulkan_globals.sky_atmosphere_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_atmosphere_indirect" : "sky_atmosphere");
 		vulkan_globals.sky_atmosphere_pipeline[i].layout = vulkan_globals.sky_atmosphere_pipeline_layout;
 
-		// Sky Clouds pipeline (with alpha blending)
-		infos.shader_stages[0].module = sky_atmosphere_vert_module; // Reuse vertex shader
-		infos.shader_stages[1].module = sky_clouds_frag_module;
-		infos.graphics_pipeline.layout = vulkan_globals.sky_clouds_pipeline_layout.handle;
-		infos.blend_attachment_state.blendEnable = VK_TRUE;
-		infos.blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-		infos.blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-		infos.blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
-		infos.blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-		infos.blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-		infos.blend_attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
-		assert (vulkan_globals.sky_clouds_pipeline[i].handle == VK_NULL_HANDLE);
-		err =
-			vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.sky_clouds_pipeline[i].handle);
-		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateGraphicsPipelines failed (sky_clouds_pipeline)");
-		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_pipeline[i].handle, VK_OBJECT_TYPE_PIPELINE, i ? "sky_clouds_indirect" : "sky_clouds");
-		vulkan_globals.sky_clouds_pipeline[i].layout = vulkan_globals.sky_clouds_pipeline_layout;
-		infos.blend_attachment_state.blendEnable = VK_FALSE; // Reset for subsequent pipelines
 
 		if (i > 0)
 			break;
@@ -2814,7 +2871,7 @@ static void R_CreateSkyPipelines ()
 		infos.depth_stencil_state.front.compareMask = 0xFF;
 		infos.depth_stencil_state.front.writeMask = 0x0;
 		infos.depth_stencil_state.front.reference = 0x1;
-		infos.shader_stages[0].module = basic_vert_module;
+		infos.shader_stages[0].module = basic_sky_vert_module;
 		infos.shader_stages[1].module = sky_box_frag_module;
 		infos.graphics_pipeline.layout = vulkan_globals.sky_pipeline_layout[0].handle;
 
@@ -2826,6 +2883,62 @@ static void R_CreateSkyPipelines ()
 
 		vulkan_globals.sky_box_pipeline.layout = vulkan_globals.sky_pipeline_layout[0];
 	}
+	// Clouds are a volume over opaque scene color, rather than sky geometry.
+	// Reading multisample depth conservatively lets one march cover each pixel.
+	pipeline_create_infos_t infos;
+	R_InitDefaultStates (&infos);
+	infos.vertex_input_state.vertexAttributeDescriptionCount = 0;
+	infos.vertex_input_state.vertexBindingDescriptionCount = 0;
+	infos.input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	infos.rasterization_state.cullMode = VK_CULL_MODE_NONE;
+	infos.graphics_pipeline.renderPass = vulkan_globals.clouds_render_pass;
+	infos.graphics_pipeline.layout = vulkan_globals.sky_clouds_pipeline_layout.handle;
+	infos.shader_stages[0].module = sky_clouds_vert_module;
+	const int sample_count = static_cast<int> (vulkan_globals.sample_count);
+	infos.shader_stages[1].module = sample_count > 1 ? sky_clouds_msaa_frag_module : sky_clouds_frag_module;
+	VkSpecializationMapEntry sample_entry = {0, 0, sizeof (sample_count)};
+	VkSpecializationInfo sample_specialization = {1, &sample_entry, sizeof (sample_count), &sample_count};
+	if (sample_count > 1)
+		infos.shader_stages[1].pSpecializationInfo = &sample_specialization;
+	infos.multisample_state.sampleShadingEnable = VK_FALSE;
+	infos.depth_stencil_state.depthTestEnable = VK_FALSE;
+	infos.depth_stencil_state.depthWriteEnable = VK_FALSE;
+	infos.blend_attachment_state.blendEnable = VK_TRUE;
+	infos.blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	infos.blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	infos.blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	infos.blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	assert (vulkan_globals.sky_clouds_pipeline.handle == VK_NULL_HANDLE);
+	VkResult err = vkCreateGraphicsPipelines (
+		vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.sky_clouds_pipeline.handle);
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkCreateGraphicsPipelines failed (sky_clouds_pipeline)");
+	GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_pipeline.handle, VK_OBJECT_TYPE_PIPELINE, "sky_clouds");
+	vulkan_globals.sky_clouds_pipeline.layout = vulkan_globals.sky_clouds_pipeline_layout;
+	if (vulkan_globals.clouds_reduced_render_pass != VK_NULL_HANDLE)
+	{
+		infos.graphics_pipeline.layout = vulkan_globals.sky_clouds_reduced_layout.handle;
+		infos.shader_stages[1].module = sample_count > 1 ? sky_clouds_composite_msaa_frag_module : sky_clouds_composite_frag_module;
+		err = vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL,
+			&vulkan_globals.sky_clouds_composite_pipeline.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateGraphicsPipelines failed (cloud composite)");
+		vulkan_globals.sky_clouds_composite_pipeline.layout = vulkan_globals.sky_clouds_reduced_layout;
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_composite_pipeline.handle, VK_OBJECT_TYPE_PIPELINE, "sky_clouds_composite");
+
+		infos.graphics_pipeline.renderPass = vulkan_globals.clouds_reduced_render_pass;
+		infos.shader_stages[0].module = sky_clouds_reduced_vert_module;
+		infos.shader_stages[1].module = sample_count > 1 ? sky_clouds_reduced_msaa_frag_module : sky_clouds_reduced_frag_module;
+		infos.multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		infos.blend_attachment_state.blendEnable = VK_FALSE;
+		err = vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL,
+			&vulkan_globals.sky_clouds_reduced_pipeline.handle);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateGraphicsPipelines failed (cloud trace)");
+		vulkan_globals.sky_clouds_reduced_pipeline.layout = vulkan_globals.sky_clouds_reduced_layout;
+		GL_SetObjectName ((uint64_t)vulkan_globals.sky_clouds_reduced_pipeline.handle, VK_OBJECT_TYPE_PIPELINE, "sky_clouds_reduced");
+	}
+
 }
 
 /*
@@ -3026,6 +3139,62 @@ static void R_CreateWorldPipelines ()
 					vulkan_globals.world_pipelines[pipeline_index].layout = vulkan_globals.world_pipeline_layout;
 				}
 			}
+		}
+	}
+}
+
+/*
+===============
+R_CreateTerrainPipeline
+===============
+*/
+static void R_CreateTerrainPipeline ()
+{
+	pipeline_create_infos_t infos;
+	R_InitDefaultStates (&infos);
+	infos.depth_stencil_state.depthTestEnable = VK_TRUE;
+	infos.depth_stencil_state.depthWriteEnable = VK_TRUE;
+	VkVertexInputAttributeDescription attributes[] = {
+		{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},
+		{1, 0, VK_FORMAT_R32G32B32_SFLOAT, 12},
+		{2, 0, VK_FORMAT_R8G8B8A8_UNORM, 24},
+		{3, 0, VK_FORMAT_R8G8B8A8_UNORM, 28}};
+	VkVertexInputBindingDescription binding = {0, 32, VK_VERTEX_INPUT_RATE_VERTEX};
+	infos.vertex_input_state.vertexAttributeDescriptionCount = countof (attributes);
+	infos.vertex_input_state.pVertexAttributeDescriptions = attributes;
+	infos.vertex_input_state.vertexBindingDescriptionCount = 1;
+	infos.vertex_input_state.pVertexBindingDescriptions = &binding;
+	infos.shader_stages[0].module = terrain_vert_module;
+	infos.shader_stages[1].module = terrain_frag_module;
+	infos.graphics_pipeline.layout = vulkan_globals.terrain_pipeline_layout.handle;
+	assert (vulkan_globals.terrain_pipeline.handle == VK_NULL_HANDLE);
+	VkResult err =
+		vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &vulkan_globals.terrain_pipeline.handle);
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkCreateGraphicsPipelines failed (terrain)");
+	GL_SetObjectName ((uint64_t)vulkan_globals.terrain_pipeline.handle, VK_OBJECT_TYPE_PIPELINE, "terrain");
+	vulkan_globals.terrain_pipeline.layout = vulkan_globals.terrain_pipeline_layout;
+
+	// The stock showtris vertex format cannot read streamed meshes. Use their
+	// own vertex shader so curved LOD, transitions and ocean match the solid pass.
+	if (vulkan_globals.non_solid_fill)
+	{
+		infos.rasterization_state.polygonMode = VK_POLYGON_MODE_LINE;
+		infos.rasterization_state.cullMode = VK_CULL_MODE_NONE;
+		infos.depth_stencil_state.depthWriteEnable = VK_FALSE;
+		infos.shader_stages[1].module = showtris_frag_module;
+		for (int depth = 0; depth < 2; ++depth)
+		{
+			vulkan_pipeline_t *pipeline = &vulkan_globals.terrain_showtris_pipelines[depth];
+			infos.depth_stencil_state.depthTestEnable = depth ? VK_TRUE : VK_FALSE;
+			infos.rasterization_state.depthBiasEnable = depth ? VK_TRUE : VK_FALSE;
+			infos.rasterization_state.depthBiasConstantFactor = 500.0f; // match BSP, reversed Z
+			assert (pipeline->handle == VK_NULL_HANDLE);
+			err = vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos.graphics_pipeline, NULL, &pipeline->handle);
+			if (err != VK_SUCCESS)
+				Sys_Error ("vkCreateGraphicsPipelines failed (terrain_showtris)");
+			pipeline->layout = vulkan_globals.terrain_pipeline_layout;
+			GL_SetObjectName ((uint64_t)pipeline->handle, VK_OBJECT_TYPE_PIPELINE, depth ? "terrain_showtris_depth_test" : "terrain_showtris");
 		}
 	}
 }
@@ -3420,11 +3589,14 @@ R_CreateShaderModules
 static void R_CreateShaderModules ()
 {
 	CREATE_SHADER_MODULE (basic_vert);
+	CREATE_SHADER_MODULE (basic_sky_vert);
 	CREATE_SHADER_MODULE (basic_frag);
 	CREATE_SHADER_MODULE (basic_alphatest_frag);
 	CREATE_SHADER_MODULE (basic_notex_frag);
 	CREATE_SHADER_MODULE (world_vert);
 	CREATE_SHADER_MODULE (world_frag);
+	CREATE_SHADER_MODULE (terrain_vert);
+	CREATE_SHADER_MODULE (terrain_frag);
 	CREATE_SHADER_MODULE (alias_vert);
 	CREATE_SHADER_MODULE (alias_frag);
 	CREATE_SHADER_MODULE (alias_alphatest_frag);
@@ -3437,6 +3609,13 @@ static void R_CreateShaderModules ()
 	CREATE_SHADER_MODULE (sky_atmosphere_vert);
 	CREATE_SHADER_MODULE (sky_atmosphere_frag);
 	CREATE_SHADER_MODULE (sky_clouds_frag);
+	CREATE_SHADER_MODULE (sky_clouds_msaa_frag);
+	CREATE_SHADER_MODULE (sky_clouds_vert);
+	CREATE_SHADER_MODULE (sky_clouds_reduced_vert);
+	CREATE_SHADER_MODULE (sky_clouds_reduced_frag);
+	CREATE_SHADER_MODULE (sky_clouds_reduced_msaa_frag);
+	CREATE_SHADER_MODULE (sky_clouds_composite_frag);
+	CREATE_SHADER_MODULE (sky_clouds_composite_msaa_frag);
 	CREATE_SHADER_MODULE (postprocess_vert);
 	CREATE_SHADER_MODULE (postprocess_frag);
 	CREATE_SHADER_MODULE (screen_effects_8bit_comp);
@@ -3467,11 +3646,14 @@ R_DestroyShaderModules
 static void R_DestroyShaderModules ()
 {
 	DESTROY_SHADER_MODULE (basic_vert);
+	DESTROY_SHADER_MODULE (basic_sky_vert);
 	DESTROY_SHADER_MODULE (basic_frag);
 	DESTROY_SHADER_MODULE (basic_alphatest_frag);
 	DESTROY_SHADER_MODULE (basic_notex_frag);
 	DESTROY_SHADER_MODULE (world_vert);
 	DESTROY_SHADER_MODULE (world_frag);
+	DESTROY_SHADER_MODULE (terrain_vert);
+	DESTROY_SHADER_MODULE (terrain_frag);
 	DESTROY_SHADER_MODULE (alias_vert);
 	DESTROY_SHADER_MODULE (alias_frag);
 	DESTROY_SHADER_MODULE (alias_alphatest_frag);
@@ -3484,6 +3666,13 @@ static void R_DestroyShaderModules ()
 	DESTROY_SHADER_MODULE (sky_atmosphere_vert);
 	DESTROY_SHADER_MODULE (sky_atmosphere_frag);
 	DESTROY_SHADER_MODULE (sky_clouds_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_msaa_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_vert);
+	DESTROY_SHADER_MODULE (sky_clouds_reduced_vert);
+	DESTROY_SHADER_MODULE (sky_clouds_reduced_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_reduced_msaa_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_composite_frag);
+	DESTROY_SHADER_MODULE (sky_clouds_composite_msaa_frag);
 	DESTROY_SHADER_MODULE (postprocess_vert);
 	DESTROY_SHADER_MODULE (postprocess_frag);
 	DESTROY_SHADER_MODULE (screen_effects_8bit_comp);
@@ -3524,6 +3713,7 @@ void R_CreatePipelines ()
 	R_CreateSkyPipelines ();
 	R_CreateShowTrisPipelines ();
 	R_CreateWorldPipelines ();
+	R_CreateTerrainPipeline ();
 	R_CreateAliasPipelines ();
 	R_CreateMD5Pipelines ();
 	R_CreatePostprocessPipelines ();
@@ -3557,6 +3747,13 @@ void R_DestroyPipelines (void)
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_pipelines[i].handle, NULL);
 		vulkan_globals.world_pipelines[i].handle = VK_NULL_HANDLE;
 	}
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.terrain_pipeline.handle, NULL);
+	vulkan_globals.terrain_pipeline.handle = VK_NULL_HANDLE;
+	for (i = 0; i < 2; ++i)
+	{
+		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.terrain_showtris_pipelines[i].handle, NULL);
+		vulkan_globals.terrain_showtris_pipelines[i].handle = VK_NULL_HANDLE;
+	}
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.raster_tex_warp_pipeline.handle, NULL);
 	vulkan_globals.raster_tex_warp_pipeline.handle = VK_NULL_HANDLE;
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.particle_pipeline.handle, NULL);
@@ -3578,6 +3775,8 @@ void R_DestroyPipelines (void)
 
 	for (i = 0; i < 2; ++i)
 	{
+		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_depth_pipeline[i].handle, NULL);
+		vulkan_globals.sky_depth_pipeline[i].handle = VK_NULL_HANDLE;
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_stencil_pipeline[i].handle, NULL);
 		vulkan_globals.sky_stencil_pipeline[i].handle = VK_NULL_HANDLE;
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_color_pipeline[i].handle, NULL);
@@ -3588,9 +3787,13 @@ void R_DestroyPipelines (void)
 		vulkan_globals.sky_layer_pipeline[i].handle = VK_NULL_HANDLE;
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_atmosphere_pipeline[i].handle, NULL);
 		vulkan_globals.sky_atmosphere_pipeline[i].handle = VK_NULL_HANDLE;
-		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_clouds_pipeline[i].handle, NULL);
-		vulkan_globals.sky_clouds_pipeline[i].handle = VK_NULL_HANDLE;
 	}
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_clouds_pipeline.handle, NULL);
+	vulkan_globals.sky_clouds_pipeline.handle = VK_NULL_HANDLE;
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_clouds_reduced_pipeline.handle, NULL);
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_clouds_composite_pipeline.handle, NULL);
+	vulkan_globals.sky_clouds_reduced_pipeline.handle = VK_NULL_HANDLE;
+	vulkan_globals.sky_clouds_composite_pipeline.handle = VK_NULL_HANDLE;
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_box_pipeline.handle, NULL);
 	vulkan_globals.sky_box_pipeline.handle = VK_NULL_HANDLE;
 	for (i = 0; i < MODEL_PIPELINE_COUNT; ++i)
@@ -3679,6 +3882,7 @@ void R_Init (void)
 	Cvar_SetCallback (&r_wateralpha, R_SetWateralpha_f);
 	Cvar_RegisterVariable (&r_dynamic);
 	Cvar_RegisterVariable (&r_novis);
+	Cvar_RegisterVariable (&r_planet_curvature);
 #if defined(USE_SIMD)
 	Cvar_RegisterVariable (&r_simd);
 	Cvar_SetCallback (&r_simd, R_SIMD_f);
@@ -3951,9 +4155,8 @@ void R_NewMap (void)
 	for (i = 0; i < MAX_LIGHTSTYLES; i++)
 		d_lightstylevalue[i] = 264; // normal light value
 
-	// clear out efrags in case the level hasn't been reloaded
-	// FIXME: is this one short?
-	for (i = 0; i < cl.worldmodel->numleafs; i++)
+	// Include the last visible leaf; numleafs excludes the solid sentinel at zero.
+	for (i = 0; i <= cl.worldmodel->numleafs; i++)
 		cl.worldmodel->leafs[i].efrags = NULL;
 
 	r_viewleaf = NULL;

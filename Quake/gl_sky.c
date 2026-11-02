@@ -26,6 +26,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "kd_model.h"
 #include "noise_gen.h"
+#include "octree_engine.h"
+#include "cloud_coordinates.h"
+#include "sky_profile.h"
+#include "sky_atmosphere.h"
 
 float Fog_GetDensity (void);
 void  Fog_GetColor (float *c);
@@ -41,7 +45,7 @@ gltexture_t *skybox_cubemap;
 gltexture_t *solidskytexture, *alphaskytexture;
 gltexture_t *cloud_noise_texture; // 3D noise texture for volumetric clouds
 
-extern cvar_t gl_farclip;
+extern cvar_t r_showtris;
 cvar_t		  r_fastsky = {"r_fastsky", "0", CVAR_NONE};
 cvar_t		  r_sky_quality = {"r_sky_quality", "12", CVAR_NONE};
 cvar_t		  r_skyalpha = {"r_skyalpha", "1", CVAR_NONE};
@@ -56,11 +60,20 @@ cvar_t r_sun_intensity = {"r_sun_intensity", "1.0", CVAR_NONE};			   // Sun brig
 
 // Volumetric cloud cvars
 cvar_t r_clouds = {"r_clouds", "1", CVAR_ARCHIVE};
-cvar_t r_clouds_density = {"r_clouds_density", "0.5", CVAR_NONE};	 // Cloud opacity
-cvar_t r_clouds_coverage = {"r_clouds_coverage", "0.4", CVAR_NONE};	 // Sky coverage amount
-cvar_t r_clouds_speed = {"r_clouds_speed", "0.01", CVAR_NONE};		 // Wind animation speed
-cvar_t r_clouds_height = {"r_clouds_height", "2000", CVAR_NONE};	 // Cloud layer base height (Quake units)
+cvar_t r_clouds_resolution = {"r_clouds_resolution", "2", CVAR_ARCHIVE};
+cvar_t r_clouds_filter = {"r_clouds_filter", "0", CVAR_ARCHIVE};
+// Experimental measurements remain local to the current run.
+cvar_t r_clouds_cascades = {"r_clouds_cascades", "0", CVAR_NONE};
+cvar_t r_clouds_near_resolution = {"r_clouds_near_resolution", "2", CVAR_NONE};
+cvar_t r_clouds_far_resolution = {"r_clouds_far_resolution", "4", CVAR_NONE};
+cvar_t r_clouds_split = {"r_clouds_split", "4096", CVAR_NONE};
+cvar_t r_clouds_band = {"r_clouds_band", "0", CVAR_NONE};			   // 0 all, 1 near, 2 far
+cvar_t r_clouds_density = {"r_clouds_density", "0.5", CVAR_NONE};	   // Cloud opacity
+cvar_t r_clouds_coverage = {"r_clouds_coverage", "0.4", CVAR_NONE};	   // Sky coverage amount
+cvar_t r_clouds_speed = {"r_clouds_speed", "0.01", CVAR_NONE};		   // Wind animation speed
+cvar_t r_clouds_height = {"r_clouds_height", "2000", CVAR_NONE};	   // Cloud layer base height (Quake units)
 cvar_t r_clouds_thickness = {"r_clouds_thickness", "1500", CVAR_NONE}; // Cloud layer thickness
+cvar_t r_clouds_scale = {"r_clouds_scale", "0.000075", CVAR_NONE};	   // Cloud UV scale (smaller = larger clouds)
 
 /*
 ================
@@ -400,12 +413,13 @@ void Sky_NewMap (void)
 	// Generate cloud noise texture if not already created
 	if (!cloud_noise_texture)
 	{
-		const int noise_size = 128;
+		const int noise_size = 256;
 		byte	 *noise_data = Noise_Generate3DTexture (noise_size);
 		if (noise_data)
 		{
-			cloud_noise_texture =
-				TexMgr_LoadImage3D (NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data, TEXPREF_PERSIST | TEXPREF_LINEAR);
+			cloud_noise_texture = TexMgr_LoadImage3D (
+				NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data,
+				TEXPREF_PERSIST | (r_clouds_filter.value ? TEXPREF_LINEAR : TEXPREF_NEAREST));
 			Mem_Free (noise_data);
 			Con_DPrintf ("Generated %dx%dx%d cloud noise texture\n", noise_size, noise_size, noise_size);
 		}
@@ -505,6 +519,16 @@ void Sky_SetSkyfog (float value)
 Sky_Init
 =============
 */
+static void Sky_CloudFilterChanged (cvar_t *var)
+{
+	if (!cloud_noise_texture)
+		return;
+	GL_WaitForDeviceIdle ();
+	cloud_noise_texture->flags =
+		static_cast<textureflags_t> ((cloud_noise_texture->flags & ~(TEXPREF_LINEAR | TEXPREF_NEAREST)) | (var->value ? TEXPREF_LINEAR : TEXPREF_NEAREST));
+	TexMgr_UpdateTextureDescriptorSets ();
+}
+
 void Sky_Init (void)
 {
 	int i;
@@ -517,6 +541,7 @@ void Sky_Init (void)
 
 	// Atmospheric sky cvars
 	Cvar_RegisterVariable (&r_atmosphere);
+	Sky_AtmosphereInit ();
 	Cvar_RegisterVariable (&r_atmosphere_quality);
 	Cvar_RegisterVariable (&r_sun_angle);
 	Cvar_RegisterVariable (&r_sun_azimuth);
@@ -524,11 +549,21 @@ void Sky_Init (void)
 
 	// Volumetric cloud cvars
 	Cvar_RegisterVariable (&r_clouds);
+	Cvar_RegisterVariable (&r_clouds_resolution);
+	Cvar_RegisterVariable (&r_clouds_filter);
+	Cvar_SetCallback (&r_clouds_filter, Sky_CloudFilterChanged);
+	Cvar_RegisterVariable (&r_clouds_cascades);
+	Cvar_RegisterVariable (&r_clouds_near_resolution);
+	Cvar_RegisterVariable (&r_clouds_far_resolution);
+	Cvar_RegisterVariable (&r_clouds_split);
+	Cvar_RegisterVariable (&r_clouds_band);
+	SkyProfile_Init ();
 	Cvar_RegisterVariable (&r_clouds_density);
 	Cvar_RegisterVariable (&r_clouds_coverage);
 	Cvar_RegisterVariable (&r_clouds_speed);
 	Cvar_RegisterVariable (&r_clouds_height);
 	Cvar_RegisterVariable (&r_clouds_thickness);
+	Cvar_RegisterVariable (&r_clouds_scale);
 
 	Cmd_AddCommand ("sky", Sky_SkyCommand_f);
 
@@ -550,19 +585,20 @@ Called when a new game starts - regenerate cloud noise texture
 */
 void Sky_NewGame (void)
 {
-	// Generate 3D noise texture for volumetric clouds (128^3 = 2MB)
+	// Generate the 256^3 R8 cloud-noise texture (16 MiB).
 	if (cloud_noise_texture)
 	{
 		TexMgr_FreeTexture (cloud_noise_texture);
 		cloud_noise_texture = NULL;
 	}
 
-	const int noise_size = 128;
+	const int noise_size = 256;
 	byte	 *noise_data = Noise_Generate3DTexture (noise_size);
 	if (noise_data)
 	{
-		cloud_noise_texture =
-			TexMgr_LoadImage3D (NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data, TEXPREF_PERSIST | TEXPREF_LINEAR);
+		cloud_noise_texture = TexMgr_LoadImage3D (
+			NULL, "cloud_noise", noise_size, noise_size, noise_size, SRC_R8_3D, noise_data,
+			TEXPREF_PERSIST | (r_clouds_filter.value ? TEXPREF_LINEAR : TEXPREF_NEAREST));
 		Mem_Free (noise_data);
 		Con_DPrintf ("Generated %dx%dx%d cloud noise texture\n", noise_size, noise_size, noise_size);
 	}
@@ -855,7 +891,7 @@ static void Sky_DrawSkySurface (cb_context_t *cbx, float color[3], entity_t *e, 
 Sky_ProcessEntities -- handles sky polys on brush models
 ================
 */
-void Sky_ProcessEntities (cb_context_t *cbx, float color[3])
+static void Sky_ProcessEntities (cb_context_t *cbx, float color[3], bool sky_indirect)
 {
 	entity_t   *e;
 	msurface_t *s;
@@ -878,7 +914,7 @@ void Sky_ProcessEntities (cb_context_t *cbx, float color[3])
 		if (!(e->model->used_specials & SURF_DRAWSKY))
 			continue;
 
-		if (R_IndirectBrush (e))
+		if (sky_indirect && R_IndirectBrush (e))
 			continue;
 
 		if (R_CullModelForEntity (e))
@@ -931,9 +967,10 @@ void Sky_EmitSkyBoxVertex (basicvertex_t *vertex, float s, float t, int axis)
 	int	   j, k;
 	float  w, h;
 
-	b[0] = s * gl_farclip.value / sqrt (3.0);
-	b[1] = t * gl_farclip.value / sqrt (3.0);
-	b[2] = gl_farclip.value / sqrt (3.0);
+	const float half_side = R_FarClip () / sqrtf (3.0f);
+	b[0] = s * half_side;
+	b[1] = t * half_side;
+	b[2] = half_side;
 
 	for (j = 0; j < 3; j++)
 	{
@@ -978,74 +1015,94 @@ Draws a sky dome (hemisphere) for KD maps that don't have sky geometry.
 Uses the same vertex format as sky surfaces.
 ==============
 */
-static void Sky_DrawSkyDome (cb_context_t *cbx, int *skypolys)
+static void Sky_DrawSkyDome (cb_context_t *cbx, int *skypolys, const float *flat_color = nullptr)
 {
-	// Draw a simple hemisphere dome around the player
-	const int   slices = 16;
-	const int   stacks = 8;
-	const float radius = 4096.0f; // Large enough to be beyond anything in the scene
+	constexpr int slices = 16;
+	constexpr int stacks = 8;
+	constexpr int num_vertices = (slices + 1) * (stacks + 1);
+	constexpr int num_indices = slices * stacks * 6;
+	const bool	  full_sphere = cl.worldmodel && Mod_IsVirtualWorld (cl.worldmodel->name);
+	const float	  radius = q_min (R_FarClip (), 4096.0f);
 
-	vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
-
-	// Draw each stack as a triangle strip converted to triangles
-	for (int stack = 0; stack < stacks; stack++)
+	struct dome_mesh_t
 	{
-		float phi0 = (M_PI / 2.0f) * (float)stack / (float)stacks;       // 0 to PI/2
-		float phi1 = (M_PI / 2.0f) * (float)(stack + 1) / (float)stacks;
+		basicvertex_t vertices[num_vertices];
+		uint16_t	  indices[num_indices];
+	};
 
-		float z0 = sinf (phi0) * radius;
-		float z1 = sinf (phi1) * radius;
-		float r0 = cosf (phi0) * radius;
-		float r1 = cosf (phi1) * radius;
-
-		for (int slice = 0; slice < slices; slice++)
+	// Cache both the legacy hemisphere and a complete empty-world sky.
+	static const std::array<dome_mesh_t, 2> meshes = [] ()
+	{
+		std::array<dome_mesh_t, 2> result = {};
+		for (int sphere = 0; sphere < 2; ++sphere)
 		{
-			float theta0 = (2.0f * M_PI) * (float)slice / (float)slices;
-			float theta1 = (2.0f * M_PI) * (float)(slice + 1) / (float)slices;
-
-			// Create a quad (two triangles) for this segment
-			VkBuffer	   buffer;
-			VkDeviceSize   buffer_offset;
-			basicvertex_t *vertices = (basicvertex_t *)R_VertexAllocate (4 * sizeof (basicvertex_t), &buffer, &buffer_offset);
-
-			// Bottom left
-			vertices[0].position[0] = r_origin[0] + r0 * cosf (theta0);
-			vertices[0].position[1] = r_origin[1] + r0 * sinf (theta0);
-			vertices[0].position[2] = r_origin[2] + z0;
-			vertices[0].texcoord[0] = 0;
-			vertices[0].texcoord[1] = 0;
-			vertices[0].color[0] = vertices[0].color[1] = vertices[0].color[2] = vertices[0].color[3] = 255;
-
-			// Top left
-			vertices[1].position[0] = r_origin[0] + r1 * cosf (theta0);
-			vertices[1].position[1] = r_origin[1] + r1 * sinf (theta0);
-			vertices[1].position[2] = r_origin[2] + z1;
-			vertices[1].texcoord[0] = 0;
-			vertices[1].texcoord[1] = 1;
-			vertices[1].color[0] = vertices[1].color[1] = vertices[1].color[2] = vertices[1].color[3] = 255;
-
-			// Top right
-			vertices[2].position[0] = r_origin[0] + r1 * cosf (theta1);
-			vertices[2].position[1] = r_origin[1] + r1 * sinf (theta1);
-			vertices[2].position[2] = r_origin[2] + z1;
-			vertices[2].texcoord[0] = 1;
-			vertices[2].texcoord[1] = 1;
-			vertices[2].color[0] = vertices[2].color[1] = vertices[2].color[2] = vertices[2].color[3] = 255;
-
-			// Bottom right
-			vertices[3].position[0] = r_origin[0] + r0 * cosf (theta1);
-			vertices[3].position[1] = r_origin[1] + r0 * sinf (theta1);
-			vertices[3].position[2] = r_origin[2] + z0;
-			vertices[3].texcoord[0] = 1;
-			vertices[3].texcoord[1] = 0;
-			vertices[3].color[0] = vertices[3].color[1] = vertices[3].color[2] = vertices[3].color[3] = 255;
-
-			vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
-			vkCmdDrawIndexed (cbx->cb, 6, 1, 0, 0, 0);
-
-			++(*skypolys);
+			dome_mesh_t &mesh = result[sphere];
+			for (int stack = 0; stack <= stacks; stack++)
+			{
+				float phi = sphere ? -M_PI / 2.0f + M_PI * stack / stacks : (M_PI / 2.0f) * stack / stacks;
+				float z = sinf (phi);
+				float r = cosf (phi);
+				for (int slice = 0; slice <= slices; slice++)
+				{
+					float		   theta = (2.0f * M_PI) * slice / slices;
+					basicvertex_t *vertex = &mesh.vertices[stack * (slices + 1) + slice];
+					vertex->position[0] = r * cosf (theta);
+					vertex->position[1] = r * sinf (theta);
+					vertex->position[2] = z;
+					vertex->texcoord[0] = (float)slice / slices;
+					vertex->texcoord[1] = (float)stack / stacks;
+					memset (vertex->color, 255, sizeof (vertex->color));
+				}
+			}
+			int index = 0;
+			for (int stack = 0; stack < stacks; stack++)
+			{
+				for (int slice = 0; slice < slices; slice++)
+				{
+					uint16_t bottom = stack * (slices + 1) + slice;
+					uint16_t top = bottom + slices + 1;
+					// The camera sees the dome from inside. This winding matches
+					// the sky pipelines' clockwise front faces after projection.
+					mesh.indices[index++] = bottom;
+					mesh.indices[index++] = top + 1;
+					mesh.indices[index++] = top;
+					mesh.indices[index++] = bottom;
+					mesh.indices[index++] = bottom + 1;
+					mesh.indices[index++] = top + 1;
+				}
+			}
 		}
-	}
+		return result;
+	}();
+	const dome_mesh_t &mesh = meshes[full_sphere ? 1 : 0];
+
+	VkBuffer	   vertex_buffer, index_buffer;
+	VkDeviceSize   vertex_offset, index_offset;
+	basicvertex_t *vertices = (basicvertex_t *)R_VertexAllocate (sizeof (mesh.vertices), &vertex_buffer, &vertex_offset);
+	memcpy (vertices, mesh.vertices, sizeof (mesh.vertices));
+	for (int i = 0; i < num_vertices; i++)
+		for (int axis = 0; axis < 3; ++axis)
+		{
+			vertices[i].position[axis] = vertices[i].position[axis] * radius + r_origin[axis];
+			if (flat_color)
+				vertices[i].color[axis] = static_cast<byte> (CLAMP (0.0f, flat_color[axis], 1.0f) * 255.0f);
+		}
+
+	uint16_t *indices = (uint16_t *)R_IndexAllocate (sizeof (mesh.indices), &index_buffer, &index_offset);
+	memcpy (indices, mesh.indices, sizeof (mesh.indices));
+	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &vertex_buffer, &vertex_offset);
+	vkCmdBindIndexBuffer (cbx->cb, index_buffer, index_offset, VK_INDEX_TYPE_UINT16);
+	// This generated backdrop has no physical surface. Keep its screen position
+	// and view direction, but put it at reverse-Z far depth even at wide FOVs.
+	// Real BSP portals continue to test and write their actual geometry depth.
+	float backdrop[16];
+	memcpy (backdrop, vulkan_globals.view_projection_matrix, sizeof (backdrop));
+	backdrop[2] = backdrop[6] = backdrop[10] = backdrop[14] = 0.0f;
+	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof (backdrop), backdrop);
+	vkCmdDrawIndexed (cbx->cb, num_indices, 1, 0, 0, 0);
+	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof (backdrop), vulkan_globals.view_projection_matrix);
+	vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+	*skypolys += slices * stacks;
 }
 
 /*
@@ -1055,13 +1112,13 @@ Sky_DrawSkyBox
 FIXME: eliminate cracks by adding an extra vert on tjuncs
 ==============
 */
-void Sky_DrawSkyBox (cb_context_t *cbx, int *skypolys)
+static void Sky_DrawSkyBox (cb_context_t *cbx, int *skypolys, bool sky_indirect)
 {
 	int i;
 
 	for (i = 0; i < 6; i++)
 	{
-		if (indirect) // Don't have bounds for the world polys. This type of sky (malformed cube) is very rare, so just draw the entire box (will
+		if (sky_indirect) // Don't have bounds for the world polys. This type of sky (malformed cube) is very rare, so just draw the entire box (will
 					  // be stencil-culled). Also note tjunctions avoidance below: this only culled entire cube faces in the first place.
 		{
 			skymins[0][i] = skymins[1][i] = -1;
@@ -1072,7 +1129,7 @@ void Sky_DrawSkyBox (cb_context_t *cbx, int *skypolys)
 			continue;
 
 		vkCmdBindDescriptorSets (
-			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_stencil_pipeline[indirect].layout.handle, 0, 1,
+			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_stencil_pipeline[sky_indirect].layout.handle, 0, 1,
 			&skybox_textures[skytexorder[i]]->descriptor_set, 0, NULL);
 
 		VkBuffer	   buffer;
@@ -1103,6 +1160,64 @@ void Sky_DrawSkyBox (cb_context_t *cbx, int *skypolys)
 //
 //==============================================================================
 
+// Build the sampling eye from canonical coordinates, independently of local
+// view/depth reconstruction. Wrapped planets fit whole cloud periods around
+// their extent, so crossing the zero seam preserves the same density field.
+static qboolean Sky_CloudSamplingEye (float eye[3], float *scale)
+{
+	const auto					  *world = OW_GetWorld ();
+	const int64_t				   extent = world && world->Config ().generator == quiver::Generator::Planet ? world->Config ().planetSettings.extentChunks : 0;
+	const quiver::CloudCoordinates coordinates (*scale, extent);
+	*scale = coordinates.scale;
+	if (!OW_Active ())
+		return true;
+	const quiver::WorldPosition position = OW_GetRenderPosition ();
+	// The atmosphere is a finite band around world altitude zero. At enormous
+	// altitudes its thickness is below the renderer's depth precision.
+	if (position.chunk.z < -1024 || position.chunk.z > 1024)
+		return false;
+	for (int axis = 0; axis < 2; ++axis)
+		eye[axis] = coordinates.Position (position.chunk[axis], position.local[axis]);
+	eye[2] = static_cast<float> (position.chunk.z * quiver::ChunkSize) + position.local[2];
+	return true;
+}
+
+static float Sky_DisplayScale ()
+{
+	// Match the final postprocess contrast clamp. Quantize down so cloud fog's
+	// spare alpha byte can carry the same safe highlight headroom as atmosphere.
+	return floorf (255.0f / CLAMP (1.0f, vid_contrast.value, 2.0f)) / 255.0f;
+}
+
+static bool Sky_FlatColor ()
+{
+	return r_fastsky.value || (Fog_GetDensity () > 0 && skyfog >= 1);
+}
+
+static bool Sky_LightmapView (bool virtual_sky)
+{
+	return r_lightmap_cheatsafe || (virtual_sky && r_world_debug_lighting == WORLD_DEBUG_LIGHTMAP);
+}
+
+static bool Sky_HasDome (bool virtual_sky)
+{
+	return r_drawworld_cheatsafe &&
+		   (virtual_sky || (KD_ShouldSkipBSPRendering () && r_atmosphere.value && !Sky_FlatColor () && !skybox_cubemap && !skybox_name[0]));
+}
+
+// r_showtris is an overlay. The cloud volume has no mesh; show the generated
+// sky's actual triangles using the same x-ray/visible-edge modes as BSP.
+void Sky_DrawShowTris (cb_context_t *cbx)
+{
+	const bool virtual_sky = cl.worldmodel && Mod_IsVirtualWorld (cl.worldmodel->name);
+	if (!cl.worldmodel || Sky_LightmapView (virtual_sky) || !Sky_HasDome (virtual_sky))
+		return;
+	R_BindPipeline (
+		cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, r_showtris.value == 1 ? vulkan_globals.showtris_pipeline : vulkan_globals.showtris_depth_test_pipeline);
+	int skypolys = 0;
+	Sky_DrawSkyDome (cbx, &skypolys);
+}
+
 /*
 ==============
 Sky_DrawSky
@@ -1110,23 +1225,22 @@ Sky_DrawSky
 called once per frame after opaques before transparents, handles world + entities
 ==============
 */
-void Sky_DrawSky (cb_context_t *cbx)
+static void Sky_DrawSkyContents (cb_context_t *cbx)
 {
 	int i;
 
-	if (r_lightmap_cheatsafe)
+	const qboolean virtual_sky = cl.worldmodel && Mod_IsVirtualWorld (cl.worldmodel->name);
+	if (!cl.worldmodel || Sky_LightmapView (virtual_sky))
 		return;
+	const qboolean use_atmosphere = r_atmosphere.value || (virtual_sky && (!solidskytexture || !alphaskytexture));
 
 	// For KD maps, force non-indirect mode to ensure correct vertex format
 	// The indirect pipelines use worldvertex_t (28 bytes) but KD sky dome uses basicvertex_t (24 bytes)
-	extern qboolean indirect;
-	qboolean saved_indirect = indirect;
-	if (KD_ShouldSkipBSPRendering ())
-		indirect = false;
+	const bool sky_indirect = indirect && !KD_ShouldSkipBSPRendering () && !virtual_sky;
 
 	R_BeginDebugUtilsLabel (cbx, "Sky");
 
-	const qboolean flat_color = r_fastsky.value || (Fog_GetDensity () > 0 && skyfog >= 1);
+	const qboolean flat_color = Sky_FlatColor ();
 	need_bounds = Sky_NeedStencil ();
 
 	//
@@ -1157,32 +1271,32 @@ void Sky_DrawSky (cb_context_t *cbx)
 	// Sky_DrawSkyBox then only fills the parts that had stencil written
 	if (flat_color)
 	{
-		if (indirect)
+		if (sky_indirect)
 			constant_values[19] = 1.0f;
-		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_color_pipeline[indirect]);
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_color_pipeline[sky_indirect]);
 		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 20 * sizeof (float), constant_values);
 	}
 	else if (skybox_cubemap)
 	{
-		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[indirect]);
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[sky_indirect]);
 		vkCmdBindDescriptorSets (
-			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[indirect].layout.handle, 0, 1, &skybox_cubemap->descriptor_set, 0, NULL);
+			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[sky_indirect].layout.handle, 0, 1, &skybox_cubemap->descriptor_set, 0, NULL);
 		memcpy (&constant_values[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
 		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 23 * sizeof (float), constant_values);
 	}
 	else if (!skybox_name[0])
 	{
 		// Use atmospheric sky if r_atmosphere is enabled
-		if (r_atmosphere.value)
+		if (use_atmosphere)
 		{
-			float atmosphere_constants[28];
+			float atmosphere_constants[29];
 			memcpy (atmosphere_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
 			atmosphere_constants[16] = CLAMP (0.0f, color[0], 1.0f); // fog_color
 			atmosphere_constants[17] = CLAMP (0.0f, color[1], 1.0f);
 			atmosphere_constants[18] = CLAMP (0.0f, color[2], 1.0f);
 			atmosphere_constants[19] = fog_density;
 			memcpy (&atmosphere_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg)); // eye_pos
-			atmosphere_constants[23] = cl.time; // time
+			atmosphere_constants[23] = Sky_DisplayScale ();
 
 			vec3_t sun_dir;
 			Sky_ComputeSunDir (sun_dir);
@@ -1190,9 +1304,11 @@ void Sky_DrawSky (cb_context_t *cbx)
 			atmosphere_constants[25] = sun_dir[1];
 			atmosphere_constants[26] = sun_dir[2];
 			atmosphere_constants[27] = r_sun_intensity.value; // sun_intensity
+			atmosphere_constants[28] = Sky_AtmosphereUseLUT () ? 1.0f : 0.0f;
 
-			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[indirect]);
-			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 28 * sizeof (float), atmosphere_constants);
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[sky_indirect]);
+			Sky_AtmosphereBind (cbx);
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 29 * sizeof (float), atmosphere_constants);
 		}
 		else
 		{
@@ -1202,10 +1318,10 @@ void Sky_DrawSky (cb_context_t *cbx)
 				R_EndDebugUtilsLabel (cbx);
 				return;
 			}
-			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect]);
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[sky_indirect]);
 			VkDescriptorSet descriptor_sets[2] = {solidskytexture->descriptor_set, alphaskytexture->descriptor_set};
 			vkCmdBindDescriptorSets (
-				cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[indirect].layout.handle, 0, 2, descriptor_sets, 0, NULL);
+				cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[sky_indirect].layout.handle, 0, 2, descriptor_sets, 0, NULL);
 			memcpy (&constant_values[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
 			constant_values[23] = cl.time - (int)cl.time / 16 * 16;
 			constant_values[24] = r_skyalpha.value;
@@ -1214,7 +1330,7 @@ void Sky_DrawSky (cb_context_t *cbx)
 	}
 	else
 	{
-		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_stencil_pipeline[indirect]);
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_stencil_pipeline[sky_indirect]);
 		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 20 * sizeof (float), constant_values);
 	}
 	vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
@@ -1223,7 +1339,7 @@ void Sky_DrawSky (cb_context_t *cbx)
 	// process world and bmodels: draw flat-shaded sky surfs, and update skybounds
 	//
 	int skypolys = 0;
-	if (indirect)
+	if (sky_indirect)
 	{
 		R_DrawIndirectBrushes (cbx, false, false, true, -1);
 
@@ -1235,7 +1351,7 @@ void Sky_DrawSky (cb_context_t *cbx)
 			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_cube_pipeline[0]);
 		else if (!skybox_name[0])
 		{
-			if (r_atmosphere.value)
+			if (use_atmosphere)
 				R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[0]);
 			else
 				R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_layer_pipeline[0]);
@@ -1246,33 +1362,46 @@ void Sky_DrawSky (cb_context_t *cbx)
 	else
 		Sky_ProcessTextureChains (cbx, color, &skypolys);
 
-	Sky_ProcessEntities (cbx, color);
+	Sky_ProcessEntities (cbx, color, sky_indirect);
 
 	// Process KD map sky surfaces
-	KD_DrawSkySurfaces (cbx, color);
+	if (r_drawworld_cheatsafe)
+		KD_DrawSkySurfaces (cbx, color);
+
+	if (virtual_sky && Sky_HasDome (virtual_sky))
+	{
+		Sky_DrawSkyDome (cbx, &skypolys, flat_color ? color : nullptr);
+		for (i = 0; i < 6; ++i)
+		{
+			skymins[0][i] = skymins[1][i] = -1.0f;
+			skymaxs[0][i] = skymaxs[1][i] = 1.0f;
+		}
+	}
 
 	// For KD maps without BSP sky geometry, draw a sky dome
-	if (KD_ShouldSkipBSPRendering () && r_atmosphere.value && !flat_color && !skybox_cubemap && !skybox_name[0])
+	if (!virtual_sky && Sky_HasDome (virtual_sky))
 	{
 		// Always use non-indirect pipeline (index 0) for sky dome - it uses basicvertex_t format
 		// The indirect pipeline (index 1) expects worldvertex_t which has a different stride
-		float kd_atmosphere_constants[28];
+		float kd_atmosphere_constants[29];
 		memcpy (kd_atmosphere_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
 		kd_atmosphere_constants[16] = CLAMP (0.0f, color[0], 1.0f);
 		kd_atmosphere_constants[17] = CLAMP (0.0f, color[1], 1.0f);
 		kd_atmosphere_constants[18] = CLAMP (0.0f, color[2], 1.0f);
 		kd_atmosphere_constants[19] = fog_density;
 		memcpy (&kd_atmosphere_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
-		kd_atmosphere_constants[23] = cl.time;
+		kd_atmosphere_constants[23] = Sky_DisplayScale ();
 		vec3_t kd_sun_dir;
 		Sky_ComputeSunDir (kd_sun_dir);
 		kd_atmosphere_constants[24] = kd_sun_dir[0];
 		kd_atmosphere_constants[25] = kd_sun_dir[1];
 		kd_atmosphere_constants[26] = kd_sun_dir[2];
 		kd_atmosphere_constants[27] = r_sun_intensity.value;
+		kd_atmosphere_constants[28] = Sky_AtmosphereUseLUT () ? 1.0f : 0.0f;
 
 		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_atmosphere_pipeline[0]);
-		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 28 * sizeof (float), kd_atmosphere_constants);
+		Sky_AtmosphereBind (cbx);
+		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 29 * sizeof (float), kd_atmosphere_constants);
 		Sky_DrawSkyDome (cbx, &skypolys);
 	}
 
@@ -1282,24 +1411,109 @@ void Sky_DrawSky (cb_context_t *cbx)
 	if (!flat_color && !skybox_cubemap && skybox_name[0])
 	{
 		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_box_pipeline);
-		Sky_DrawSkyBox (cbx, &skypolys);
+		Sky_DrawSkyBox (cbx, &skypolys, sky_indirect);
 	}
 
-	//
-	// render volumetric clouds (over atmosphere or skybox)
-	// Clouds are rendered by re-drawing sky geometry with the clouds pipeline
-	//
-	if (r_clouds.value && cloud_noise_texture && !flat_color)
+	Atomic_AddUInt32 (&rs_skypolys, skypolys);
+
+	R_EndDebugUtilsLabel (cbx);
+
+}
+
+void Sky_DrawSky (cb_context_t *cbx)
+{
+	// The main render pass permits secondary commands only. Record its sky
+	// timestamps here, including balanced markers around all early returns.
+	SkyProfile_BeginPass (cbx->cb, SKY_PROFILE_ATMOSPHERE);
+	Sky_DrawSkyContents (cbx);
+	SkyProfile_EndPass (cbx->cb, SKY_PROFILE_ATMOSPHERE);
+}
+
+/*
+==============
+Sky_DrawClouds
+
+Composite the volume after opaque geometry and before transparent surfaces.
+The full-screen pass clips every ray to scene depth, including terrain.
+==============
+*/
+static float			 cloud_frame_constants[32];
+static VkDescriptorSet	 cloud_frame_uniform_sets[3];
+static uint32_t			 cloud_frame_uniform_offsets[3];
+static sky_cloud_stats_t cloud_frame_stats;
+
+sky_cloud_stats_t Sky_GetCloudStats (void)
+{
+	return cloud_frame_stats;
+}
+
+// Record the expensive trace into the reduced target between opaque rendering
+// and the depth-aware composition secondary command buffer.
+void Sky_RenderCloudsReduced (cb_context_t *cbx, int band)
+{
+	const int  width = band == 2 ? cloud_frame_stats.far_width : (band == 1 ? cloud_frame_stats.near_width : cloud_frame_stats.width);
+	const int  height = band == 2 ? cloud_frame_stats.far_height : (band == 1 ? cloud_frame_stats.near_height : cloud_frame_stats.height);
+	VkViewport viewport = {};
+	viewport.width = width;
+	viewport.height = height;
+	viewport.maxDepth = 1.0f;
+	VkRect2D scissor = {{0, 0}, {static_cast<uint32_t> (width), static_cast<uint32_t> (height)}};
+	vkCmdSetViewport (cbx->cb, 0, 1, &viewport);
+	vkCmdSetScissor (cbx->cb, 0, 1, &scissor);
+	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_reduced_pipeline);
+	VkDescriptorSet sets[3] = {cloud_noise_texture->descriptor_set, vulkan_globals.clouds_sampled_depth_set, cloud_frame_uniform_sets[band]};
+	vkCmdBindDescriptorSets (
+		cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_reduced_layout.handle, 0, 3, sets, 1, &cloud_frame_uniform_offsets[band]);
+	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof (cloud_frame_constants), cloud_frame_constants);
+	vkCmdDraw (cbx->cb, 3, 1, 0, 0);
+}
+
+static void Sky_AllocateCloudUniform (const float values[16], int index)
+{
+	VkBuffer buffer;
+	byte	*destination = R_UniformAllocate (16 * sizeof (float), &buffer, &cloud_frame_uniform_offsets[index], &cloud_frame_uniform_sets[index]);
+	memcpy (destination, values, 16 * sizeof (float));
+}
+
+void Sky_DrawClouds (cb_context_t *cbx)
+{
+	cloud_frame_stats = {};
+	cloud_frame_stats.allocated_bytes = vulkan_globals.clouds_allocated_bytes;
+	vulkan_globals.clouds_reduced_active = false;
+	if (!cl.worldmodel || !r_drawworld_cheatsafe)
+		return;
+	const qboolean virtual_sky = Mod_IsVirtualWorld (cl.worldmodel->name);
+	if (Sky_LightmapView (virtual_sky) || Sky_FlatColor ())
+		return;
+	const float	   fog_density = (Fog_GetDensity () > 0) ? skyfog : 0.0f;
+	float		   color[4];
+	if (Fog_GetDensity () > 0)
+		Fog_GetColor (color);
+	else
+		memcpy (color, skyflatcolor, 3 * sizeof (float));
+
+	float cloud_eye[3];
+	VectorCopy (r_refdef.vieworg, cloud_eye);
+	float		   cloud_scale = r_clouds_scale.value;
+	const qboolean clouds_reachable = Sky_CloudSamplingEye (cloud_eye, &cloud_scale);
+	if (clouds_reachable && r_clouds.value && r_clouds_density.value > 0.0f && r_clouds_coverage.value > 0.0f && r_clouds_thickness.value > 0.0f &&
+		cloud_noise_texture)
 	{
 		R_BeginDebugUtilsLabel (cbx, "Volumetric Clouds");
 
-		// Clouds push constants: mvp(16) + fog(4) + eye(3) + time(1) + sun(4) + cloud_params(5) = 33 floats
-		float clouds_constants[33];
+		// Pack fog RGB and display headroom into RGBA8 to retain the 128-byte push constant range.
+		// Keep the cloud sampling eye separate from local view reconstruction.
+		float clouds_constants[32];
+		static_assert (sizeof (clouds_constants) <= MAX_PUSH_CONSTANT_SIZE, "Cloud constants exceed the renderer's push constant buffer");
 		memcpy (clouds_constants, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
-		clouds_constants[16] = CLAMP (0.0f, color[0], 1.0f);
-		clouds_constants[17] = CLAMP (0.0f, color[1], 1.0f);
-		clouds_constants[18] = CLAMP (0.0f, color[2], 1.0f);
-		clouds_constants[19] = fog_density;
+		uint32_t packed_fog = 0;
+		for (int i = 0; i < 3; i++)
+			packed_fog |= (uint32_t)(CLAMP (0.0f, color[i], 1.0f) * 255.0f + 0.5f) << (i * 8);
+		packed_fog |= (uint32_t)(Sky_DisplayScale () * 255.0f + 0.5f) << 24;
+		memcpy (&clouds_constants[16], &packed_fog, sizeof (packed_fog));
+		clouds_constants[17] = fog_density;
+		clouds_constants[18] = r_clouds_speed.value;
+		clouds_constants[19] = cloud_scale;
 		memcpy (&clouds_constants[20], r_refdef.vieworg, sizeof (r_refdef.vieworg));
 		clouds_constants[23] = cl.time;
 
@@ -1312,47 +1526,128 @@ void Sky_DrawSky (cb_context_t *cbx)
 		clouds_constants[28] = r_clouds_height.value;
 		clouds_constants[29] = r_clouds_thickness.value;
 		clouds_constants[30] = r_clouds_density.value;
-		clouds_constants[31] = r_clouds_coverage.value;
-		clouds_constants[32] = r_clouds_speed.value;
-
-		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline[indirect ? 1 : 0]);
-		vkCmdBindDescriptorSets (
-			cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline_layout.handle, 0, 1, &cloud_noise_texture->descriptor_set, 0, NULL);
-		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 33 * sizeof (float), clouds_constants);
-
-		// Re-draw sky geometry with clouds pipeline (alpha blended over atmosphere)
-		if (indirect)
+		clouds_constants[31] = std::isfinite (r_clouds_coverage.value) ? CLAMP (0.0f, r_clouds_coverage.value, 1.0f) : 0.5f;
+		// Coverage is nonnegative. Its sign bit carries the world-curvature flag
+		// without expanding the guaranteed 128-byte cloud push-constant range.
+		if (r_planet_bend_active)
+			clouds_constants[31] = -fabsf (clouds_constants[31]);
+		if (virtual_sky)
 		{
-			R_DrawIndirectBrushes (cbx, false, false, true, -1);
+			// Only the sampling eye moves to the periodic cloud frame. Scene-depth
+			// reconstruction remains in the unchanged local render frame.
+			memcpy (&clouds_constants[20], cloud_eye, sizeof (cloud_eye));
+		}
+
+		const int	   divisor = r_clouds_resolution.value >= 4 ? 4 : (r_clouds_resolution.value >= 2 ? 2 : 1);
+		const qboolean reduced = divisor > 1 && vulkan_globals.clouds_reduced_image != VK_NULL_HANDLE;
+		const qboolean cascades = reduced && r_clouds_cascades.value != 0 && vulkan_globals.clouds_far_image != VK_NULL_HANDLE;
+		cloud_frame_stats.reduced = reduced;
+		cloud_frame_stats.cascades = cascades;
+		cloud_frame_stats.band = reduced ? (r_clouds_band.value >= 2 ? 2 : (r_clouds_band.value >= 1 ? 1 : 0)) : 0;
+		cloud_frame_stats.split = std::isfinite (r_clouds_split.value) ? q_max (1.0f, r_clouds_split.value) : 4096.0f;
+		cloud_frame_stats.near_divisor = cascades ? (r_clouds_near_resolution.value >= 4 ? 4 : 2) : (reduced ? divisor : 1);
+		cloud_frame_stats.far_divisor = cascades ? (r_clouds_far_resolution.value >= 4 ? 4 : 2) : cloud_frame_stats.near_divisor;
+		cloud_frame_stats.near_width = (r_refdef.vrect.width + cloud_frame_stats.near_divisor - 1) / cloud_frame_stats.near_divisor;
+		cloud_frame_stats.near_height = (r_refdef.vrect.height + cloud_frame_stats.near_divisor - 1) / cloud_frame_stats.near_divisor;
+		cloud_frame_stats.far_width = (r_refdef.vrect.width + cloud_frame_stats.far_divisor - 1) / cloud_frame_stats.far_divisor;
+		cloud_frame_stats.far_height = (r_refdef.vrect.height + cloud_frame_stats.far_divisor - 1) / cloud_frame_stats.far_divisor;
+		const qboolean far_only = cascades && cloud_frame_stats.band == 2;
+		cloud_frame_stats.divisor = far_only ? cloud_frame_stats.far_divisor : cloud_frame_stats.near_divisor;
+		cloud_frame_stats.width = far_only ? cloud_frame_stats.far_width : cloud_frame_stats.near_width;
+		cloud_frame_stats.height = far_only ? cloud_frame_stats.far_height : cloud_frame_stats.near_height;
+		vulkan_globals.clouds_reduced_active = reduced;
+		if (reduced)
+		{
+			memcpy (cloud_frame_constants, clouds_constants, sizeof (cloud_frame_constants));
+			float uniform[16] = {};
+			uniform[0] = r_refdef.vrect.x;
+			uniform[1] = vid.height - glheight + r_refdef.vrect.y;
+			uniform[2] = r_refdef.vrect.width;
+			uniform[3] = r_refdef.vrect.height;
+			uniform[4] = cloud_frame_stats.near_width;
+			uniform[5] = cloud_frame_stats.near_height;
+			uniform[6] = cloud_frame_stats.near_divisor;
+			uniform[7] = r_clouds_filter.value != 0;
+			uniform[8] = cloud_frame_stats.far_width;
+			uniform[9] = cloud_frame_stats.far_height;
+			uniform[10] = cloud_frame_stats.far_divisor;
+			uniform[11] = uniform[7];
+			uniform[12] = cloud_frame_stats.split;
+			uniform[13] = cascades;
+			uniform[14] = cloud_frame_stats.band;
+			uniform[15] = cascades ? 0 : cloud_frame_stats.band;
+			Sky_AllocateCloudUniform (uniform, 0);
+			if (cascades)
+			{
+				for (int band = 1; band <= 2; ++band)
+				{
+					if (cloud_frame_stats.band != 0 && cloud_frame_stats.band != band)
+						continue;
+					uniform[15] = band;
+					Sky_AllocateCloudUniform (uniform, band);
+				}
+			}
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_composite_pipeline);
+			VkDescriptorSet radiance_set = vulkan_globals.clouds_reduced_set;
+			if (cascades && cloud_frame_stats.band == 0)
+				radiance_set = vulkan_globals.clouds_cascade_set;
+			else if (far_only)
+				radiance_set = vulkan_globals.clouds_far_set;
+			VkDescriptorSet sets[4] = {cloud_noise_texture->descriptor_set, vulkan_globals.clouds_sampled_depth_set, cloud_frame_uniform_sets[0], radiance_set};
+			vkCmdBindDescriptorSets (
+				cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_reduced_layout.handle, 0, 4, sets, 1, &cloud_frame_uniform_offsets[0]);
 		}
 		else
 		{
-			// Re-process sky texture chains with the clouds pipeline bound
-			Sky_ProcessTextureChains (cbx, color, &skypolys);
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline);
+			VkDescriptorSet descriptors[2] = {cloud_noise_texture->descriptor_set, vulkan_globals.clouds_depth_descriptor_set};
+			vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline_layout.handle, 0, 2, descriptors, 0, NULL);
 		}
-
-		// Also process entities and KD sky with clouds
-		Sky_ProcessEntities (cbx, color);
-		KD_DrawSkySurfaces (cbx, color);
-
-		// Draw clouds on sky dome for KD maps
-		if (KD_ShouldSkipBSPRendering () && !skybox_cubemap && !skybox_name[0])
-		{
-			// Always use non-indirect pipeline (index 0) for sky dome - it uses basicvertex_t format
-			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_clouds_pipeline[0]);
-			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 33 * sizeof (float), clouds_constants);
-			Sky_DrawSkyDome (cbx, &skypolys);
-		}
+		R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof (clouds_constants), clouds_constants);
+		vkCmdDraw (cbx->cb, 3, 1, 0, 0);
+		vulkan_globals.clouds_drawn = true;
 
 		R_EndDebugUtilsLabel (cbx);
 	}
+}
 
-	Atomic_AddUInt32 (&rs_skypolys, skypolys);
+/*
+==============
+Sky_DrawDepth
 
+Sky portals must still hide later transparent geometry. Delay just their depth
+writes until the cloud pass has read real opaque scene depth.
+==============
+*/
+void Sky_DrawDepth (cb_context_t *cbx)
+{
+	const bool virtual_sky = cl.worldmodel && Mod_IsVirtualWorld (cl.worldmodel->name);
+	if (!cl.worldmodel || Sky_LightmapView (virtual_sky))
+		return;
+	const bool sky_indirect = indirect && !KD_ShouldSkipBSPRendering () && !virtual_sky;
+	const bool saved_bounds = need_bounds;
+	need_bounds = false;
+
+	R_BeginDebugUtilsLabel (cbx, "Sky Depth");
+	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_depth_pipeline[sky_indirect]);
+	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof (vulkan_globals.view_projection_matrix), vulkan_globals.view_projection_matrix);
+	vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+	float color[3] = {0, 0, 0};
+	int	  skypolys = 0;
+	if (sky_indirect)
+	{
+		R_DrawIndirectBrushes (cbx, false, false, true, -1);
+		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.sky_depth_pipeline[0]);
+		vkCmdBindIndexBuffer (cbx->cb, vulkan_globals.fan_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+	}
+	else
+		Sky_ProcessTextureChains (cbx, color, &skypolys);
+	Sky_ProcessEntities (cbx, color, sky_indirect);
+	if (r_drawworld_cheatsafe)
+		KD_DrawSkySurfaces (cbx, color);
+	// A synthetic dome sits at clear depth and needs no depth write.
 	R_EndDebugUtilsLabel (cbx);
-
-	// Restore indirect mode
-	indirect = saved_indirect;
+	need_bounds = saved_bounds;
 }
 
 /*
@@ -1362,6 +1657,6 @@ Sky_NeedStencil
 */
 qboolean Sky_NeedStencil ()
 {
-	const qboolean flat_color = r_fastsky.value || (Fog_GetDensity () > 0 && skyfog >= 1);
+	const qboolean flat_color = Sky_FlatColor ();
 	return !flat_color && !skybox_cubemap && skybox_name[0];
 }

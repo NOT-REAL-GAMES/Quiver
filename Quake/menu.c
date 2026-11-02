@@ -3110,6 +3110,9 @@ static void M_Menu_MPGameOptions_f (void)
 		maxplayers = svs.maxclients;
 	if (maxplayers < 2)
 		maxplayers = 4;
+	// This menu starts BSP maps. Larger sessions use the octree-world console
+	// commands and separately versioned protocol.
+	maxplayers = q_min (maxplayers, MAX_LEGACY_SCOREBOARD);
 }
 
 static void M_MPGameOptions_Draw (cb_context_t *cbx)
@@ -3248,8 +3251,8 @@ static void M_NetStart_Change (int dir)
 	{
 	case 1:
 		maxplayers += dir;
-		if (maxplayers > svs.maxclientslimit)
-			maxplayers = svs.maxclientslimit;
+		if (maxplayers > q_min (svs.maxclientslimit, MAX_LEGACY_SCOREBOARD))
+			maxplayers = q_min (svs.maxclientslimit, MAX_LEGACY_SCOREBOARD);
 		if (maxplayers < 2)
 			maxplayers = 2;
 		break;

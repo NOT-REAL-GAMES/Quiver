@@ -331,24 +331,32 @@ sliding via ClipVelocity. We just need to report accurate collision info.
 */
 qboolean KD_ClipMoveToWorld (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, trace_t *trace)
 {
-	// Try Jolt collision first (most accurate - proper physics engine)
+	// Use Jolt collision exclusively when available
 	jolt_world_t *jolt = Jolt_GetActiveWorld();
 	if (jolt)
 	{
 		trace_t jolt_trace;
 		Jolt_TraceBox(jolt, start, mins, maxs, end, &jolt_trace);
 
-		// If Jolt trace hit something closer, use that result
-		if (jolt_trace.fraction < trace->fraction && jolt_trace.fraction < 1.0f)
+		// Always use Jolt results - don't fall through to other collision systems
+		if (jolt_trace.fraction < trace->fraction)
 		{
 			*trace = jolt_trace;
 
-			// Push the endpoint away from the surface along the normal
-			trace->endpos[0] += trace->plane.normal[0] * KD_PUSHBACK;
-			trace->endpos[1] += trace->plane.normal[1] * KD_PUSHBACK;
-			trace->endpos[2] += trace->plane.normal[2] * KD_PUSHBACK;
+			// Apply pushback ONLY for wall hits (not floor/ceiling)
+			// Floor hits: normal.z > 0.7 - let player rest on surface without bouncing
+			// Ceiling hits: normal.z < -0.7 - same principle
+			// Wall hits: |normal.z| <= 0.7 - push away to prevent sticking
+			qboolean is_wall = (fabs(jolt_trace.plane.normal[2]) <= 0.7f);
 
-			return true;
+			if (is_wall && jolt_trace.fraction > 0.0f && jolt_trace.fraction < 1.0f)
+			{
+				trace->endpos[0] += trace->plane.normal[0] * KD_PUSHBACK;
+				trace->endpos[1] += trace->plane.normal[1] * KD_PUSHBACK;
+				trace->endpos[2] += trace->plane.normal[2] * KD_PUSHBACK;
+			}
+
+			return (jolt_trace.fraction < 1.0f);
 		}
 
 		// Check if we started in solid in Jolt
@@ -359,30 +367,27 @@ qboolean KD_ClipMoveToWorld (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end,
 				trace->allsolid = true;
 		}
 
+		// Jolt is active - don't fall through to other collision systems
 		return false;
 	}
 
-	// Fall back to SVO collision (less accurate due to voxelization)
+	// SVO collision disabled - using Jolt physics instead
+#if 0
 	svo_t *svo = SVO_GetCollisionTree();
 	if (svo)
 	{
 		trace_t svo_trace;
 		SVO_TraceBox(svo, start, mins, maxs, end, &svo_trace);
 
-		// If SVO trace hit something closer, use that result
 		if (svo_trace.fraction < trace->fraction && svo_trace.fraction < 1.0f)
 		{
 			*trace = svo_trace;
-
-			// Push the endpoint away from the surface along the normal
 			trace->endpos[0] += trace->plane.normal[0] * KD_PUSHBACK;
 			trace->endpos[1] += trace->plane.normal[1] * KD_PUSHBACK;
 			trace->endpos[2] += trace->plane.normal[2] * KD_PUSHBACK;
-
 			return true;
 		}
 
-		// Check if we started in solid in SVO
 		if (svo_trace.startsolid)
 		{
 			trace->startsolid = true;
@@ -392,14 +397,14 @@ qboolean KD_ClipMoveToWorld (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end,
 
 		return false;
 	}
+#endif
 
-	// Fallback to bounds-based collision
+	// Bounds-based collision disabled - using Jolt physics instead
+#if 0
 	kdmodel_t *model = KD_GetDebugModel();
 	if (!model)
 		return false;
 
-	// Only apply kd-tree collision if movement is near the kd-tree bounds
-	// This prevents the kd-tree from interfering with normal BSP collision
 	vec3_t move_mins, move_maxs;
 	for (int i = 0; i < 3; i++)
 	{
@@ -415,40 +420,33 @@ qboolean KD_ClipMoveToWorld (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end,
 		}
 	}
 
-	// Check if movement box intersects kd-tree bounds (with some padding)
 	float pad = 32.0f;
 	if (move_maxs[0] < model->mins[0] - pad || move_mins[0] > model->maxs[0] + pad ||
 	    move_maxs[1] < model->mins[1] - pad || move_mins[1] > model->maxs[1] + pad ||
 	    move_maxs[2] < model->mins[2] - pad || move_mins[2] > model->maxs[2] + pad)
 	{
-		return false; // Movement is outside kd-tree bounds, skip
+		return false;
 	}
 
 	trace_t kd_trace;
 	KD_TraceBox (model, start, mins, maxs, end, &kd_trace);
 
-	// If kd-tree trace hit something closer, use that result
 	if (kd_trace.fraction < trace->fraction && kd_trace.fraction < 1.0f)
 	{
-		// Copy the kd-tree trace result
 		*trace = kd_trace;
-
-		// Push the endpoint away from the surface along the normal
-		// Use a larger pushback to prevent getting stuck when already at boundary
 		trace->endpos[0] += trace->plane.normal[0] * KD_PUSHBACK;
 		trace->endpos[1] += trace->plane.normal[1] * KD_PUSHBACK;
 		trace->endpos[2] += trace->plane.normal[2] * KD_PUSHBACK;
-
 		return true;
 	}
 
-	// Check if we started in solid in kd-tree
 	if (kd_trace.startsolid)
 	{
 		trace->startsolid = true;
 		if (kd_trace.allsolid)
 			trace->allsolid = true;
 	}
+#endif
 
 	return false;
 }

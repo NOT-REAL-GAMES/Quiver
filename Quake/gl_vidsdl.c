@@ -24,11 +24,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // gl_vidsdl.c -- SDL vid component
 
 #include "quakedef.h"
+#include "octree_render.h"
 #define NO_SDL_VULKAN_TYPEDEFS
 #include "cfgfile.h"
 #include "bgmusic.h"
 #include "resource.h"
 #include "palette.h"
+#include "sky_atmosphere.h"
+#include "sky_profile.h"
 #include "SDL.h"
 #include "SDL_syswm.h"
 #include "SDL_vulkan.h"
@@ -108,7 +111,7 @@ cvar_t		  vid_gamma = {"gamma", "0.9", CVAR_ARCHIVE};		// johnfitz -- moved here
 cvar_t		  vid_contrast = {"contrast", "1.4", CVAR_ARCHIVE}; // QuakeSpasm, MarkV
 cvar_t		  r_usesops = {"r_usesops", "1", CVAR_ARCHIVE};		// johnfitz
 #if defined(_DEBUG)
-static cvar_t r_raydebug = {"r_raydebug", "0", 0};
+static cvar_t r_raydebug = {"r_raydebug", "0", CVAR_NONE};
 #endif
 
 static VkInstance				vulkan_instance;
@@ -128,8 +131,14 @@ static VkCommandBuffer *secondary_command_buffers[SCBX_NUM][DOUBLE_BUFFERED];
 static VkFence			command_buffer_fences[DOUBLE_BUFFERED];
 static qboolean			frame_submitted[DOUBLE_BUFFERED];
 static VkFramebuffer	main_framebuffers[NUM_COLOR_BUFFERS];
+static VkFramebuffer	clouds_framebuffers[NUM_COLOR_BUFFERS];
+static vulkan_memory_t clouds_reduced_memory;
+static vulkan_memory_t clouds_far_memory;
+static uint32_t graphics_timestamp_valid_bits;
 static VkSemaphore		image_aquired_semaphores[DOUBLE_BUFFERED];
-static VkSemaphore		draw_complete_semaphores[DOUBLE_BUFFERED];
+// Reacquiring an image retires its previous presentation wait. A frame's
+// submission fence alone does not make a presentation semaphore reusable.
+static VkSemaphore		draw_complete_semaphores[MAX_SWAP_CHAIN_IMAGES];
 static VkFramebuffer	ui_framebuffers[MAX_SWAP_CHAIN_IMAGES];
 static VkImage			swapchain_images[MAX_SWAP_CHAIN_IMAGES];
 static VkImageView		swapchain_images_views[MAX_SWAP_CHAIN_IMAGES];
@@ -986,6 +995,7 @@ static void GL_InitDevice (void)
 		{
 			found_graphics_queue = true;
 			vulkan_globals.gfx_queue_family_index = i;
+			graphics_timestamp_valid_bits = queue_family_properties[i].timestampValidBits;
 			break;
 		}
 	}
@@ -1309,10 +1319,6 @@ static void GL_InitCommandBuffers (void)
 		err = vkCreateFence (vulkan_globals.device, &fence_create_info, NULL, &command_buffer_fences[i]);
 		if (err != VK_SUCCESS)
 			Sys_Error ("vkCreateFence failed");
-
-		ZEROED_STRUCT (VkSemaphoreCreateInfo, semaphore_create_info);
-		semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		err = vkCreateSemaphore (vulkan_globals.device, &semaphore_create_info, NULL, &draw_complete_semaphores[i]);
 	}
 }
 
@@ -1345,7 +1351,7 @@ static void GL_CreateRenderPasses ()
 		attachment_descriptions[1].samples = vulkan_globals.sample_count;
 		attachment_descriptions[1].format = vulkan_globals.depth_format;
 		attachment_descriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachment_descriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachment_descriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		attachment_descriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachment_descriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 
@@ -1354,7 +1360,7 @@ static void GL_CreateRenderPasses ()
 		attachment_descriptions[2].samples = vulkan_globals.sample_count;
 		attachment_descriptions[2].format = vulkan_globals.color_format;
 		attachment_descriptions[2].loadOp = resolve ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachment_descriptions[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachment_descriptions[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
 		VkAttachmentReference scene_color_attachment_reference;
 		scene_color_attachment_reference.attachment = resolve ? 2 : 0;
@@ -1380,11 +1386,12 @@ static void GL_CreateRenderPasses ()
 		subpass_dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
 		subpass_dependencies[0].dstSubpass = 0;
 		subpass_dependencies[0].srcStageMask =
-			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 		subpass_dependencies[0].dstStageMask =
 			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		subpass_dependencies[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-												VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+												VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
 		subpass_dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
 												VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 		subpass_dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
@@ -1415,12 +1422,62 @@ static void GL_CreateRenderPasses ()
 			Sys_Error ("Couldn't create Vulkan render pass");
 		GL_SetObjectName ((uint64_t)vulkan_globals.main_render_pass[1], VK_OBJECT_TYPE_RENDER_PASS, "main_no_stencil");
 
+		// Continue the same attachments after volume composition without clearing
+		// opaque depth, color, or multisample color. This pass remains compatible
+		// with every existing world/entity pipeline and secondary command buffer.
+		attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		attachment_descriptions[0].loadOp = resolve ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_LOAD;
+		attachment_descriptions[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		attachment_descriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		attachment_descriptions[2].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		attachment_descriptions[2].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		err = vkCreateRenderPass (vulkan_globals.device, &render_pass_create_info, NULL, &vulkan_globals.main_resume_render_pass);
+		if (err != VK_SUCCESS)
+			Sys_Error ("Couldn't create Vulkan continuation render pass");
+		GL_SetObjectName ((uint64_t)vulkan_globals.main_resume_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "main_resume");
+
+		// Read the original depth samples directly. No depth copy or resolve is
+		// needed, and cloud marching stays once per pixel with MSAA enabled.
+		VkAttachmentReference cloud_depth_reference = {1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+		subpass_description.pDepthStencilAttachment = NULL;
+		subpass_description.pResolveAttachments = NULL;
+		subpass_description.inputAttachmentCount = 1;
+		subpass_description.pInputAttachments = &cloud_depth_reference;
+		VkSubpassDependency cloud_dependencies[2] = {};
+		cloud_dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		cloud_dependencies[0].dstSubpass = 0;
+		cloud_dependencies[0].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		cloud_dependencies[0].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+		cloud_dependencies[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		cloud_dependencies[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		cloud_dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		cloud_dependencies[1].srcSubpass = 0;
+		cloud_dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		cloud_dependencies[1].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+			VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		cloud_dependencies[1].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		cloud_dependencies[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		cloud_dependencies[1].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		cloud_dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		render_pass_create_info.dependencyCount = 2;
+		render_pass_create_info.pDependencies = cloud_dependencies;
+		err = vkCreateRenderPass (vulkan_globals.device, &render_pass_create_info, NULL, &vulkan_globals.clouds_render_pass);
+		if (err != VK_SUCCESS)
+			Sys_Error ("Couldn't create Vulkan cloud render pass");
+		GL_SetObjectName ((uint64_t)vulkan_globals.clouds_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "clouds");
+
 		for (int scbx_index = SCBX_WORLD; scbx_index <= SCBX_VIEW_MODEL; ++scbx_index)
 		{
 			for (int i = 0; i < SECONDARY_CB_MULTIPLICITY[scbx_index]; ++i)
 			{
 				cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[scbx_index][i];
-				cbx->render_pass = vulkan_globals.main_render_pass[0];
+				cbx->render_pass = scbx_index == SCBX_CLOUDS ? vulkan_globals.clouds_render_pass : vulkan_globals.main_render_pass[0];
 				cbx->render_pass_index = 0;
 				cbx->subpass = 0;
 			}
@@ -1589,7 +1646,19 @@ static void GL_CreateDepthBuffer (void)
 	image_create_info.arrayLayers = 1;
 	image_create_info.samples = vulkan_globals.sample_count;
 	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+	VkImageFormatProperties sampled_properties;
+	vulkan_globals.clouds_sampled_depth = vkGetPhysicalDeviceImageFormatProperties (
+											  vulkan_physical_device, vulkan_globals.depth_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+											  image_create_info.usage | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &sampled_properties) == VK_SUCCESS &&
+										  (sampled_properties.sampleCounts & vulkan_globals.sample_count) &&
+										  image_create_info.extent.width <= sampled_properties.maxExtent.width &&
+										  image_create_info.extent.height <= sampled_properties.maxExtent.height;
+	if (vulkan_globals.clouds_sampled_depth)
+		image_create_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+	else
+		Con_Printf ("Sampled depth unavailable at this sample count; using full-resolution clouds\n");
 
 	assert (depth_buffer == VK_NULL_HANDLE);
 	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &depth_buffer);
@@ -1822,6 +1891,237 @@ static void GL_CreateColorBuffer (void)
 		Sys_Printf ("AA disabled\n");
 }
 
+static void GL_CreateCloudImage (VkImage *image, VkImageView *view, vulkan_memory_t *memory, const char *name)
+{
+	ZEROED_STRUCT (VkImageCreateInfo, image_info);
+	image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_info.imageType = VK_IMAGE_TYPE_2D;
+	image_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	image_info.extent = {vulkan_globals.clouds_target_width, vulkan_globals.clouds_target_height, 1};
+	image_info.mipLevels = 1;
+	image_info.arrayLayers = 1;
+	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	if (vkCreateImage (vulkan_globals.device, &image_info, NULL, image) != VK_SUCCESS)
+		Sys_Error ("Couldn't create reduced cloud image");
+	GL_SetObjectName ((uint64_t)*image, VK_OBJECT_TYPE_IMAGE, name);
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements (vulkan_globals.device, *image, &requirements);
+	ZEROED_STRUCT (VkMemoryAllocateInfo, memory_info);
+	memory_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	memory_info.allocationSize = requirements.size;
+	memory_info.memoryTypeIndex = GL_MemoryTypeFromProperties (requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	R_AllocateVulkanMemory (memory, &memory_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+	vulkan_globals.clouds_allocated_bytes += requirements.size;
+	if (vkBindImageMemory (vulkan_globals.device, *image, memory->handle, 0) != VK_SUCCESS)
+		Sys_Error ("Couldn't bind reduced cloud image");
+	ZEROED_STRUCT (VkImageViewCreateInfo, view_info);
+	view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	view_info.image = *image;
+	view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	view_info.format = image_info.format;
+	view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+	if (vkCreateImageView (vulkan_globals.device, &view_info, NULL, view) != VK_SUCCESS)
+		Sys_Error ("Couldn't create reduced cloud image view");
+}
+
+// Both targets fit the largest experimental mode (half resolution); quarter
+// resolution uses a smaller viewport. Fixed allocation permits safe A/B toggles
+// without creating resources or synchronizing the GPU inside rendering tasks.
+static void GL_CreateCloudResources (void)
+{
+	if (!vulkan_globals.clouds_sampled_depth)
+		return;
+	VkImageFormatProperties properties;
+	const VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	vulkan_globals.clouds_target_width = (vid.width + 1) / 2;
+	vulkan_globals.clouds_target_height = (vid.height + 1) / 2;
+	if (vkGetPhysicalDeviceImageFormatProperties (
+			vulkan_physical_device, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &properties) != VK_SUCCESS ||
+		!(properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT) || vulkan_globals.clouds_target_width > properties.maxExtent.width ||
+		vulkan_globals.clouds_target_height > properties.maxExtent.height)
+		return;
+	vulkan_globals.clouds_allocated_bytes = 0;
+	GL_CreateCloudImage (&vulkan_globals.clouds_reduced_image, &vulkan_globals.clouds_reduced_view, &clouds_reduced_memory, "Cloud HDR near radiance");
+	GL_CreateCloudImage (&vulkan_globals.clouds_far_image, &vulkan_globals.clouds_far_view, &clouds_far_memory, "Cloud HDR far radiance");
+
+	VkAttachmentDescription attachment = {};
+	attachment.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+	attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkAttachmentReference reference = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+	VkSubpassDescription  subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &reference;
+	VkSubpassDependency dependencies[2] = {};
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+	ZEROED_STRUCT (VkRenderPassCreateInfo, pass_info);
+	pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	pass_info.attachmentCount = 1;
+	pass_info.pAttachments = &attachment;
+	pass_info.subpassCount = 1;
+	pass_info.pSubpasses = &subpass;
+	pass_info.dependencyCount = 2;
+	pass_info.pDependencies = dependencies;
+	if (vkCreateRenderPass (vulkan_globals.device, &pass_info, NULL, &vulkan_globals.clouds_reduced_render_pass) != VK_SUCCESS)
+		Sys_Error ("Couldn't create reduced cloud render pass");
+	ZEROED_STRUCT (VkFramebufferCreateInfo, framebuffer_info);
+	framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebuffer_info.renderPass = vulkan_globals.clouds_reduced_render_pass;
+	framebuffer_info.attachmentCount = 1;
+	framebuffer_info.pAttachments = &vulkan_globals.clouds_reduced_view;
+	framebuffer_info.width = vulkan_globals.clouds_target_width;
+	framebuffer_info.height = vulkan_globals.clouds_target_height;
+	framebuffer_info.layers = 1;
+	if (vkCreateFramebuffer (vulkan_globals.device, &framebuffer_info, NULL, &vulkan_globals.clouds_reduced_framebuffer) != VK_SUCCESS)
+		Sys_Error ("Couldn't create reduced cloud framebuffer");
+	framebuffer_info.pAttachments = &vulkan_globals.clouds_far_view;
+	if (vkCreateFramebuffer (vulkan_globals.device, &framebuffer_info, NULL, &vulkan_globals.clouds_far_framebuffer) != VK_SUCCESS)
+		Sys_Error ("Couldn't create far cloud framebuffer");
+}
+
+static void GL_UpdateCloudDescriptors (void)
+{
+	if (vulkan_globals.clouds_reduced_image == VK_NULL_HANDLE)
+		return;
+	VkDescriptorSet *sets[4] = {
+		&vulkan_globals.clouds_sampled_depth_set, &vulkan_globals.clouds_reduced_set, &vulkan_globals.clouds_cascade_set, &vulkan_globals.clouds_far_set};
+	for (int i = 0; i < 4; ++i)
+	{
+		vulkan_desc_set_layout_t *layout = i ? &vulkan_globals.cloud_radiance_set_layout : &vulkan_globals.single_texture_set_layout;
+		if (*sets[i] != VK_NULL_HANDLE)
+			R_FreeDescriptorSet (*sets[i], layout);
+		*sets[i] = R_AllocateDescriptorSet (layout);
+	}
+	VkDescriptorImageInfo images[3] = {
+		{vulkan_globals.point_sampler, depth_buffer_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+		{vulkan_globals.point_sampler, vulkan_globals.clouds_reduced_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+		{vulkan_globals.point_sampler, vulkan_globals.clouds_far_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+	// Single-band draws bind their populated image twice, avoiding any descriptor
+	// reference to an unused image that has not yet entered a readable layout.
+	const int			 image_indices[4][2] = {{0, 0}, {1, 1}, {1, 2}, {2, 2}};
+	VkWriteDescriptorSet writes[7] = {};
+	uint32_t			 count = 0;
+	for (int i = 0; i < 4; ++i)
+	{
+		for (int binding = 0; binding < (i ? 2 : 1); ++binding)
+		{
+			VkWriteDescriptorSet *write = &writes[count++];
+			write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write->dstSet = *sets[i];
+			write->dstBinding = binding;
+			write->descriptorCount = 1;
+			write->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write->pImageInfo = &images[image_indices[i][binding]];
+		}
+	}
+	vkUpdateDescriptorSets (vulkan_globals.device, count, writes, 0, NULL);
+}
+
+static void GL_DrawCloudTrace (cb_context_t *cbx)
+{
+	if (!vulkan_globals.clouds_reduced_active)
+		return;
+	const sky_cloud_stats_t stats = Sky_GetCloudStats ();
+	ZEROED_STRUCT (VkImageMemoryBarrier, depth_barrier);
+	depth_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	depth_barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	depth_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	depth_barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	depth_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	depth_barrier.srcQueueFamilyIndex = depth_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	depth_barrier.image = depth_buffer;
+	depth_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1};
+	vkCmdPipelineBarrier (
+		cbx->cb, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0,
+		NULL, 1, &depth_barrier);
+	ZEROED_STRUCT (VkRenderPassBeginInfo, pass_info);
+	pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	pass_info.renderPass = vulkan_globals.clouds_reduced_render_pass;
+	SkyProfile_BeginPass (cbx->cb, SKY_PROFILE_CLOUD_TRACE);
+	for (int band = stats.cascades ? 1 : 0; band <= (stats.cascades ? 2 : 0); ++band)
+	{
+		if (stats.cascades && stats.band != 0 && stats.band != band)
+			continue;
+		const int				 width = band == 2 ? stats.far_width : (band == 1 ? stats.near_width : stats.width);
+		const int				 height = band == 2 ? stats.far_height : (band == 1 ? stats.near_height : stats.height);
+		const int				 diagnostic_band = stats.cascades ? band : stats.band;
+		const sky_profile_pass_t band_pass = diagnostic_band == 2 ? SKY_PROFILE_CLOUD_FAR : SKY_PROFILE_CLOUD_NEAR;
+		pass_info.framebuffer = band == 2 ? vulkan_globals.clouds_far_framebuffer : vulkan_globals.clouds_reduced_framebuffer;
+		pass_info.renderArea.extent = {static_cast<uint32_t> (width), static_cast<uint32_t> (height)};
+		if (diagnostic_band != 0)
+			SkyProfile_BeginPass (cbx->cb, band_pass);
+		vkCmdBeginRenderPass (cbx->cb, &pass_info, VK_SUBPASS_CONTENTS_INLINE);
+		Sky_RenderCloudsReduced (cbx, band);
+		vkCmdEndRenderPass (cbx->cb);
+		if (diagnostic_band != 0)
+			SkyProfile_EndPass (cbx->cb, band_pass);
+	}
+	SkyProfile_EndPass (cbx->cb, SKY_PROFILE_CLOUD_TRACE);
+	const qboolean far_only = stats.cascades && stats.band == 2;
+	const qboolean both_bands = stats.cascades && stats.band == 0;
+	SkyProfile_CaptureClouds (
+		cbx->cb, far_only ? vulkan_globals.clouds_far_image : vulkan_globals.clouds_reduced_image, stats.width, stats.height, stats.divisor,
+		r_refdef.vrect.width, r_refdef.vrect.height, both_bands ? vulkan_globals.clouds_far_image : VK_NULL_HANDLE, both_bands ? stats.far_width : 0,
+		both_bands ? stats.far_height : 0, both_bands ? stats.far_divisor : 0);
+	depth_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	depth_barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+	depth_barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	depth_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	vkCmdPipelineBarrier (
+		cbx->cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0,
+		NULL, 1, &depth_barrier);
+}
+
+static void GL_DestroyCloudResources (void)
+{
+	if (vulkan_globals.clouds_sampled_depth_set != VK_NULL_HANDLE)
+		R_FreeDescriptorSet (vulkan_globals.clouds_sampled_depth_set, &vulkan_globals.single_texture_set_layout);
+	vulkan_globals.clouds_sampled_depth_set = VK_NULL_HANDLE;
+	VkDescriptorSet *radiance_sets[3] = {&vulkan_globals.clouds_reduced_set, &vulkan_globals.clouds_cascade_set, &vulkan_globals.clouds_far_set};
+	for (int i = 0; i < 3; ++i)
+	{
+		if (*radiance_sets[i] != VK_NULL_HANDLE)
+			R_FreeDescriptorSet (*radiance_sets[i], &vulkan_globals.cloud_radiance_set_layout);
+		*radiance_sets[i] = VK_NULL_HANDLE;
+	}
+	vkDestroyFramebuffer (vulkan_globals.device, vulkan_globals.clouds_reduced_framebuffer, NULL);
+	vkDestroyFramebuffer (vulkan_globals.device, vulkan_globals.clouds_far_framebuffer, NULL);
+	vkDestroyRenderPass (vulkan_globals.device, vulkan_globals.clouds_reduced_render_pass, NULL);
+	vkDestroyImageView (vulkan_globals.device, vulkan_globals.clouds_reduced_view, NULL);
+	vkDestroyImageView (vulkan_globals.device, vulkan_globals.clouds_far_view, NULL);
+	vkDestroyImage (vulkan_globals.device, vulkan_globals.clouds_reduced_image, NULL);
+	vkDestroyImage (vulkan_globals.device, vulkan_globals.clouds_far_image, NULL);
+	if (clouds_reduced_memory.handle)
+		R_FreeVulkanMemory (&clouds_reduced_memory, &num_vulkan_misc_allocations);
+	if (clouds_far_memory.handle)
+		R_FreeVulkanMemory (&clouds_far_memory, &num_vulkan_misc_allocations);
+	vulkan_globals.clouds_reduced_framebuffer = VK_NULL_HANDLE;
+	vulkan_globals.clouds_far_framebuffer = VK_NULL_HANDLE;
+	vulkan_globals.clouds_reduced_render_pass = VK_NULL_HANDLE;
+	vulkan_globals.clouds_reduced_view = VK_NULL_HANDLE;
+	vulkan_globals.clouds_far_view = VK_NULL_HANDLE;
+	vulkan_globals.clouds_reduced_image = VK_NULL_HANDLE;
+	vulkan_globals.clouds_far_image = VK_NULL_HANDLE;
+	vulkan_globals.clouds_allocated_bytes = 0;
+}
+
 /*
 ===============
 GL_UpdateDescriptorSets
@@ -1833,6 +2133,7 @@ void GL_UpdateDescriptorSets (void)
 		return;
 
 	GL_WaitForDeviceIdle ();
+	GL_UpdateCloudDescriptors ();
 
 	if (postprocess_descriptor_set != VK_NULL_HANDLE)
 		R_FreeDescriptorSet (postprocess_descriptor_set, &vulkan_globals.input_attachment_set_layout);
@@ -1850,6 +2151,14 @@ void GL_UpdateDescriptorSets (void)
 	input_attachment_write.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
 	input_attachment_write.dstSet = postprocess_descriptor_set;
 	input_attachment_write.pImageInfo = &image_info;
+	vkUpdateDescriptorSets (vulkan_globals.device, 1, &input_attachment_write, 0, NULL);
+
+	if (vulkan_globals.clouds_depth_descriptor_set != VK_NULL_HANDLE)
+		R_FreeDescriptorSet (vulkan_globals.clouds_depth_descriptor_set, &vulkan_globals.input_attachment_set_layout);
+	vulkan_globals.clouds_depth_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.input_attachment_set_layout);
+	image_info.imageView = depth_buffer_view;
+	image_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	input_attachment_write.dstSet = vulkan_globals.clouds_depth_descriptor_set;
 	vkUpdateDescriptorSets (vulkan_globals.device, 1, &input_attachment_write, 0, NULL);
 
 	if (vulkan_globals.screen_effects_desc_set != VK_NULL_HANDLE)
@@ -2201,6 +2510,12 @@ static qboolean GL_CreateSwapChain (void)
 			Sys_Error ("vkCreateImageView failed");
 
 		GL_SetObjectName ((uint64_t)swapchain_images_views[i], VK_OBJECT_TYPE_IMAGE_VIEW, "Swap Chain View");
+
+		assert (draw_complete_semaphores[i] == VK_NULL_HANDLE);
+		err = vkCreateSemaphore (vulkan_globals.device, &semaphore_create_info, NULL, &draw_complete_semaphores[i]);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateSemaphore failed (swap chain draw complete)");
+		GL_SetObjectName ((uint64_t)draw_complete_semaphores[i], VK_OBJECT_TYPE_SEMAPHORE, va ("Swap Chain Draw Complete %u", i));
 	}
 
 	for (i = 0; i < DOUBLE_BUFFERED; ++i)
@@ -2248,6 +2563,13 @@ static void GL_CreateFrameBuffers (void)
 			Sys_Error ("vkCreateFramebuffer failed");
 
 		GL_SetObjectName ((uint64_t)main_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "main");
+
+		framebuffer_create_info.renderPass = vulkan_globals.clouds_render_pass;
+		assert (clouds_framebuffers[i] == VK_NULL_HANDLE);
+		err = vkCreateFramebuffer (vulkan_globals.device, &framebuffer_create_info, NULL, &clouds_framebuffers[i]);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkCreateFramebuffer failed (clouds)");
+		GL_SetObjectName ((uint64_t)clouds_framebuffers[i], VK_OBJECT_TYPE_FRAMEBUFFER, "clouds");
 	}
 
 	for (i = 0; i < num_swap_chain_images; ++i)
@@ -2292,7 +2614,10 @@ static void GL_CreateRenderResources (void)
 	GL_CreateDepthBuffer ();
 	GL_CreateRenderPasses ();
 	GL_CreateFrameBuffers ();
+	GL_CreateCloudResources ();
 	R_CreatePipelines ();
+	Sky_AtmosphereCreate (vulkan_physical_device);
+	SkyProfile_Create (graphics_timestamp_valid_bits);
 
 	render_resources_created = true;
 
@@ -2310,10 +2635,16 @@ static void GL_DestroyRenderResources (void)
 
 	GL_WaitForDeviceIdle ();
 
+	R_OctreeReset ();
+	SkyProfile_Destroy ();
+	Sky_AtmosphereDestroy ();
 	R_DestroyPipelines ();
+	GL_DestroyCloudResources ();
 
 	R_FreeDescriptorSet (postprocess_descriptor_set, &vulkan_globals.input_attachment_set_layout);
 	postprocess_descriptor_set = VK_NULL_HANDLE;
+	R_FreeDescriptorSet (vulkan_globals.clouds_depth_descriptor_set, &vulkan_globals.input_attachment_set_layout);
+	vulkan_globals.clouds_depth_descriptor_set = VK_NULL_HANDLE;
 
 	R_FreeDescriptorSet (vulkan_globals.screen_effects_desc_set, &vulkan_globals.screen_effects_set_layout);
 	vulkan_globals.screen_effects_desc_set = VK_NULL_HANDLE;
@@ -2349,10 +2680,14 @@ static void GL_DestroyRenderResources (void)
 	{
 		vkDestroyFramebuffer (vulkan_globals.device, main_framebuffers[i], NULL);
 		main_framebuffers[i] = VK_NULL_HANDLE;
+		vkDestroyFramebuffer (vulkan_globals.device, clouds_framebuffers[i], NULL);
+		clouds_framebuffers[i] = VK_NULL_HANDLE;
 	}
 
 	for (uint32_t i = 0; i < num_swap_chain_images; ++i)
 	{
+		vkDestroySemaphore (vulkan_globals.device, draw_complete_semaphores[i], NULL);
+		draw_complete_semaphores[i] = VK_NULL_HANDLE;
 		vkDestroyImageView (vulkan_globals.device, swapchain_images_views[i], NULL);
 		swapchain_images_views[i] = VK_NULL_HANDLE;
 		vkDestroyFramebuffer (vulkan_globals.device, ui_framebuffers[i], NULL);
@@ -2379,6 +2714,10 @@ static void GL_DestroyRenderResources (void)
 	vkDestroyRenderPass (vulkan_globals.device, vulkan_globals.main_render_pass[1], NULL);
 	vulkan_globals.main_render_pass[0] = VK_NULL_HANDLE;
 	vulkan_globals.main_render_pass[1] = VK_NULL_HANDLE;
+	vkDestroyRenderPass (vulkan_globals.device, vulkan_globals.main_resume_render_pass, NULL);
+	vkDestroyRenderPass (vulkan_globals.device, vulkan_globals.clouds_render_pass, NULL);
+	vulkan_globals.main_resume_render_pass = VK_NULL_HANDLE;
+	vulkan_globals.clouds_render_pass = VK_NULL_HANDLE;
 	for (int scbx_index = SCBX_WORLD; scbx_index <= SCBX_VIEW_MODEL; ++scbx_index)
 		for (int i = 0; i < SECONDARY_CB_MULTIPLICITY[scbx_index]; ++i)
 			vulkan_globals.secondary_cb_contexts[scbx_index][i].render_pass = VK_NULL_HANDLE;
@@ -2392,6 +2731,7 @@ GL_BeginRenderingTask
 void GL_BeginRenderingTask (void *unused)
 {
 	VkResult err;
+	vulkan_globals.clouds_drawn = false;
 
 	if (frame_submitted[current_cb_index])
 	{
@@ -2400,6 +2740,7 @@ void GL_BeginRenderingTask (void *unused)
 			Sys_Error ("vkWaitForFences failed");
 	}
 
+	R_OctreeFrameReady ();
 	err = vkResetFences (vulkan_globals.device, 1, &command_buffer_fences[current_cb_index]);
 	if (err != VK_SUCCESS)
 		Sys_Error ("vkResetFences failed");
@@ -2424,6 +2765,8 @@ void GL_BeginRenderingTask (void *unused)
 			Sys_Error ("vkBeginCommandBuffer failed");
 
 		R_BeginDebugUtilsLabel (cbx, "Primary CB");
+		if (pcbx_index == PCBX_RENDER_PASSES)
+			SkyProfile_BeginFrame (cbx->cb, current_cb_index);
 	}
 
 	for (int scbx_index = 0; scbx_index < SCBX_NUM; ++scbx_index)
@@ -2435,7 +2778,7 @@ void GL_BeginRenderingTask (void *unused)
 			cbx->current_canvas = CANVAS_INVALID;
 			memset (&cbx->current_pipeline, 0, sizeof (cbx->current_pipeline));
 
-			if (scbx_index <= SCBX_VIEW_MODEL)
+			if (scbx_index <= SCBX_VIEW_MODEL && scbx_index != SCBX_CLOUDS)
 			{
 				const int main_render_pass_index = Sky_NeedStencil () ? 0 : 1;
 				cbx->render_pass = vulkan_globals.main_render_pass[main_render_pass_index];
@@ -2827,7 +3170,7 @@ void ScheduleScreenshotCopy (VkCommandBuffer command_buffer, VkBuffer *buffer, v
 		image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		image_barrier.image = swapchain_images[current_cb_index];
+		image_barrier.image = swapchain_images[current_swapchain_buffer];
 		image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_barrier.subresourceRange.baseMipLevel = 0;
 		image_barrier.subresourceRange.levelCount = 1;
@@ -2848,7 +3191,7 @@ void ScheduleScreenshotCopy (VkCommandBuffer command_buffer, VkBuffer *buffer, v
 	image_copy.imageExtent.height = glheight;
 	image_copy.imageExtent.depth = 1;
 
-	vkCmdCopyImageToBuffer (command_buffer, swapchain_images[current_cb_index], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *buffer, 1, &image_copy);
+	vkCmdCopyImageToBuffer (command_buffer, swapchain_images[current_swapchain_buffer], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *buffer, 1, &image_copy);
 
 	{
 		ZEROED_STRUCT (VkImageMemoryBarrier, image_barrier);
@@ -2859,7 +3202,7 @@ void ScheduleScreenshotCopy (VkCommandBuffer command_buffer, VkBuffer *buffer, v
 		image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 		image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		image_barrier.image = swapchain_images[current_cb_index];
+		image_barrier.image = swapchain_images[current_swapchain_buffer];
 		image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_barrier.subresourceRange.baseMipLevel = 0;
 		image_barrier.subresourceRange.levelCount = 1;
@@ -2877,7 +3220,9 @@ void WriteScreenshot (VkBuffer buffer, vulkan_memory_t memory)
 	vulkan_globals.device_idle = true;
 
 	void *buffer_ptr;
-	vkMapMemory (vulkan_globals.device, memory.handle, 0, glwidth * glheight * 4, 0, &buffer_ptr);
+	// The noncoherent invalidation below covers the allocation, including its
+	// alignment padding for odd image dimensions, so map that same range.
+	vkMapMemory (vulkan_globals.device, memory.handle, 0, VK_WHOLE_SIZE, 0, &buffer_ptr);
 
 	ZEROED_STRUCT (VkMappedMemoryRange, range);
 	range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
@@ -2958,6 +3303,7 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 	}
 
 	VkCommandBuffer render_passes_cb = vulkan_globals.primary_cb_contexts[PCBX_RENDER_PASSES].cb;
+	Sky_AtmospherePrepare (render_passes_cb);
 
 	VkRect2D render_area;
 	render_area.offset.x = 0;
@@ -2990,8 +3336,30 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		if (viewmodel_first)
 			vkCmdExecuteCommands (render_passes_cb, 1, &vulkan_globals.secondary_cb_contexts[SCBX_VIEW_MODEL]->cb);
 		for (int scbx_index = SCBX_WORLD; scbx_index <= SCBX_VIEW_MODEL - viewmodel_first; ++scbx_index)
+		{
+			if (scbx_index == SCBX_CLOUDS)
+			{
+				if (vulkan_globals.clouds_drawn)
+				{
+					vkCmdEndRenderPass (render_passes_cb);
+					GL_DrawCloudTrace (&vulkan_globals.primary_cb_contexts[PCBX_RENDER_PASSES]);
+					SkyProfile_BeginPass (render_passes_cb, vulkan_globals.clouds_reduced_active ? SKY_PROFILE_CLOUD_COMPOSITE : SKY_PROFILE_CLOUD_TRACE);
+					render_pass_begin_info.renderPass = vulkan_globals.clouds_render_pass;
+					render_pass_begin_info.framebuffer = clouds_framebuffers[screen_effects ? 1 : 0];
+					render_pass_begin_info.clearValueCount = 0;
+					vkCmdBeginRenderPass (render_passes_cb, &render_pass_begin_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+					vkCmdExecuteCommands (render_passes_cb, 1, &vulkan_globals.secondary_cb_contexts[SCBX_CLOUDS]->cb);
+					vkCmdEndRenderPass (render_passes_cb);
+					SkyProfile_EndPass (render_passes_cb, vulkan_globals.clouds_reduced_active ? SKY_PROFILE_CLOUD_COMPOSITE : SKY_PROFILE_CLOUD_TRACE);
+					render_pass_begin_info.renderPass = vulkan_globals.main_resume_render_pass;
+					render_pass_begin_info.framebuffer = main_framebuffers[screen_effects ? 1 : 0];
+					vkCmdBeginRenderPass (render_passes_cb, &render_pass_begin_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+				}
+				continue;
+			}
 			for (int i = 0; i < SECONDARY_CB_MULTIPLICITY[scbx_index]; ++i)
 				vkCmdExecuteCommands (render_passes_cb, 1, &vulkan_globals.secondary_cb_contexts[scbx_index][i].cb);
+		}
 		vkCmdEndRenderPass (render_passes_cb);
 	}
 
@@ -3036,7 +3404,7 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		submit_info.waitSemaphoreCount = swapchain_acquired ? 1 : 0;
 		submit_info.pWaitSemaphores = &image_aquired_semaphores[cb_index];
 		submit_info.signalSemaphoreCount = swapchain_acquired ? 1 : 0;
-		submit_info.pSignalSemaphores = &draw_complete_semaphores[cb_index];
+		submit_info.pSignalSemaphores = swapchain_acquired ? &draw_complete_semaphores[current_swapchain_buffer] : NULL;
 		VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		submit_info.pWaitDstStageMask = &wait_dst_stage_mask;
 
@@ -3060,7 +3428,7 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		present_info.swapchainCount = 1;
 		present_info.pSwapchains = &vulkan_swapchain, present_info.pImageIndices = &current_swapchain_buffer;
 		present_info.waitSemaphoreCount = 1;
-		present_info.pWaitSemaphores = &draw_complete_semaphores[cb_index];
+		present_info.pWaitSemaphores = &draw_complete_semaphores[current_swapchain_buffer];
 		err = fpQueuePresentKHR (vulkan_globals.queue, &present_info);
 #if defined(VK_EXT_full_screen_exclusive)
 		if ((err == VK_ERROR_OUT_OF_DATE_KHR) || (err == VK_ERROR_SURFACE_LOST_KHR) || (err == VK_SUBOPTIMAL_KHR) ||

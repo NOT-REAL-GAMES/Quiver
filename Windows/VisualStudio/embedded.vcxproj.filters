@@ -16,6 +16,9 @@
     <CustomBuild Include="..\..\Shaders\basic.vert">
       <Filter>Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\basic_sky.vert">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\basic_alphatest.frag">
       <Filter>Shaders</Filter>
     </CustomBuild>
@@ -73,10 +76,49 @@
     <CustomBuild Include="..\..\Shaders\sky_layer.frag">
       <Filter>Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere.vert">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_msaa.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere_lut.comp">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced.vert">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced_msaa.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_composite.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_composite_msaa.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds.vert">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\sky_layer.vert">
       <Filter>Shaders</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\terrain.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\world.frag">
+      <Filter>Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\terrain.vert">
       <Filter>Shaders</Filter>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\world.vert">
@@ -92,6 +134,12 @@
     <CustomBuild Include="..\..\Shaders\update_lightmap_8bit_rt.comp" />
     <CustomBuild Include="..\..\Shaders\update_lightmap_10bit.comp" />
     <CustomBuild Include="..\..\Shaders\update_lightmap_10bit_rt.comp" />
+    <None Include="..\..\Shaders\sky_clouds_common.glsl" />
+    <None Include="..\..\Shaders\sky_atmosphere_common.glsl" />
+    <None Include="..\..\Shaders\sky_clouds_frame.glsl" />
+    <None Include="..\..\Shaders\tonemap_agx.glsl">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Shaders">

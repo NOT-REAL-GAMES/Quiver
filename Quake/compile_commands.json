@@ -1,0 +1,752 @@
+[
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/gcc -Ibintoc.p -I. -I.. -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu11 -O3 -MD -MQ bintoc.p/Shaders_bintoc.c.o -MF bintoc.p/Shaders_bintoc.c.o.d -o bintoc.p/Shaders_bintoc.c.o -c ../Shaders/bintoc.c",
+    "file": "../Shaders/bintoc.c",
+    "output": "bintoc.p/Shaders_bintoc.c.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/gcc -Imkpak.p -I. -I.. -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu11 -O3 -MD -MQ mkpak.p/Misc_vq_pak_mkpak.c.o -MF mkpak.p/Misc_vq_pak_mkpak.c.o.d -o mkpak.p/Misc_vq_pak_mkpak.c.o -c ../Misc/vq_pak/mkpak.c",
+    "file": "../Misc/vq_pak/mkpak.c",
+    "output": "mkpak.p/Misc_vq_pak_mkpak.c.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._bgmusic.cpp.o -MF vkquake.p/meson-generated_.._bgmusic.cpp.o.d -o vkquake.p/meson-generated_.._bgmusic.cpp.o -c bgmusic.cpp",
+    "file": "bgmusic.cpp",
+    "output": "vkquake.p/meson-generated_.._bgmusic.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cd_null.cpp.o -MF vkquake.p/meson-generated_.._cd_null.cpp.o.d -o vkquake.p/meson-generated_.._cd_null.cpp.o -c cd_null.cpp",
+    "file": "cd_null.cpp",
+    "output": "vkquake.p/meson-generated_.._cd_null.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cfgfile.cpp.o -MF vkquake.p/meson-generated_.._cfgfile.cpp.o.d -o vkquake.p/meson-generated_.._cfgfile.cpp.o -c cfgfile.cpp",
+    "file": "cfgfile.cpp",
+    "output": "vkquake.p/meson-generated_.._cfgfile.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._chase.cpp.o -MF vkquake.p/meson-generated_.._chase.cpp.o.d -o vkquake.p/meson-generated_.._chase.cpp.o -c chase.cpp",
+    "file": "chase.cpp",
+    "output": "vkquake.p/meson-generated_.._chase.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cl_demo.cpp.o -MF vkquake.p/meson-generated_.._cl_demo.cpp.o.d -o vkquake.p/meson-generated_.._cl_demo.cpp.o -c cl_demo.cpp",
+    "file": "cl_demo.cpp",
+    "output": "vkquake.p/meson-generated_.._cl_demo.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cl_input.cpp.o -MF vkquake.p/meson-generated_.._cl_input.cpp.o.d -o vkquake.p/meson-generated_.._cl_input.cpp.o -c cl_input.cpp",
+    "file": "cl_input.cpp",
+    "output": "vkquake.p/meson-generated_.._cl_input.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cl_main.cpp.o -MF vkquake.p/meson-generated_.._cl_main.cpp.o.d -o vkquake.p/meson-generated_.._cl_main.cpp.o -c cl_main.cpp",
+    "file": "cl_main.cpp",
+    "output": "vkquake.p/meson-generated_.._cl_main.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cl_parse.cpp.o -MF vkquake.p/meson-generated_.._cl_parse.cpp.o.d -o vkquake.p/meson-generated_.._cl_parse.cpp.o -c cl_parse.cpp",
+    "file": "cl_parse.cpp",
+    "output": "vkquake.p/meson-generated_.._cl_parse.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cl_tent.cpp.o -MF vkquake.p/meson-generated_.._cl_tent.cpp.o.d -o vkquake.p/meson-generated_.._cl_tent.cpp.o -c cl_tent.cpp",
+    "file": "cl_tent.cpp",
+    "output": "vkquake.p/meson-generated_.._cl_tent.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cmd.cpp.o -MF vkquake.p/meson-generated_.._cmd.cpp.o.d -o vkquake.p/meson-generated_.._cmd.cpp.o -c cmd.cpp",
+    "file": "cmd.cpp",
+    "output": "vkquake.p/meson-generated_.._cmd.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._common.cpp.o -MF vkquake.p/meson-generated_.._common.cpp.o.d -o vkquake.p/meson-generated_.._common.cpp.o -c common.cpp",
+    "file": "common.cpp",
+    "output": "vkquake.p/meson-generated_.._common.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._console.cpp.o -MF vkquake.p/meson-generated_.._console.cpp.o.d -o vkquake.p/meson-generated_.._console.cpp.o -c console.cpp",
+    "file": "console.cpp",
+    "output": "vkquake.p/meson-generated_.._console.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._crc.cpp.o -MF vkquake.p/meson-generated_.._crc.cpp.o.d -o vkquake.p/meson-generated_.._crc.cpp.o -c crc.cpp",
+    "file": "crc.cpp",
+    "output": "vkquake.p/meson-generated_.._crc.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cvar.cpp.o -MF vkquake.p/meson-generated_.._cvar.cpp.o.d -o vkquake.p/meson-generated_.._cvar.cpp.o -c cvar.cpp",
+    "file": "cvar.cpp",
+    "output": "vkquake.p/meson-generated_.._cvar.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_draw.cpp.o -MF vkquake.p/meson-generated_.._gl_draw.cpp.o.d -o vkquake.p/meson-generated_.._gl_draw.cpp.o -c gl_draw.cpp",
+    "file": "gl_draw.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_draw.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_fog.cpp.o -MF vkquake.p/meson-generated_.._gl_fog.cpp.o.d -o vkquake.p/meson-generated_.._gl_fog.cpp.o -c gl_fog.cpp",
+    "file": "gl_fog.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_fog.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_heap.cpp.o -MF vkquake.p/meson-generated_.._gl_heap.cpp.o.d -o vkquake.p/meson-generated_.._gl_heap.cpp.o -c gl_heap.cpp",
+    "file": "gl_heap.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_heap.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_mesh.cpp.o -MF vkquake.p/meson-generated_.._gl_mesh.cpp.o.d -o vkquake.p/meson-generated_.._gl_mesh.cpp.o -c gl_mesh.cpp",
+    "file": "gl_mesh.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_mesh.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_model.cpp.o -MF vkquake.p/meson-generated_.._gl_model.cpp.o.d -o vkquake.p/meson-generated_.._gl_model.cpp.o -c gl_model.cpp",
+    "file": "gl_model.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_model.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_refrag.cpp.o -MF vkquake.p/meson-generated_.._gl_refrag.cpp.o.d -o vkquake.p/meson-generated_.._gl_refrag.cpp.o -c gl_refrag.cpp",
+    "file": "gl_refrag.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_refrag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_rlight.cpp.o -MF vkquake.p/meson-generated_.._gl_rlight.cpp.o.d -o vkquake.p/meson-generated_.._gl_rlight.cpp.o -c gl_rlight.cpp",
+    "file": "gl_rlight.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_rlight.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_rmain.cpp.o -MF vkquake.p/meson-generated_.._gl_rmain.cpp.o.d -o vkquake.p/meson-generated_.._gl_rmain.cpp.o -c gl_rmain.cpp",
+    "file": "gl_rmain.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_rmain.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_rmisc.cpp.o -MF vkquake.p/meson-generated_.._gl_rmisc.cpp.o.d -o vkquake.p/meson-generated_.._gl_rmisc.cpp.o -c gl_rmisc.cpp",
+    "file": "gl_rmisc.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_rmisc.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_screen.cpp.o -MF vkquake.p/meson-generated_.._gl_screen.cpp.o.d -o vkquake.p/meson-generated_.._gl_screen.cpp.o -c gl_screen.cpp",
+    "file": "gl_screen.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_screen.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_sky.cpp.o -MF vkquake.p/meson-generated_.._gl_sky.cpp.o.d -o vkquake.p/meson-generated_.._gl_sky.cpp.o -c gl_sky.cpp",
+    "file": "gl_sky.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_sky.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_texmgr.cpp.o -MF vkquake.p/meson-generated_.._gl_texmgr.cpp.o.d -o vkquake.p/meson-generated_.._gl_texmgr.cpp.o -c gl_texmgr.cpp",
+    "file": "gl_texmgr.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_texmgr.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_vidsdl.cpp.o -MF vkquake.p/meson-generated_.._gl_vidsdl.cpp.o.d -o vkquake.p/meson-generated_.._gl_vidsdl.cpp.o -c gl_vidsdl.cpp",
+    "file": "gl_vidsdl.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_vidsdl.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._gl_warp.cpp.o -MF vkquake.p/meson-generated_.._gl_warp.cpp.o.d -o vkquake.p/meson-generated_.._gl_warp.cpp.o -c gl_warp.cpp",
+    "file": "gl_warp.cpp",
+    "output": "vkquake.p/meson-generated_.._gl_warp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._host.cpp.o -MF vkquake.p/meson-generated_.._host.cpp.o.d -o vkquake.p/meson-generated_.._host.cpp.o -c host.cpp",
+    "file": "host.cpp",
+    "output": "vkquake.p/meson-generated_.._host.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._host_cmd.cpp.o -MF vkquake.p/meson-generated_.._host_cmd.cpp.o.d -o vkquake.p/meson-generated_.._host_cmd.cpp.o -c host_cmd.cpp",
+    "file": "host_cmd.cpp",
+    "output": "vkquake.p/meson-generated_.._host_cmd.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._image.cpp.o -MF vkquake.p/meson-generated_.._image.cpp.o.d -o vkquake.p/meson-generated_.._image.cpp.o -c image.cpp",
+    "file": "image.cpp",
+    "output": "vkquake.p/meson-generated_.._image.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._in_sdl.cpp.o -MF vkquake.p/meson-generated_.._in_sdl.cpp.o.d -o vkquake.p/meson-generated_.._in_sdl.cpp.o -c in_sdl.cpp",
+    "file": "in_sdl.cpp",
+    "output": "vkquake.p/meson-generated_.._in_sdl.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._keys.cpp.o -MF vkquake.p/meson-generated_.._keys.cpp.o.d -o vkquake.p/meson-generated_.._keys.cpp.o -c keys.cpp",
+    "file": "keys.cpp",
+    "output": "vkquake.p/meson-generated_.._keys.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._main_sdl.cpp.o -MF vkquake.p/meson-generated_.._main_sdl.cpp.o.d -o vkquake.p/meson-generated_.._main_sdl.cpp.o -c main_sdl.cpp",
+    "file": "main_sdl.cpp",
+    "output": "vkquake.p/meson-generated_.._main_sdl.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._mathlib.cpp.o -MF vkquake.p/meson-generated_.._mathlib.cpp.o.d -o vkquake.p/meson-generated_.._mathlib.cpp.o -c mathlib.cpp",
+    "file": "mathlib.cpp",
+    "output": "vkquake.p/meson-generated_.._mathlib.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._mdfour.cpp.o -MF vkquake.p/meson-generated_.._mdfour.cpp.o.d -o vkquake.p/meson-generated_.._mdfour.cpp.o -c mdfour.cpp",
+    "file": "mdfour.cpp",
+    "output": "vkquake.p/meson-generated_.._mdfour.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._mem.cpp.o -MF vkquake.p/meson-generated_.._mem.cpp.o.d -o vkquake.p/meson-generated_.._mem.cpp.o -c mem.cpp",
+    "file": "mem.cpp",
+    "output": "vkquake.p/meson-generated_.._mem.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._menu.cpp.o -MF vkquake.p/meson-generated_.._menu.cpp.o.d -o vkquake.p/meson-generated_.._menu.cpp.o -c menu.cpp",
+    "file": "menu.cpp",
+    "output": "vkquake.p/meson-generated_.._menu.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._net_bsd.cpp.o -MF vkquake.p/meson-generated_.._net_bsd.cpp.o.d -o vkquake.p/meson-generated_.._net_bsd.cpp.o -c net_bsd.cpp",
+    "file": "net_bsd.cpp",
+    "output": "vkquake.p/meson-generated_.._net_bsd.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._net_dgrm.cpp.o -MF vkquake.p/meson-generated_.._net_dgrm.cpp.o.d -o vkquake.p/meson-generated_.._net_dgrm.cpp.o -c net_dgrm.cpp",
+    "file": "net_dgrm.cpp",
+    "output": "vkquake.p/meson-generated_.._net_dgrm.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._net_loop.cpp.o -MF vkquake.p/meson-generated_.._net_loop.cpp.o.d -o vkquake.p/meson-generated_.._net_loop.cpp.o -c net_loop.cpp",
+    "file": "net_loop.cpp",
+    "output": "vkquake.p/meson-generated_.._net_loop.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._net_main.cpp.o -MF vkquake.p/meson-generated_.._net_main.cpp.o.d -o vkquake.p/meson-generated_.._net_main.cpp.o -c net_main.cpp",
+    "file": "net_main.cpp",
+    "output": "vkquake.p/meson-generated_.._net_main.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._net_udp.cpp.o -MF vkquake.p/meson-generated_.._net_udp.cpp.o.d -o vkquake.p/meson-generated_.._net_udp.cpp.o -c net_udp.cpp",
+    "file": "net_udp.cpp",
+    "output": "vkquake.p/meson-generated_.._net_udp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._palette.cpp.o -MF vkquake.p/meson-generated_.._palette.cpp.o.d -o vkquake.p/meson-generated_.._palette.cpp.o -c palette.cpp",
+    "file": "palette.cpp",
+    "output": "vkquake.p/meson-generated_.._palette.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._pl_linux.cpp.o -MF vkquake.p/meson-generated_.._pl_linux.cpp.o.d -o vkquake.p/meson-generated_.._pl_linux.cpp.o -c pl_linux.cpp",
+    "file": "pl_linux.cpp",
+    "output": "vkquake.p/meson-generated_.._pl_linux.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._pr_cmds.cpp.o -MF vkquake.p/meson-generated_.._pr_cmds.cpp.o.d -o vkquake.p/meson-generated_.._pr_cmds.cpp.o -c pr_cmds.cpp",
+    "file": "pr_cmds.cpp",
+    "output": "vkquake.p/meson-generated_.._pr_cmds.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._pr_edict.cpp.o -MF vkquake.p/meson-generated_.._pr_edict.cpp.o.d -o vkquake.p/meson-generated_.._pr_edict.cpp.o -c pr_edict.cpp",
+    "file": "pr_edict.cpp",
+    "output": "vkquake.p/meson-generated_.._pr_edict.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._pr_exec.cpp.o -MF vkquake.p/meson-generated_.._pr_exec.cpp.o.d -o vkquake.p/meson-generated_.._pr_exec.cpp.o -c pr_exec.cpp",
+    "file": "pr_exec.cpp",
+    "output": "vkquake.p/meson-generated_.._pr_exec.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._pr_ext.cpp.o -MF vkquake.p/meson-generated_.._pr_ext.cpp.o.d -o vkquake.p/meson-generated_.._pr_ext.cpp.o -c pr_ext.cpp",
+    "file": "pr_ext.cpp",
+    "output": "vkquake.p/meson-generated_.._pr_ext.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_alias.cpp.o -MF vkquake.p/meson-generated_.._r_alias.cpp.o.d -o vkquake.p/meson-generated_.._r_alias.cpp.o -c r_alias.cpp",
+    "file": "r_alias.cpp",
+    "output": "vkquake.p/meson-generated_.._r_alias.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_brush.cpp.o -MF vkquake.p/meson-generated_.._r_brush.cpp.o.d -o vkquake.p/meson-generated_.._r_brush.cpp.o -c r_brush.cpp",
+    "file": "r_brush.cpp",
+    "output": "vkquake.p/meson-generated_.._r_brush.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_part.cpp.o -MF vkquake.p/meson-generated_.._r_part.cpp.o.d -o vkquake.p/meson-generated_.._r_part.cpp.o -c r_part.cpp",
+    "file": "r_part.cpp",
+    "output": "vkquake.p/meson-generated_.._r_part.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_part_fte.cpp.o -MF vkquake.p/meson-generated_.._r_part_fte.cpp.o.d -o vkquake.p/meson-generated_.._r_part_fte.cpp.o -c r_part_fte.cpp",
+    "file": "r_part_fte.cpp",
+    "output": "vkquake.p/meson-generated_.._r_part_fte.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_sprite.cpp.o -MF vkquake.p/meson-generated_.._r_sprite.cpp.o.d -o vkquake.p/meson-generated_.._r_sprite.cpp.o -c r_sprite.cpp",
+    "file": "r_sprite.cpp",
+    "output": "vkquake.p/meson-generated_.._r_sprite.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._r_world.cpp.o -MF vkquake.p/meson-generated_.._r_world.cpp.o.d -o vkquake.p/meson-generated_.._r_world.cpp.o -c r_world.cpp",
+    "file": "r_world.cpp",
+    "output": "vkquake.p/meson-generated_.._r_world.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sbar.cpp.o -MF vkquake.p/meson-generated_.._sbar.cpp.o.d -o vkquake.p/meson-generated_.._sbar.cpp.o -c sbar.cpp",
+    "file": "sbar.cpp",
+    "output": "vkquake.p/meson-generated_.._sbar.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_codec.cpp.o -MF vkquake.p/meson-generated_.._snd_codec.cpp.o.d -o vkquake.p/meson-generated_.._snd_codec.cpp.o -c snd_codec.cpp",
+    "file": "snd_codec.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_codec.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_dma.cpp.o -MF vkquake.p/meson-generated_.._snd_dma.cpp.o.d -o vkquake.p/meson-generated_.._snd_dma.cpp.o -c snd_dma.cpp",
+    "file": "snd_dma.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_dma.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_mem.cpp.o -MF vkquake.p/meson-generated_.._snd_mem.cpp.o.d -o vkquake.p/meson-generated_.._snd_mem.cpp.o -c snd_mem.cpp",
+    "file": "snd_mem.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_mem.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_mix.cpp.o -MF vkquake.p/meson-generated_.._snd_mix.cpp.o.d -o vkquake.p/meson-generated_.._snd_mix.cpp.o -c snd_mix.cpp",
+    "file": "snd_mix.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_mix.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_sdl.cpp.o -MF vkquake.p/meson-generated_.._snd_sdl.cpp.o.d -o vkquake.p/meson-generated_.._snd_sdl.cpp.o -c snd_sdl.cpp",
+    "file": "snd_sdl.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_sdl.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_umx.cpp.o -MF vkquake.p/meson-generated_.._snd_umx.cpp.o.d -o vkquake.p/meson-generated_.._snd_umx.cpp.o -c snd_umx.cpp",
+    "file": "snd_umx.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_umx.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_wave.cpp.o -MF vkquake.p/meson-generated_.._snd_wave.cpp.o.d -o vkquake.p/meson-generated_.._snd_wave.cpp.o -c snd_wave.cpp",
+    "file": "snd_wave.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_wave.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._strlcat.cpp.o -MF vkquake.p/meson-generated_.._strlcat.cpp.o.d -o vkquake.p/meson-generated_.._strlcat.cpp.o -c strlcat.cpp",
+    "file": "strlcat.cpp",
+    "output": "vkquake.p/meson-generated_.._strlcat.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._strlcpy.cpp.o -MF vkquake.p/meson-generated_.._strlcpy.cpp.o.d -o vkquake.p/meson-generated_.._strlcpy.cpp.o -c strlcpy.cpp",
+    "file": "strlcpy.cpp",
+    "output": "vkquake.p/meson-generated_.._strlcpy.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sv_main.cpp.o -MF vkquake.p/meson-generated_.._sv_main.cpp.o.d -o vkquake.p/meson-generated_.._sv_main.cpp.o -c sv_main.cpp",
+    "file": "sv_main.cpp",
+    "output": "vkquake.p/meson-generated_.._sv_main.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sv_move.cpp.o -MF vkquake.p/meson-generated_.._sv_move.cpp.o.d -o vkquake.p/meson-generated_.._sv_move.cpp.o -c sv_move.cpp",
+    "file": "sv_move.cpp",
+    "output": "vkquake.p/meson-generated_.._sv_move.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sv_phys.cpp.o -MF vkquake.p/meson-generated_.._sv_phys.cpp.o.d -o vkquake.p/meson-generated_.._sv_phys.cpp.o -c sv_phys.cpp",
+    "file": "sv_phys.cpp",
+    "output": "vkquake.p/meson-generated_.._sv_phys.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sv_user.cpp.o -MF vkquake.p/meson-generated_.._sv_user.cpp.o.d -o vkquake.p/meson-generated_.._sv_user.cpp.o -c sv_user.cpp",
+    "file": "sv_user.cpp",
+    "output": "vkquake.p/meson-generated_.._sv_user.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sys_sdl.cpp.o -MF vkquake.p/meson-generated_.._sys_sdl.cpp.o.d -o vkquake.p/meson-generated_.._sys_sdl.cpp.o -c sys_sdl.cpp",
+    "file": "sys_sdl.cpp",
+    "output": "vkquake.p/meson-generated_.._sys_sdl.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sys_sdl_unix.cpp.o -MF vkquake.p/meson-generated_.._sys_sdl_unix.cpp.o.d -o vkquake.p/meson-generated_.._sys_sdl_unix.cpp.o -c sys_sdl_unix.cpp",
+    "file": "sys_sdl_unix.cpp",
+    "output": "vkquake.p/meson-generated_.._sys_sdl_unix.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._tasks.cpp.o -MF vkquake.p/meson-generated_.._tasks.cpp.o.d -o vkquake.p/meson-generated_.._tasks.cpp.o -c tasks.cpp",
+    "file": "tasks.cpp",
+    "output": "vkquake.p/meson-generated_.._tasks.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._view.cpp.o -MF vkquake.p/meson-generated_.._view.cpp.o.d -o vkquake.p/meson-generated_.._view.cpp.o -c view.cpp",
+    "file": "view.cpp",
+    "output": "vkquake.p/meson-generated_.._view.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._wad.cpp.o -MF vkquake.p/meson-generated_.._wad.cpp.o.d -o vkquake.p/meson-generated_.._wad.cpp.o -c wad.cpp",
+    "file": "wad.cpp",
+    "output": "vkquake.p/meson-generated_.._wad.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._world.cpp.o -MF vkquake.p/meson-generated_.._world.cpp.o.d -o vkquake.p/meson-generated_.._world.cpp.o -c world.cpp",
+    "file": "world.cpp",
+    "output": "vkquake.p/meson-generated_.._world.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._hash_map.cpp.o -MF vkquake.p/meson-generated_.._hash_map.cpp.o.d -o vkquake.p/meson-generated_.._hash_map.cpp.o -c hash_map.cpp",
+    "file": "hash_map.cpp",
+    "output": "vkquake.p/meson-generated_.._hash_map.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._kd_model.cpp.o -MF vkquake.p/meson-generated_.._kd_model.cpp.o.d -o vkquake.p/meson-generated_.._kd_model.cpp.o -c kd_model.cpp",
+    "file": "kd_model.cpp",
+    "output": "vkquake.p/meson-generated_.._kd_model.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._kd_render.cpp.o -MF vkquake.p/meson-generated_.._kd_render.cpp.o.d -o vkquake.p/meson-generated_.._kd_render.cpp.o -c kd_render.cpp",
+    "file": "kd_render.cpp",
+    "output": "vkquake.p/meson-generated_.._kd_render.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._kd_world.cpp.o -MF vkquake.p/meson-generated_.._kd_world.cpp.o.d -o vkquake.p/meson-generated_.._kd_world.cpp.o -c kd_world.cpp",
+    "file": "kd_world.cpp",
+    "output": "vkquake.p/meson-generated_.._kd_world.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._kd_compile.cpp.o -MF vkquake.p/meson-generated_.._kd_compile.cpp.o.d -o vkquake.p/meson-generated_.._kd_compile.cpp.o -c kd_compile.cpp",
+    "file": "kd_compile.cpp",
+    "output": "vkquake.p/meson-generated_.._kd_compile.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._kd_svo.cpp.o -MF vkquake.p/meson-generated_.._kd_svo.cpp.o.d -o vkquake.p/meson-generated_.._kd_svo.cpp.o -c kd_svo.cpp",
+    "file": "kd_svo.cpp",
+    "output": "vkquake.p/meson-generated_.._kd_svo.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._noise_gen.cpp.o -MF vkquake.p/meson-generated_.._noise_gen.cpp.o.d -o vkquake.p/meson-generated_.._noise_gen.cpp.o -c noise_gen.cpp",
+    "file": "noise_gen.cpp",
+    "output": "vkquake.p/meson-generated_.._noise_gen.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_mpg123.cpp.o -MF vkquake.p/meson-generated_.._snd_mpg123.cpp.o.d -o vkquake.p/meson-generated_.._snd_mpg123.cpp.o -c snd_mpg123.cpp",
+    "file": "snd_mpg123.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_mpg123.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_mp3tag.cpp.o -MF vkquake.p/meson-generated_.._snd_mp3tag.cpp.o.d -o vkquake.p/meson-generated_.._snd_mp3tag.cpp.o -c snd_mp3tag.cpp",
+    "file": "snd_mp3tag.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_mp3tag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._snd_vorbis.cpp.o -MF vkquake.p/meson-generated_.._snd_vorbis.cpp.o.d -o vkquake.p/meson-generated_.._snd_vorbis.cpp.o -c snd_vorbis.cpp",
+    "file": "snd_vorbis.cpp",
+    "output": "vkquake.p/meson-generated_.._snd_vorbis.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._alias.frag.cpp.o -MF vkquake.p/meson-generated_.._alias.frag.cpp.o.d -o vkquake.p/meson-generated_.._alias.frag.cpp.o -c alias.frag.cpp",
+    "file": "alias.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._alias.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._alias.vert.cpp.o -MF vkquake.p/meson-generated_.._alias.vert.cpp.o.d -o vkquake.p/meson-generated_.._alias.vert.cpp.o -c alias.vert.cpp",
+    "file": "alias.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._alias.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._alias_alphatest.frag.cpp.o -MF vkquake.p/meson-generated_.._alias_alphatest.frag.cpp.o.d -o vkquake.p/meson-generated_.._alias_alphatest.frag.cpp.o -c alias_alphatest.frag.cpp",
+    "file": "alias_alphatest.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._alias_alphatest.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._md5.vert.cpp.o -MF vkquake.p/meson-generated_.._md5.vert.cpp.o.d -o vkquake.p/meson-generated_.._md5.vert.cpp.o -c md5.vert.cpp",
+    "file": "md5.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._md5.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._basic.frag.cpp.o -MF vkquake.p/meson-generated_.._basic.frag.cpp.o.d -o vkquake.p/meson-generated_.._basic.frag.cpp.o -c basic.frag.cpp",
+    "file": "basic.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._basic.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._basic.vert.cpp.o -MF vkquake.p/meson-generated_.._basic.vert.cpp.o.d -o vkquake.p/meson-generated_.._basic.vert.cpp.o -c basic.vert.cpp",
+    "file": "basic.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._basic.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._basic_alphatest.frag.cpp.o -MF vkquake.p/meson-generated_.._basic_alphatest.frag.cpp.o.d -o vkquake.p/meson-generated_.._basic_alphatest.frag.cpp.o -c basic_alphatest.frag.cpp",
+    "file": "basic_alphatest.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._basic_alphatest.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._basic_notex.frag.cpp.o -MF vkquake.p/meson-generated_.._basic_notex.frag.cpp.o.d -o vkquake.p/meson-generated_.._basic_notex.frag.cpp.o -c basic_notex.frag.cpp",
+    "file": "basic_notex.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._basic_notex.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._cs_tex_warp.comp.cpp.o -MF vkquake.p/meson-generated_.._cs_tex_warp.comp.cpp.o.d -o vkquake.p/meson-generated_.._cs_tex_warp.comp.cpp.o -c cs_tex_warp.comp.cpp",
+    "file": "cs_tex_warp.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._cs_tex_warp.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._indirect.comp.cpp.o -MF vkquake.p/meson-generated_.._indirect.comp.cpp.o.d -o vkquake.p/meson-generated_.._indirect.comp.cpp.o -c indirect.comp.cpp",
+    "file": "indirect.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._indirect.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._indirect_clear.comp.cpp.o -MF vkquake.p/meson-generated_.._indirect_clear.comp.cpp.o.d -o vkquake.p/meson-generated_.._indirect_clear.comp.cpp.o -c indirect_clear.comp.cpp",
+    "file": "indirect_clear.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._indirect_clear.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._postprocess.frag.cpp.o -MF vkquake.p/meson-generated_.._postprocess.frag.cpp.o.d -o vkquake.p/meson-generated_.._postprocess.frag.cpp.o -c postprocess.frag.cpp",
+    "file": "postprocess.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._postprocess.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._postprocess.vert.cpp.o -MF vkquake.p/meson-generated_.._postprocess.vert.cpp.o.d -o vkquake.p/meson-generated_.._postprocess.vert.cpp.o -c postprocess.vert.cpp",
+    "file": "postprocess.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._postprocess.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_10bit.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_10bit.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_10bit.comp.cpp.o -c screen_effects_10bit.comp.cpp",
+    "file": "screen_effects_10bit.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_10bit.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_10bit_scale.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_10bit_scale.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_10bit_scale.comp.cpp.o -c screen_effects_10bit_scale.comp.cpp",
+    "file": "screen_effects_10bit_scale.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_10bit_scale.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_10bit_scale_sops.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_10bit_scale_sops.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_10bit_scale_sops.comp.cpp.o -c screen_effects_10bit_scale_sops.comp.cpp",
+    "file": "screen_effects_10bit_scale_sops.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_10bit_scale_sops.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_8bit.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_8bit.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_8bit.comp.cpp.o -c screen_effects_8bit.comp.cpp",
+    "file": "screen_effects_8bit.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_8bit.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_8bit_scale.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_8bit_scale.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_8bit_scale.comp.cpp.o -c screen_effects_8bit_scale.comp.cpp",
+    "file": "screen_effects_8bit_scale.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_8bit_scale.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._screen_effects_8bit_scale_sops.comp.cpp.o -MF vkquake.p/meson-generated_.._screen_effects_8bit_scale_sops.comp.cpp.o.d -o vkquake.p/meson-generated_.._screen_effects_8bit_scale_sops.comp.cpp.o -c screen_effects_8bit_scale_sops.comp.cpp",
+    "file": "screen_effects_8bit_scale_sops.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._screen_effects_8bit_scale_sops.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._showtris.frag.cpp.o -MF vkquake.p/meson-generated_.._showtris.frag.cpp.o.d -o vkquake.p/meson-generated_.._showtris.frag.cpp.o -c showtris.frag.cpp",
+    "file": "showtris.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._showtris.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._showtris.vert.cpp.o -MF vkquake.p/meson-generated_.._showtris.vert.cpp.o.d -o vkquake.p/meson-generated_.._showtris.vert.cpp.o -c showtris.vert.cpp",
+    "file": "showtris.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._showtris.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_box.frag.cpp.o -MF vkquake.p/meson-generated_.._sky_box.frag.cpp.o.d -o vkquake.p/meson-generated_.._sky_box.frag.cpp.o -c sky_box.frag.cpp",
+    "file": "sky_box.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_box.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_cube.frag.cpp.o -MF vkquake.p/meson-generated_.._sky_cube.frag.cpp.o.d -o vkquake.p/meson-generated_.._sky_cube.frag.cpp.o -c sky_cube.frag.cpp",
+    "file": "sky_cube.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_cube.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_cube.vert.cpp.o -MF vkquake.p/meson-generated_.._sky_cube.vert.cpp.o.d -o vkquake.p/meson-generated_.._sky_cube.vert.cpp.o -c sky_cube.vert.cpp",
+    "file": "sky_cube.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_cube.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_layer.frag.cpp.o -MF vkquake.p/meson-generated_.._sky_layer.frag.cpp.o.d -o vkquake.p/meson-generated_.._sky_layer.frag.cpp.o -c sky_layer.frag.cpp",
+    "file": "sky_layer.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_layer.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_layer.vert.cpp.o -MF vkquake.p/meson-generated_.._sky_layer.vert.cpp.o.d -o vkquake.p/meson-generated_.._sky_layer.vert.cpp.o -c sky_layer.vert.cpp",
+    "file": "sky_layer.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_layer.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_atmosphere.frag.cpp.o -MF vkquake.p/meson-generated_.._sky_atmosphere.frag.cpp.o.d -o vkquake.p/meson-generated_.._sky_atmosphere.frag.cpp.o -c sky_atmosphere.frag.cpp",
+    "file": "sky_atmosphere.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_atmosphere.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_atmosphere.vert.cpp.o -MF vkquake.p/meson-generated_.._sky_atmosphere.vert.cpp.o.d -o vkquake.p/meson-generated_.._sky_atmosphere.vert.cpp.o -c sky_atmosphere.vert.cpp",
+    "file": "sky_atmosphere.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_atmosphere.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._sky_clouds.frag.cpp.o -MF vkquake.p/meson-generated_.._sky_clouds.frag.cpp.o.d -o vkquake.p/meson-generated_.._sky_clouds.frag.cpp.o -c sky_clouds.frag.cpp",
+    "file": "sky_clouds.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._sky_clouds.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._update_lightmap_10bit.comp.cpp.o -MF vkquake.p/meson-generated_.._update_lightmap_10bit.comp.cpp.o.d -o vkquake.p/meson-generated_.._update_lightmap_10bit.comp.cpp.o -c update_lightmap_10bit.comp.cpp",
+    "file": "update_lightmap_10bit.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._update_lightmap_10bit.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._update_lightmap_10bit_rt.comp.cpp.o -MF vkquake.p/meson-generated_.._update_lightmap_10bit_rt.comp.cpp.o.d -o vkquake.p/meson-generated_.._update_lightmap_10bit_rt.comp.cpp.o -c update_lightmap_10bit_rt.comp.cpp",
+    "file": "update_lightmap_10bit_rt.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._update_lightmap_10bit_rt.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._update_lightmap_8bit.comp.cpp.o -MF vkquake.p/meson-generated_.._update_lightmap_8bit.comp.cpp.o.d -o vkquake.p/meson-generated_.._update_lightmap_8bit.comp.cpp.o -c update_lightmap_8bit.comp.cpp",
+    "file": "update_lightmap_8bit.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._update_lightmap_8bit.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._update_lightmap_8bit_rt.comp.cpp.o -MF vkquake.p/meson-generated_.._update_lightmap_8bit_rt.comp.cpp.o.d -o vkquake.p/meson-generated_.._update_lightmap_8bit_rt.comp.cpp.o -c update_lightmap_8bit_rt.comp.cpp",
+    "file": "update_lightmap_8bit_rt.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._update_lightmap_8bit_rt.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._world.frag.cpp.o -MF vkquake.p/meson-generated_.._world.frag.cpp.o.d -o vkquake.p/meson-generated_.._world.frag.cpp.o -c world.frag.cpp",
+    "file": "world.frag.cpp",
+    "output": "vkquake.p/meson-generated_.._world.frag.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._world.vert.cpp.o -MF vkquake.p/meson-generated_.._world.vert.cpp.o.d -o vkquake.p/meson-generated_.._world.vert.cpp.o -c world.vert.cpp",
+    "file": "world.vert.cpp",
+    "output": "vkquake.p/meson-generated_.._world.vert.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._ray_debug.comp.cpp.o -MF vkquake.p/meson-generated_.._ray_debug.comp.cpp.o.d -o vkquake.p/meson-generated_.._ray_debug.comp.cpp.o -c ray_debug.comp.cpp",
+    "file": "ray_debug.comp.cpp",
+    "output": "vkquake.p/meson-generated_.._ray_debug.comp.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/meson-generated_.._embedded_pak.cpp.o -MF vkquake.p/meson-generated_.._embedded_pak.cpp.o.d -o vkquake.p/meson-generated_.._embedded_pak.cpp.o -c embedded_pak.cpp",
+    "file": "embedded_pak.cpp",
+    "output": "vkquake.p/meson-generated_.._embedded_pak.cpp.o"
+  },
+  {
+    "directory": "/home/tremor/Desktop/Quiver/Quake",
+    "command": "/usr/bin/g++ -Ivkquake.p -I. -I.. -I../Quake -I../Quake/mimalloc -I/usr/include/SDL2 -I/usr/include/x86_64-linux-gnu -fdiagnostics-color=always -DNDEBUG -D_FILE_OFFSET_BITS=64 -Wall -Winvalid-pch -std=gnu++26 -O3 -D_GNU_SOURCE -D_REENTRANT -pthread -isystem../Jolt -Wall -Wno-trigraphs -Werror -DJPH_NO_DEBUG -DUSE_CODEC_WAVE -DUSE_CODEC_MP3 -DUSE_CODEC_VORBIS -MD -MQ vkquake.p/Quake_jolt_physics.cpp.o -MF vkquake.p/Quake_jolt_physics.cpp.o.d -o vkquake.p/Quake_jolt_physics.cpp.o -c ../Quake/jolt_physics.cpp",
+    "file": "../Quake/jolt_physics.cpp",
+    "output": "vkquake.p/Quake_jolt_physics.cpp.o"
+  }
+]

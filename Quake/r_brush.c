@@ -1278,6 +1278,9 @@ static lm_compute_surface_data_t *GL_AllocateSurfaceDataBuffer ()
 	size_t buffer_size = num_surfaces * sizeof (lm_compute_surface_data_t);
 
 	R_FreeBuffer (surface_data_buffer, &surface_data_buffer_memory, &num_vulkan_bmodel_allocations);
+	surface_data_buffer = VK_NULL_HANDLE;
+	if (buffer_size == 0)
+		return NULL;
 
 	Sys_Printf ("Allocating lightmap compute surface data (%u KB)\n", (int)buffer_size / 1024);
 	R_CreateBuffer (
@@ -1589,6 +1592,7 @@ void GL_BuildLightmaps (void)
 	indirect_bmodel_start = INT_MAX;
 	used_deps_data = 0;
 	Mem_Free (brush_deps_data);
+	brush_deps_data = NULL;
 
 	for (i = 1; i < MAX_MODELS; ++i)
 	{
@@ -1603,8 +1607,13 @@ void GL_BuildLightmaps (void)
 		num_surfaces += m->numsurfaces; // note: allocates unused space for SURF_DRAWTILED surfs
 	}
 
-	GL_SortSurfaces ();
+	if (num_surfaces == 0)
+	{
+		GL_AllocateSurfaceDataBuffer ();
+		return;
+	}
 
+	GL_SortSurfaces ();
 	surface_data = GL_AllocateSurfaceDataBuffer ();
 
 	R_StagingBeginCopy ();
@@ -1665,10 +1674,26 @@ GL_SetupIndirectDraws
 */
 void GL_SetupIndirectDraws ()
 {
-
-	if (!indirect_ready)
+	// Release the previous world's resources even when the new world has no surfaces.
+	if (vulkan_globals.indirect_compute_desc_set != VK_NULL_HANDLE)
 	{
-		Con_Warning ("map exceeds indirect dispatch limits\n");
+		R_FreeDescriptorSet (vulkan_globals.indirect_compute_desc_set, &vulkan_globals.indirect_compute_set_layout);
+		vulkan_globals.indirect_compute_desc_set = VK_NULL_HANDLE;
+	}
+
+	if (!indirect_ready || used_indirect_draws == 0)
+	{
+		if (!indirect_ready)
+			Con_Warning ("map exceeds indirect dispatch limits\n");
+		indirect_ready = false;
+		R_FreeBuffer (indirect_buffer, &indirect_buffer_memory, &num_vulkan_bmodel_allocations);
+		indirect_buffer = VK_NULL_HANDLE;
+		R_FreeBuffer (indirect_index_buffer, &indirect_index_buffer_memory, &num_vulkan_bmodel_allocations);
+		indirect_index_buffer = VK_NULL_HANDLE;
+		R_FreeBuffer (dyn_visibility_buffer, &dyn_visibility_buffer_memory, &num_vulkan_bmodel_allocations);
+		dyn_visibility_buffer = VK_NULL_HANDLE;
+		dyn_visibility_view = NULL;
+		dyn_visibility_offset = 0;
 		return;
 	}
 
@@ -1681,8 +1706,6 @@ void GL_SetupIndirectDraws ()
 	R_InitIndirectIndexBuffer ((initial_indirect_buffer[used_indirect_draws - 1].firstIndex + indirect_draws[used_indirect_draws - 1].max_indices) * 4);
 	R_InitVisibilityBuffers ((cl.worldmodel->numsurfaces + 31) / 8);
 
-	if (vulkan_globals.indirect_compute_desc_set != VK_NULL_HANDLE)
-		R_FreeDescriptorSet (vulkan_globals.indirect_compute_desc_set, &vulkan_globals.indirect_compute_set_layout);
 	vulkan_globals.indirect_compute_desc_set = R_AllocateDescriptorSet (&vulkan_globals.indirect_compute_set_layout);
 
 	ZEROED_STRUCT (VkDescriptorBufferInfo, indirect_draw_buffer_info);
@@ -2016,6 +2039,9 @@ void GL_DeleteBModelVertexBuffer (void)
 {
 	GL_WaitForDeviceIdle ();
 	R_FreeBuffer (bmodel_vertex_buffer, &bmodel_memory, &num_vulkan_bmodel_allocations);
+	bmodel_vertex_buffer = VK_NULL_HANDLE;
+	bmodel_vertex_buffer_device_address = 0;
+	bmodel_numverts = 0;
 }
 
 /*
@@ -2088,6 +2114,9 @@ void GL_BuildBModelVertexBuffer (void)
 			bmodel_numverts += m->surfaces[i].numedges;
 		}
 	}
+
+	if (bmodel_numverts == 0)
+		return;
 
 	// build vertex array
 	varray_bytes = VERTEXSIZE * sizeof (float) * bmodel_numverts;

@@ -26,7 +26,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // Generate a 3D noise texture for volumetric clouds
 // Returns allocated texture data (caller must free with Mem_Free)
-// Size should be power of 2 (e.g., 128)
+// Samples a seamless periodic four-cell tile, including every detail octave.
+// Size should be power of 2 (e.g., 128 or 256); opposite texels are neighbors,
+// not duplicate edge texels, for both nearest and linear repeat sampling.
 byte *Noise_Generate3DTexture (int size);
 
 #endif // NOISE_GEN_H

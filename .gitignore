@@ -38,3 +38,6 @@ history.txt
 .vscode/settings.json
 helgrind.log
 /id1
+
+# Locally bootstrapped, pinned optional networking dependency.
+/.deps/

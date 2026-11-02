@@ -259,10 +259,12 @@ static void TexMgr_SetFilterModes (gltexture_t *glt)
 	ZEROED_STRUCT (VkDescriptorImageInfo, image_info);
 	image_info.imageView = glt->image_view;
 	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	qboolean enable_anisotropy = vid_anisotropic.value && !(glt->flags & TEXPREF_NOPICMIP);
+	qboolean enable_anisotropy = vid_anisotropic.value && !(glt->flags & TEXPREF_NOPICMIP) && glt->depth <= 1;
 
-	VkSampler point_sampler = enable_anisotropy ? vulkan_globals.point_aniso_sampler_lod_bias : vulkan_globals.point_sampler_lod_bias;
-	VkSampler linear_sampler = enable_anisotropy ? vulkan_globals.linear_aniso_sampler_lod_bias : vulkan_globals.linear_sampler_lod_bias;
+	VkSampler point_sampler = glt->depth > 1 ? vulkan_globals.point_sampler :
+		(enable_anisotropy ? vulkan_globals.point_aniso_sampler_lod_bias : vulkan_globals.point_sampler_lod_bias);
+	VkSampler linear_sampler = glt->depth > 1 ? vulkan_globals.linear_sampler :
+		(enable_anisotropy ? vulkan_globals.linear_aniso_sampler_lod_bias : vulkan_globals.linear_sampler_lod_bias);
 
 	if (glt->flags & TEXPREF_NEAREST)
 		image_info.sampler = point_sampler;
@@ -736,13 +738,17 @@ void TexMgr_Init (void)
 	greylightmap = TexMgr_LoadImage (
 		NULL, "greytexture", 2, 2, SRC_LIGHTMAP, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 
-	TEMP_ALLOC (byte, bluenoise_rgba, sizeof (bluenoise_data) * 4);
+	// This image can be reloaded; retain its complete RGBA source, including
+	// opaque alpha, instead of referencing a different 2x2 placeholder image.
+	static byte bluenoise_rgba[sizeof (bluenoise_data) * 4];
 	for (i = 0; i < (int)sizeof (bluenoise_data); ++i)
+	{
 		for (int j = 0; j < 3; ++j)
 			bluenoise_rgba[i * 4 + j] = bluenoise_data[i];
+		bluenoise_rgba[i * 4 + 3] = 255;
+	}
 	bluenoisetexture = TexMgr_LoadImage (
-		NULL, "bluenoise", 64, 64, SRC_RGBA, bluenoise_rgba, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
-	TEMP_FREE (bluenoise_rgba);
+		NULL, "bluenoise", 64, 64, SRC_RGBA, bluenoise_rgba, "", (src_offset_t)bluenoise_rgba, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 
 	// have to assign these here becuase Mod_Init is called before TexMgr_Init
 	r_notexture_mip->gltexture = r_notexture_mip2->gltexture = notexture;
@@ -1559,22 +1565,8 @@ gltexture_t *TexMgr_LoadImage3D (qmodel_t *owner, const char *name, int width, i
 	glt->descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.single_texture_set_layout);
 	GL_SetObjectName ((uint64_t)glt->descriptor_set, VK_OBJECT_TYPE_DESCRIPTOR_SET, va ("%s desc set", glt->name));
 
-	// Update descriptor with linear sampler for smooth 3D texture sampling
-	ZEROED_STRUCT (VkDescriptorImageInfo, image_info);
-	image_info.imageView = glt->image_view;
-	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	image_info.sampler = vulkan_globals.linear_sampler; // Use linear filtering for smooth noise
-
-	ZEROED_STRUCT (VkWriteDescriptorSet, texture_write);
-	texture_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	texture_write.dstSet = glt->descriptor_set;
-	texture_write.dstBinding = 0;
-	texture_write.dstArrayElement = 0;
-	texture_write.descriptorCount = 1;
-	texture_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	texture_write.pImageInfo = &image_info;
-
-	vkUpdateDescriptorSets (vulkan_globals.device, 1, &texture_write, 0, NULL);
+	// Honor explicit filtering on initial creation, descriptor refresh, and video reload.
+	TexMgr_SetFilterModes (glt);
 
 	SDL_UnlockMutex (texmgr_mutex);
 
@@ -1684,6 +1676,15 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 	else if (!glt->source_file[0] && glt->source_offset)
 	{
 		data = (byte *)glt->source_offset; // image in memory
+		if (glt->source_format == SRC_RGBA)
+		{
+			// The upload path downsamples and may premultiply RGBA in place.
+			// Keep retained in-memory sources intact for subsequent reloads.
+			const size_t source_bytes = size_t (glt->source_width) * glt->source_height * 4;
+			allocated = static_cast<byte *> (Mem_Alloc (source_bytes));
+			memcpy (allocated, data, source_bytes);
+			data = allocated;
+		}
 	}
 	if (!data)
 	{

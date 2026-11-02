@@ -136,6 +136,42 @@
     <ClCompile Include="..\..\Quake\cd_sdl.c">
       <Filter>Sound</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Quake\planet_generation.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\world_solids.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\terrain_features.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\planet_surface.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\terrain_mesher.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\world_peer.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\sky_atmosphere.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\sky_profile.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\world_peer_gns.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\terrain_textures.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\terrain_density.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\terrain_collision.cpp">
+      <Filter>Renderer</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Quake\bgmusic.c">
       <Filter>Sound</Filter>
     </ClCompile>
@@ -280,6 +316,9 @@
     <ClCompile Include="..\..\Quake\pr_ext.c">
       <Filter>Main</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\terrain.vert.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\world.vert.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
@@ -355,11 +394,50 @@
     <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_layer.frag.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_atmosphere.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_atmosphere.vert.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_msaa.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_atmosphere_lut.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_reduced.vert.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_reduced.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_reduced_msaa.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_composite.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds_composite_msaa.frag.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_clouds.vert.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\sky_layer.vert.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\terrain.frag.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\world.frag.c">
       <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\terrain.vert.c">
+      <Filter>Shaders\Release</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\world.vert.c">
       <Filter>Shaders\Release</Filter>
@@ -436,7 +514,43 @@
     <ClCompile Include="..\..\Shaders\Compiled\Release\sky_layer.frag.c">
       <Filter>Shaders\Release</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_atmosphere.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_atmosphere.vert.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_msaa.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_atmosphere_lut.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_reduced.vert.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_reduced.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_reduced_msaa.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_composite.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds_composite_msaa.frag.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\sky_clouds.vert.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\sky_layer.vert.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\terrain.frag.c">
       <Filter>Shaders\Release</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\world.frag.c">
@@ -725,5 +839,16 @@
     <ResourceCompile Include="..\vkQuake.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Quake\world_peer.h" />
+    <ClInclude Include="..\..\Quake\world_peer_gns.h" />
+    <ClInclude Include="..\..\Quake\sky_atmosphere.h" />
+    <ClInclude Include="..\..\Quake\sky_profile.h" />
+    <ClInclude Include="..\..\Quake\world_sha256.h" />
+    <ClInclude Include="..\..\Quake\world_merkle_api.inc" />
+    <ClInclude Include="..\..\Quake\world_merkle_codec.inc" />
+    <ClInclude Include="..\..\Quake\world_merkle_store.inc" />
+    <ClInclude Include="..\..\Quake\world_private_store.inc" />
   </ItemGroup>
 </Project>

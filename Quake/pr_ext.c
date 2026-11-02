@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "q_ctype.h"
+#include "octree_qc.h"
 
 extern void PF_bprint (void);
 extern void PF_sprint (void);
@@ -4829,7 +4830,7 @@ void PF_cl_playerkey_internal (int player, const char *key, qboolean retfloat)
 	extern int	scoreboardlines;
 	if (player < 0 && player >= -scoreboardlines)
 		player = fragsort[-1 - player];
-	if (player < 0 || player >= MAX_SCOREBOARD)
+	if (player < 0 || player >= cl.maxclients || !cl.scores)
 		ret = NULL;
 	else if (!strcmp (key, "viewentity"))
 		q_snprintf (buf, sizeof (buf), "%i", player + 1); // hack for DP compat. always returned even when the slot is empty (so long as its valid).
@@ -5014,6 +5015,23 @@ static struct
 #define PF_NoSSQC NULL
 #define PF_NoCSQC NULL
 {
+	{"wp_active", PF_wp_active, PF_NoCSQC, 0, "float()", "Returns whether the server is running an octree world."},
+	{"wp_alloc", PF_wp_alloc, PF_NoCSQC, 0, "vector(entity owner)", "Allocates an opaque world position handle owned by an entity."},
+	{"wp_free", PF_wp_free, PF_NoCSQC, 0, "void(vector position)", "Releases a world position handle and invalidates its aliases."},
+	{"wp_valid", PF_wp_valid, PF_NoCSQC, 0, "float(vector position)", "Checks whether a world position handle is still valid."},
+	{"wp_copy", PF_wp_copy, PF_NoCSQC, 0, "void(vector destination, vector source)", "Copies the position value between allocated handles."},
+	{"wp_getentity", PF_wp_getentity, PF_NoCSQC, 0, "void(vector destination, entity subject)", "Copies an entity's canonical position to a handle."},
+	{"wp_setentity", PF_wp_setentity, PF_NoCSQC, 0, "void(entity subject, vector position)", "Sets an entity's canonical position from a handle."},
+	{"wp_add", PF_wp_add, PF_NoCSQC, 0, "void(vector destination, vector source, vector offset)", "Adds a local offset to a world position."},
+	{"wp_delta", PF_wp_delta, PF_NoCSQC, 0, "vector(vector to, vector from)", "Returns a precise local displacement, limited to 1048576 units per axis."},
+	{"wp_distance", PF_wp_distance, PF_NoCSQC, 0, "float(vector to, vector from)", "Returns distance between world positions without converting to absolute floats."},
+	{"wp_direction", PF_wp_direction, PF_NoCSQC, 0, "vector(vector to, vector from)", "Returns direction between arbitrarily distant world positions."},
+	{"wp_contents", PF_wp_contents, PF_NoCSQC, 0, "float(vector position)", "Returns contents at a world position; -6 is unloaded terrain."},
+	{"wp_tracebox_terrain", PF_wp_tracebox_terrain, PF_NoCSQC, 0, "float(vector destination, vector start, vector offset, vector mins, vector maxs)", "Sweeps through terrain; writes the end position to destination. Excludes entities."},
+	{"wp_findradius", PF_wp_findradius, PF_NoCSQC, 0, "entity(vector center, float radius, entity after)", "Iterates solid entity origins within a local radius; world ends iteration."},
+	{"wp_register_field", PF_wp_register_field, PF_NoCSQC, 0, "void(string name)", "Registers a custom vector entity field for world checkpoint handle remapping."},
+	{"wp_register_global", PF_wp_register_global, PF_NoCSQC, 0, "void(string name)", "Registers a custom vector global for world checkpoint handle remapping."},
+	{"wp_streamable", PF_wp_streamable, PF_NoCSQC, 0, "float(entity subject, float enabled)", "Opts a self-contained nonplayer entity into persistent paging; returns whether the request is accepted."},
 	{"vectoangles2",				PF_ext_vectoangles,				PF_ext_vectoangles,				51,	    D("vector(vector fwd, optional vector up)", "Returns the angles (+x=UP) required to orient an entity to look in the given direction. The 'up' argument is required if you wish to set a roll angle, otherwise it will be limited to just monster-style turning.")},
 	{"sin",							PF_Sin,							PF_Sin,							60,		"float(float angle)"},	//60
 	{"cos",							PF_Cos,							PF_Cos,							61,		"float(float angle)"},	//61
@@ -5281,6 +5299,7 @@ static struct
 	qboolean (*checkextsupported) (unsigned int prot, unsigned int pext1, unsigned int pext2);
 
 } qcextensions[] = {
+	{"QUIVER_WORLDPOS_V1"},
 	{"DP_CON_SET"},
 	{"DP_CON_SETA"},
 	//	{"DP_EF_NOSHADOW"},

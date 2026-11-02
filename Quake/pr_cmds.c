@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "octree_engine.h"
 
 // #define	STRINGTEMP_BUFFERS		16
 // #define	STRINGTEMP_LENGTH		1024
@@ -774,7 +775,7 @@ static int PF_newcheckclient (int check)
 		if (i == check)
 			break; // didn't find anything else
 
-		if (ent->free)
+		if (ent->free || !OW_EntityVisible (ent))
 			continue;
 		if (ent->v.health <= 0)
 			continue;
@@ -784,6 +785,10 @@ static int PF_newcheckclient (int check)
 		// anything that is a client, or has a client as an enemy
 		break;
 	}
+
+	// Octree visibility is evaluated in the current actor's local frame.
+	if (OW_ServerActive ())
+		return i;
 
 	// get the PVS for the entity
 	VectorAdd (ent->v.origin, ent->v.view_ofs, org);
@@ -828,7 +833,8 @@ static void PF_sv_checkclient (void)
 	vec3_t	 view;
 
 	// find a new check if on a new frame
-	if (qcvm->time - sv.lastchecktime >= 0.1)
+	if (qcvm->time - sv.lastchecktime >= 0.1 ||
+		(OW_ServerActive () && (sv.lastcheck < 1 || sv.lastcheck > svs.maxclients || !OW_EntityVisible (EDICT_NUM (sv.lastcheck)))))
 	{
 		sv.lastcheck = PF_newcheckclient (sv.lastcheck);
 		sv.lastchecktime = qcvm->time;
@@ -836,9 +842,15 @@ static void PF_sv_checkclient (void)
 
 	// return check if it might be visible
 	ent = EDICT_NUM (sv.lastcheck);
-	if (ent->free || ent->v.health <= 0)
+	if (ent->free || ent->v.health <= 0 || !OW_EntityVisible (ent))
 	{
 		RETURN_EDICT (qcvm->edicts);
+		return;
+	}
+
+	if (OW_ServerActive ())
+	{
+		RETURN_EDICT (ent);
 		return;
 	}
 
@@ -973,7 +985,7 @@ static void PF_findradius (void)
 	for (i = 1; i < qcvm->num_edicts; i++, ent = NEXT_EDICT (ent))
 	{
 		float d, lensq;
-		if (ent->free)
+		if (ent->free || !OW_EntityVisible (ent))
 			continue;
 		if (ent->v.solid == (float)SOLID_NOT)
 			continue;
@@ -1443,6 +1455,8 @@ static void PF_aim (void)
 	ent = G_EDICT (OFS_PARM0);
 	speed = G_FLOAT (OFS_PARM1);
 	(void)speed; /* variable set but not used */
+	if (!OW_EntityVisible (ent))
+		PR_RunError ("aim: entity is outside the local frame; use wp_getentity/wp_direction");
 
 	VectorCopy (ent->v.origin, start);
 	start[2] += 20;
@@ -1465,6 +1479,8 @@ static void PF_aim (void)
 	check = NEXT_EDICT (qcvm->edicts);
 	for (i = 1; i < qcvm->num_edicts; i++, check = NEXT_EDICT (check))
 	{
+		if (check->free || !OW_EntityVisible (check))
+			continue;
 		if (check->v.takedamage != (float)DAMAGE_AIM)
 			continue;
 		if (check == ent)

@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "kd_model.h"
+#include "jolt_physics.h"
 
 static kdmodel_t *kd_debug_model = NULL;
 static cvar_t kd_draw = {"kd_draw", "1", CVAR_NONE};
@@ -529,11 +530,17 @@ void KD_RenderInit (void)
 =================
 KD_ShouldSkipBSPCollision
 
-Returns true if BSP collision should be skipped (kd_noclip_bsp is set and kd model is active)
+Returns true if BSP collision should be skipped:
+- When Jolt physics is active (always skip BSP in favor of Jolt)
+- When kd_noclip_bsp is set and kd model is active
 =================
 */
 qboolean KD_ShouldSkipBSPCollision (void)
 {
+	// Always skip BSP collision when Jolt is active
+	if (Jolt_GetActiveWorld() != NULL)
+		return true;
+
 	return kd_noclip_bsp.value && kd_debug_model != NULL;
 }
 

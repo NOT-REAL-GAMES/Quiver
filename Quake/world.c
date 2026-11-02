@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // world.c -- world query functions
 
 #include "quakedef.h"
+#include "octree_engine.h"
 #include "kd_model.h"
 
 // FTE-opimized world queries
@@ -427,7 +428,7 @@ void SV_LinkEdict (edict_t *ent, qboolean touch_triggers)
 	if (ent == qcvm->edicts)
 		return; // don't add the world
 
-	if (ent->free)
+	if (ent->free || !OW_EntityVisible (ent))
 		return;
 
 	// set the abs box
@@ -564,6 +565,8 @@ int SV_PointContents (vec3_t p)
 {
 	int cont;
 
+	if (OW_Active ())
+		return OW_PointContents (p);
 	cont = SV_HullPointContents (&qcvm->worldmodel->hulls[0], 0, p);
 	if (cont <= CONTENTS_CURRENT_0 && cont >= CONTENTS_CURRENT_DOWN)
 		cont = CONTENTS_WATER;
@@ -572,6 +575,8 @@ int SV_PointContents (vec3_t p)
 
 int SV_TruePointContents (vec3_t p)
 {
+	if (OW_Active ())
+		return OW_PointContents (p);
 	return SV_HullPointContents (&qcvm->worldmodel->hulls[0], 0, p);
 }
 
@@ -1268,7 +1273,11 @@ trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, e
 		clip.hitcontents = CONTENTMASK_ANYSOLID;
 
 	// clip to world (skip BSP if kd_noclip_bsp is set and kd model is active)
-	if (!KD_ShouldSkipBSPCollision())
+	if (OW_ClipMove (start, mins, maxs, end, &clip.trace))
+	{
+		// The octree is the authoritative static world collider.
+	}
+	else if (!KD_ShouldSkipBSPCollision())
 		clip.trace = SV_ClipMoveToEntity (qcvm->edicts, start, mins, maxs, end, clip.hitcontents);
 	else
 	{
@@ -1280,7 +1289,7 @@ trace_t SV_Move (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, e
 	}
 
 	// Also clip to kd-tree world if loaded
-	if (KD_ClipMoveToWorld (start, mins, maxs, end, &clip.trace))
+	if (!OW_Active () && KD_ClipMoveToWorld (start, mins, maxs, end, &clip.trace))
 		clip.trace.ent = qcvm->edicts;  // kd-tree hit is world geometry
 
 	clip.start = start;

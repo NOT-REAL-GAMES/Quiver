@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_main.c  -- client main loop
 
 #include "quakedef.h"
+#include "octree_engine.h"
 #include "bgmusic.h"
 
 // we need to declare some mouse variables here, because the menu system
@@ -153,6 +154,7 @@ This is also called on Host_Error, so it shouldn't cause any errors
 */
 void CL_Disconnect (void)
 {
+	OW_ClientDisconnect ();
 	if (key_dest == key_message)
 		Key_EndChat (); // don't get stuck in chat mode
 
@@ -683,7 +685,7 @@ void CL_RelinkEntities (void)
 	ent = (cl.entities != NULL) ? (cl.entities + 1) : NULL;
 	for (i = 1; i < cl.num_entities; i++, ent++)
 	{
-		if (!ent->model)
+		if (!ent->model && i != cl.viewentity)
 		{ // empty slot, ish.
 
 			// ericw -- efrags are only used for static entities in GLQuake
@@ -717,6 +719,13 @@ void CL_RelinkEntities (void)
 				// can't draw it if we don't know where its parent is.
 				continue;
 			}
+		// A native camera has no visible model but still needs interpolated
+		// network positions for the view (including remote clients and demos).
+		if (!ent->model)
+		{
+			ent->forcelink = false;
+			continue;
+		}
 
 		modelflags = (ent->effects >> 24) & 0xff;
 		modelflags |= ent->model->flags;

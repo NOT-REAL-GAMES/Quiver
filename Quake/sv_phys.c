@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_phys.c
 
 #include "quakedef.h"
+#include "octree_engine.h"
 
 /*
 
@@ -74,7 +75,7 @@ void SV_CheckAllEnts (void)
 	check = NEXT_EDICT (qcvm->edicts);
 	for (e = 1; e < qcvm->num_edicts; e++, check = NEXT_EDICT (check))
 	{
-		if (check->free)
+		if (check->free || !OW_EntityVisible (check))
 			continue;
 		if (check->v.movetype == (float)MOVETYPE_PUSH || check->v.movetype == (float)MOVETYPE_NONE || check->v.movetype == (float)MOVETYPE_NOCLIP)
 			continue;
@@ -514,7 +515,7 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 			check = NEXT_EDICT (check);
 		}
 
-		if (check->free)
+		if (check->free || !OW_EntityVisible (check))
 			continue;
 
 		if (check->v.movetype == (float)MOVETYPE_PUSH || check->v.movetype == (float)MOVETYPE_NONE || check->v.movetype == (float)MOVETYPE_NOCLIP)
@@ -557,8 +558,8 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 
 		// QIP fix for end.bsp
 		solid_backup = pusher->v.solid;
-		if (solid_backup == (float)SOLID_BSP		   // everything that blocks: bsp models = map brushes = doors, plats, etc.
-			|| solid_backup == (float)SOLID_BBOX	   // normally boxes
+		if (solid_backup == (float)SOLID_BSP		  // everything that blocks: bsp models = map brushes = doors, plats, etc.
+			|| solid_backup == (float)SOLID_BBOX	  // normally boxes
 			|| solid_backup == (float)SOLID_SLIDEBOX) // normally monsters
 		{
 			// try moving the contacted entity
@@ -977,6 +978,15 @@ SV_Physics_Client
 Player character actions
 ================
 */
+static qboolean SV_TerrainSupport (edict_t *ent, float distance, trace_t *trace)
+{
+	vec3_t end;
+	VectorCopy (ent->v.origin, end);
+	end[2] -= distance;
+	*trace = SV_Move (ent->v.origin, ent->v.mins, ent->v.maxs, end, false, ent);
+	return !trace->startsolid && !trace->allsolid && trace->fraction < 1 && trace->plane.normal[2] > 0.7f && trace->ent == qcvm->edicts;
+}
+
 static void SV_Physics_Client (edict_t *ent, int num)
 {
 	if (!svs.clients[num - 1].active)
@@ -1008,13 +1018,82 @@ static void SV_Physics_Client (edict_t *ent, int num)
 		break;
 
 	case MOVETYPE_WALK:
+	{
 		if (!SV_RunThink (ent))
 			return;
+		if (OW_ServerActive ())
+		{
+			const qboolean water = SV_CheckWater (ent);
+			const qboolean waterjump = ((int)ent->v.flags & FL_WATERJUMP) != 0;
+			vec3_t		   velocityBeforeGravity;
+			VectorCopy (ent->v.velocity, velocityBeforeGravity);
+			if (!water && !waterjump)
+				SV_AddGravity (ent);
+			std::vector<int> touched;
+			if (!OW_MovePlayer (ent, host_frametime, !sv_nostep.value && !waterjump, !water && !waterjump, touched))
+			{
+				// The async scene is not ready yet. QC's jump decision and input
+				// flags already happened, but no physical time was simulated.
+				// Do not consume its jump impulse with gravity while waiting.
+				VectorCopy (velocityBeforeGravity, ent->v.velocity);
+				break;
+			}
+			vec3_t contactOrigin;
+			VectorCopy (ent->v.origin, contactOrigin);
+			for (int id : touched)
+			{
+				if (ent->free)
+					return;
+				if (id >= qcvm->num_edicts)
+					continue;
+				edict_t *other = EDICT_NUM (id);
+				if (!other->free)
+					SV_Impact (ent, other);
+				// A touch may teleport the player; the remaining contacts then
+				// belong to the old location.
+				if (!VectorCompare (contactOrigin, ent->v.origin))
+					break;
+			}
+			break;
+		}
+		qboolean supported = false;
 		if (!SV_CheckWater (ent) && !((int)ent->v.flags & FL_WATERJUMP))
-			SV_AddGravity (ent);
+		{
+			// Applying gravity while grounded projects a fresh downhill velocity
+			// through FlyMove every frame. Keep terrain walking tangent to its
+			// actual support plane instead. Jumping QC clears FL_ONGROUND first.
+			if (OW_ServerActive () && OW_GetWorld ()->Config ().generator != quiver::Generator::Empty && ((int)ent->v.flags & FL_ONGROUND) &&
+				PROG_TO_EDICT (ent->v.groundentity) == qcvm->edicts)
+			{
+				trace_t ground;
+				supported = SV_TerrainSupport (ent, 2, &ground);
+				if (supported)
+					ent->v.velocity[2] = -(ent->v.velocity[0] * ground.plane.normal[0] + ent->v.velocity[1] * ground.plane.normal[1]) / ground.plane.normal[2];
+				else
+					ent->v.flags = (int)ent->v.flags & ~FL_ONGROUND;
+			}
+			if (!supported)
+				SV_AddGravity (ent);
+		}
 		SV_CheckStuck (ent);
 		SV_WalkMove (ent);
+		// Tangential motion may never hit a floor during FlyMove. Refresh its
+		// support explicitly and follow small downhill steps, without snapping
+		// airborne/jumping players or preserving a floor removed by an edit.
+		if (supported && !ent->free && ent->v.movetype == (float)MOVETYPE_WALK && !((int)ent->v.flags & FL_WATERJUMP) &&
+			(!((int)ent->v.flags & FL_ONGROUND) || PROG_TO_EDICT (ent->v.groundentity) == qcvm->edicts))
+		{
+			trace_t ground;
+			if (SV_TerrainSupport (ent, STEPSIZE, &ground))
+			{
+				VectorCopy (ground.endpos, ent->v.origin);
+				ent->v.flags = (int)ent->v.flags | FL_ONGROUND;
+				ent->v.groundentity = EDICT_TO_PROG (ground.ent);
+				ent->v.velocity[2] = -(ent->v.velocity[0] * ground.plane.normal[0] + ent->v.velocity[1] * ground.plane.normal[1]) / ground.plane.normal[2];
+			}
+		}
 		break;
+	}
 
 	case MOVETYPE_TOSS:
 	case MOVETYPE_BOUNCE:
@@ -1253,6 +1332,21 @@ void SV_Physics (void)
 	int		 i;
 	int		 entity_cap; // For sv_freezenonclients
 	edict_t *ent;
+	if (qcvm == &sv.qcvm && OW_IsEmptyMap ())
+	{
+		// A blank scene has no QuakeC simulation, gravity, collision or thinkers.
+		for (i = 0; i < svs.maxclients; ++i)
+		{
+			if (!svs.clients[i].active || !svs.clients[i].spawned)
+				continue;
+			ent = svs.clients[i].edict;
+			SV_CheckVelocity (ent);
+			VectorMA (ent->v.origin, host_frametime, ent->v.velocity, ent->v.origin);
+			SV_LinkEdict (ent, false);
+		}
+		qcvm->time += host_frametime;
+		return;
+	}
 
 	int physics_mode;
 	if (qcvm->extglobals.physics_mode)
@@ -1322,6 +1416,9 @@ void SV_Physics (void)
 		if (ent->free)
 			continue;
 
+		if (!OW_BeginEntity (ent))
+			continue;
+
 		if (pr_global_struct->force_retouch)
 		{
 			SV_LinkEdict (ent, true); // force retouch even for stationary
@@ -1338,8 +1435,8 @@ void SV_Physics (void)
 		else if (ent->v.movetype == (float)MOVETYPE_STEP)
 			SV_Physics_Step (ent);
 		else if (
-			ent->v.movetype == (float)MOVETYPE_TOSS || ent->v.movetype == (float)MOVETYPE_GIB || ent->v.movetype == (float)MOVETYPE_BOUNCE || ent->v.movetype == (float)MOVETYPE_FLY ||
-			ent->v.movetype == (float)MOVETYPE_FLYMISSILE)
+			ent->v.movetype == (float)MOVETYPE_TOSS || ent->v.movetype == (float)MOVETYPE_GIB || ent->v.movetype == (float)MOVETYPE_BOUNCE ||
+			ent->v.movetype == (float)MOVETYPE_FLY || ent->v.movetype == (float)MOVETYPE_FLYMISSILE)
 			SV_Physics_Toss (ent);
 		else
 			Host_EndGame ("SV_Physics: bad movetype %i", (int)ent->v.movetype);

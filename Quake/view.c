@@ -717,8 +717,10 @@ void V_CalcRefdef (void)
 	static float  oldz = 0;
 	static vec3_t punch = {0, 0, 0}; // johnfitz -- v_gunkick
 	float		  delta;			 // johnfitz -- v_gunkick
+	const bool	  freefly = cl.worldmodel && !strcmp (cl.worldmodel->name, "maps/__empty.bsp");
 
-	V_DriftPitch ();
+	if (!freefly)
+		V_DriftPitch ();
 
 	// ent is the player model (visible when out of body)
 	ent = &cl.entities[cl.viewentity];
@@ -730,7 +732,7 @@ void V_CalcRefdef (void)
 	ent->angles[YAW] = cl.viewangles[YAW];		// the model should face the view dir
 	ent->angles[PITCH] = -cl.viewangles[PITCH]; // the model should face the view dir
 
-	bob = V_CalcBob ();
+	bob = freefly ? 0 : V_CalcBob ();
 
 	// refresh position
 	VectorCopy (ent->origin, r_refdef.vieworg);
@@ -744,8 +746,11 @@ void V_CalcRefdef (void)
 	r_refdef.vieworg[2] += 1.0 / 32;
 
 	VectorCopy (cl.viewangles, r_refdef.viewangles);
-	V_CalcViewRoll ();
-	V_AddIdle ();
+	if (!freefly)
+	{
+		V_CalcViewRoll ();
+		V_AddIdle ();
+	}
 
 	// offsets
 	angles[PITCH] = -ent->angles[PITCH]; // because entity pitches are actually backward

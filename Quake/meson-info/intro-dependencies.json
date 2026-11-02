@@ -1,0 +1,122 @@
+[
+  {
+    "name": "threads",
+    "type": "system",
+    "version": "unknown",
+    "compile_args": [
+      "-pthread"
+    ],
+    "link_args": [
+      "-pthread"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": []
+  },
+  {
+    "name": "sdl2",
+    "type": "pkgconfig",
+    "version": "2.32.10",
+    "compile_args": [
+      "-I/usr/include/SDL2",
+      "-D_REENTRANT"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libSDL2.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": []
+  },
+  {
+    "name": "vulkan",
+    "type": "pkgconfig",
+    "version": "1.4.341",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libvulkan.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": []
+  },
+  {
+    "name": "libmpg123",
+    "type": "pkgconfig",
+    "version": "1.33.3",
+    "compile_args": [
+      "-I/usr/include/x86_64-linux-gnu"
+    ],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libmpg123.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "mp3_dep"
+    ]
+  },
+  {
+    "name": "ogg",
+    "type": "pkgconfig",
+    "version": "1.3.6",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libogg.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "ogg_dep"
+    ]
+  },
+  {
+    "name": "vorbisfile",
+    "type": "pkgconfig",
+    "version": "1.3.7",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libvorbisfile.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "vorbisfile_dep"
+    ]
+  },
+  {
+    "name": "vorbis",
+    "type": "pkgconfig",
+    "version": "1.3.7",
+    "compile_args": [],
+    "link_args": [
+      "/usr/lib/x86_64-linux-gnu/libvorbis.so"
+    ],
+    "include_directories": [],
+    "sources": [],
+    "extra_files": [],
+    "dependencies": [],
+    "depends": [],
+    "meson_variables": [
+      "vorbis_dep"
+    ]
+  }
+]

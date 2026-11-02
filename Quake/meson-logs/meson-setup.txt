@@ -1,0 +1,36 @@
+The Meson build system
+Version: 1.10.1
+Source dir: /home/tremor/Desktop/Quiver
+Build dir: /home/tremor/Desktop/Quiver/Quake
+Build type: native build
+Project name: vkquake
+Project version: undefined
+C compiler for the host machine: /usr/bin/gcc (gcc 15.2.0 "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C linker for the host machine: /usr/bin/gcc ld.bfd 2.46
+C++ compiler for the host machine: /usr/bin/g++ (gcc 15.2.0 "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C++ linker for the host machine: /usr/bin/g++ ld.bfd 2.46
+Host machine cpu family: x86_64
+Host machine cpu: x86_64
+Header "sched.h" has symbol "CPU_ZERO" : YES 
+Message: Info: Task affinity support enabled.
+Program glslangValidator found: YES (/usr/bin/glslangValidator)
+Program spirv-opt found: YES (/usr/bin/spirv-opt)
+Message: Info: spirv-opt has --canonicalize-ids (glslang >= 16.0).
+Library m found: YES
+Library dl found: YES
+Run-time dependency threads found: YES
+Found pkg-config: YES (/usr/bin/pkg-config) 2.5.1
+Run-time dependency sdl2 found: YES 2.32.10
+Library Jolt found: YES
+Run-time dependency vulkan found: YES 1.4.341
+Run-time dependency libmpg123 found: YES 1.33.3
+Found CMake: /usr/bin/cmake (4.2.3)
+Run-time dependency flac found: NO (tried pkgconfig and cmake)
+Run-time dependency ogg found: YES 1.3.6
+Run-time dependency vorbisfile found: YES 1.3.7
+Run-time dependency vorbis found: YES 1.3.7
+Run-time dependency opus found: NO (tried pkgconfig and cmake)
+Run-time dependency opusfile found: NO (tried pkgconfig and cmake)
+Build targets in project: 126
+
+Found ninja-1.13.2 at /usr/bin/ninja

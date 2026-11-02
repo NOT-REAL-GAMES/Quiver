@@ -45,6 +45,7 @@ static qpic_t *sb_face_invuln;
 static qpic_t *sb_face_invis_invuln;
 
 qboolean sb_showscores;
+static cvar_t sb_scorepage = {"sb_scorepage", "-1", CVAR_NONE}; // -1 follows the local player's page
 
 int sb_lines; // scan lines to draw
 
@@ -282,6 +283,7 @@ Sbar_Init -- johnfitz -- rewritten
 */
 void Sbar_Init (void)
 {
+	Cvar_RegisterVariable (&sb_scorepage);
 	Cmd_AddCommand ("+showscores", Sbar_ShowScores);
 	Cmd_AddCommand ("-showscores", Sbar_DontShowScores);
 
@@ -1282,10 +1284,28 @@ void Sbar_DeathmatchOverlay (cb_context_t *cbx)
 
 	// draw the text
 	l = scoreboardlines;
+	int first = 0;
+	if (l > MAX_LEGACY_SCOREBOARD)
+	{
+		// Keep every row inside the 320x200 menu canvas. A negative page follows
+		// our player; an explicit zero-based page allows inspecting all scores.
+		constexpr int rows = 15;
+		const int pages = (l + rows - 1) / rows;
+		int page = 0;
+		if (sb_scorepage.value >= 0)
+			page = static_cast<int> (CLAMP (0.0f, sb_scorepage.value, float (pages - 1)));
+		else
+			for (i = 0; i < l; ++i)
+				if (fragsort[i] == cl.viewentity - 1)
+					page = i / rows;
+		first = page * rows;
+		l = q_min (l, first + rows);
+		M_Print (cbx, 32, 192, va ("Page %d/%d: sb_scorepage 0..%d", page + 1, pages, pages - 1));
+	}
 
 	x = 80; // johnfitz -- simplified becuase some positioning is handled elsewhere
 	y = 40;
-	for (i = 0; i < l; i++)
+	for (i = first; i < l; i++)
 	{
 		k = fragsort[i];
 		s = &cl.scores[k];

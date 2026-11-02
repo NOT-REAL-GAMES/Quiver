@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "kd_model.h"
+#include "tasks.h"
+#include <SDL_atomic.h>
 
 //=============================================================================
 // SVO Data Structures
@@ -30,7 +32,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // 1 unit = roughly 1 inch in Quake scale
 // 2 units gives better collision precision for thin walls
 #define SVO_MIN_VOXEL_SIZE  2.0f
-#define SVO_MAX_DEPTH       12      // 2^12 = 4096 voxels per axis max
+#define SVO_MAX_DEPTH       24      // 2^24 = 16M voxels per axis max (supports maps up to 33M units)
 
 // SVO node types
 #define SVO_NODE_EMPTY      0       // Entirely empty (air)
@@ -63,6 +65,9 @@ typedef struct svo_s
 // Global SVO for collision
 static svo_t *collision_svo = NULL;
 
+// Forward declaration
+static void SVO_FreeInternal (svo_t *svo);
+
 //=============================================================================
 // SVO Building
 //=============================================================================
@@ -89,6 +94,63 @@ static int SVO_AllocNode (svo_t *svo)
 		svo->nodes[idx].children[i] = -1;
 
 	return idx;
+}
+
+/*
+==================
+SVO_CreateEmpty
+
+Create an empty SVO structure for parallel building
+==================
+*/
+static svo_t *SVO_CreateEmpty (vec3_t mins, vec3_t maxs, int max_depth)
+{
+	svo_t *svo = (svo_t *)calloc(1, sizeof(svo_t));
+	VectorCopy(mins, svo->mins);
+	VectorCopy(maxs, svo->maxs);
+	svo->root_size = maxs[0] - mins[0];
+	svo->max_depth = max_depth;
+	return svo;
+}
+
+/*
+==================
+SVO_MergeSubtree
+
+Recursively copy nodes from a subtree SVO into the main SVO.
+Returns the new index of the copied root node in the main SVO.
+==================
+*/
+static int SVO_MergeSubtree (svo_t *main_svo, svo_t *subtree, int subtree_node_idx)
+{
+	if (subtree_node_idx < 0 || subtree_node_idx >= subtree->num_nodes)
+		return -1;
+
+	svo_node_t *src = &subtree->nodes[subtree_node_idx];
+
+	// Allocate a new node in the main SVO
+	int new_idx = SVO_AllocNode(main_svo);
+	svo_node_t *dst = &main_svo->nodes[new_idx];
+
+	// Copy basic properties
+	dst->type = src->type;
+	dst->depth = src->depth;
+
+	// Recursively copy children
+	if (src->type == SVO_NODE_MIXED)
+	{
+		for (int i = 0; i < 8; i++)
+		{
+			if (src->children[i] >= 0)
+			{
+				dst->children[i] = SVO_MergeSubtree(main_svo, subtree, src->children[i]);
+				// Revalidate dst pointer after potential realloc
+				dst = &main_svo->nodes[new_idx];
+			}
+		}
+	}
+
+	return new_idx;
 }
 
 /*
@@ -310,9 +372,78 @@ static void SVO_BuildRecursive (svo_t *svo, int node_idx, vec3_t node_mins, vec3
 
 /*
 ==================
+Parallel SVO building structures
+==================
+*/
+typedef struct
+{
+	// Input
+	mkdbrush_t  *brushes;
+	int         num_brushes;
+	int         max_depth;
+
+	// Octant-specific bounds (set before task runs)
+	vec3_t      octant_mins;
+	vec3_t      octant_maxs;
+
+	// Output (each task builds its own SVO for its octant)
+	svo_t       *result_svo;
+} svo_octant_task_t;
+
+// Shared state for parallel build
+static svo_octant_task_t svo_octant_tasks[8];
+static SDL_atomic_t svo_octants_completed;
+
+/*
+==================
+SVO_BuildOctantTask
+
+Task function to build a single octant's SVO in parallel
+==================
+*/
+static void SVO_BuildOctantTask (int octant, void *payload)
+{
+	svo_octant_task_t *task = &svo_octant_tasks[octant];
+
+	// Check if this octant intersects any brushes
+	qboolean octant_relevant = false;
+	for (int i = 0; i < task->num_brushes; i++)
+	{
+		if (task->octant_maxs[0] >= task->brushes[i].mins[0] && task->octant_mins[0] <= task->brushes[i].maxs[0] &&
+		    task->octant_maxs[1] >= task->brushes[i].mins[1] && task->octant_mins[1] <= task->brushes[i].maxs[1] &&
+		    task->octant_maxs[2] >= task->brushes[i].mins[2] && task->octant_mins[2] <= task->brushes[i].maxs[2])
+		{
+			octant_relevant = true;
+			break;
+		}
+	}
+
+	if (!octant_relevant)
+	{
+		// Empty octant - no SVO needed
+		task->result_svo = NULL;
+		SDL_AtomicAdd(&svo_octants_completed, 1);
+		return;
+	}
+
+	// Create a new SVO for this octant
+	svo_t *svo = SVO_CreateEmpty(task->octant_mins, task->octant_maxs, task->max_depth - 1);
+
+	// Allocate root node
+	SVO_AllocNode(svo);
+
+	// Build this octant's tree recursively (depth starts at 1 since we're at octant level)
+	SVO_BuildRecursive(svo, 0, task->octant_mins, task->octant_maxs, task->brushes, task->num_brushes, 1);
+
+	task->result_svo = svo;
+	SDL_AtomicAdd(&svo_octants_completed, 1);
+}
+
+/*
+==================
 SVO_Build
 
-Build an SVO from brush data
+Build an SVO from brush data (parallelized across 8 octants)
 ==================
 */
 svo_t *SVO_Build (mkdbrush_t *brushes, int num_brushes, vec3_t world_mins, vec3_t world_maxs)
@@ -359,14 +490,74 @@ svo_t *SVO_Build (mkdbrush_t *brushes, int num_brushes, vec3_t world_mins, vec3_
 		svo->max_depth++;
 	}
 
-	// Allocate root node
+	Con_Printf("Building SVO (root=%.0f, max_depth=%d, min_voxel=%.1f) using %d threads...\n",
+	           svo->root_size, svo->max_depth, SVO_MIN_VOXEL_SIZE, Tasks_NumWorkers());
+
+	// Allocate root node (will be MIXED with 8 children)
 	SVO_AllocNode(svo);
+	svo->nodes[0].type = SVO_NODE_MIXED;
+	svo->nodes[0].depth = 0;
 
-	// Build the tree
-	Con_Printf("Building SVO (root=%.0f, max_depth=%d, min_voxel=%.1f)...\n",
-	           svo->root_size, svo->max_depth, SVO_MIN_VOXEL_SIZE);
+	// Calculate center for octant subdivision
+	vec3_t center;
+	center[0] = (svo->mins[0] + svo->maxs[0]) * 0.5f;
+	center[1] = (svo->mins[1] + svo->maxs[1]) * 0.5f;
+	center[2] = (svo->mins[2] + svo->maxs[2]) * 0.5f;
 
-	SVO_BuildRecursive(svo, 0, svo->mins, svo->maxs, brushes, num_brushes, 0);
+	// Set up octant tasks
+	SDL_AtomicSet(&svo_octants_completed, 0);
+
+	for (int octant = 0; octant < 8; octant++)
+	{
+		svo_octant_task_t *task = &svo_octant_tasks[octant];
+		task->brushes = brushes;
+		task->num_brushes = num_brushes;
+		task->max_depth = svo->max_depth;
+		task->result_svo = NULL;
+
+		// Calculate octant bounds
+		task->octant_mins[0] = (octant & 1) ? center[0] : svo->mins[0];
+		task->octant_maxs[0] = (octant & 1) ? svo->maxs[0] : center[0];
+		task->octant_mins[1] = (octant & 2) ? center[1] : svo->mins[1];
+		task->octant_maxs[1] = (octant & 2) ? svo->maxs[1] : center[1];
+		task->octant_mins[2] = (octant & 4) ? center[2] : svo->mins[2];
+		task->octant_maxs[2] = (octant & 4) ? svo->maxs[2] : center[2];
+	}
+
+	// Launch all 8 octant tasks in parallel
+	task_handle_t task = Task_AllocateAssignIndexedFuncAndSubmit(SVO_BuildOctantTask, 8, NULL, 0);
+	Task_Join(task, UINT32_MAX);
+
+	// Merge results from each octant into the main SVO
+	for (int octant = 0; octant < 8; octant++)
+	{
+		svo_octant_task_t *task = &svo_octant_tasks[octant];
+
+		if (task->result_svo && task->result_svo->num_nodes > 0)
+		{
+			// Merge this octant's tree into the main SVO
+			int child_idx = SVO_MergeSubtree(svo, task->result_svo, 0);
+			svo->nodes[0].children[octant] = child_idx;
+
+			// Free the temporary octant SVO
+			SVO_FreeInternal(task->result_svo);
+			task->result_svo = NULL;
+		}
+		// else: octant was empty, child stays -1
+	}
+
+	// Check if root is actually all empty (no children)
+	qboolean all_empty = true;
+	for (int i = 0; i < 8; i++)
+	{
+		if (svo->nodes[0].children[i] >= 0)
+		{
+			all_empty = false;
+			break;
+		}
+	}
+	if (all_empty)
+		svo->nodes[0].type = SVO_NODE_EMPTY;
 
 	// Count node types for statistics
 	int empty_count = 0, solid_count = 0, mixed_count = 0;
@@ -388,10 +579,12 @@ svo_t *SVO_Build (mkdbrush_t *brushes, int num_brushes, vec3_t world_mins, vec3_
 
 /*
 ==================
-SVO_Free
+SVO_FreeInternal
+
+Internal free function (static, used during build)
 ==================
 */
-void SVO_Free (svo_t *svo)
+static void SVO_FreeInternal (svo_t *svo)
 {
 	if (svo)
 	{
@@ -399,6 +592,18 @@ void SVO_Free (svo_t *svo)
 			free(svo->nodes);
 		free(svo);
 	}
+}
+
+/*
+==================
+SVO_Free
+
+Public free function
+==================
+*/
+void SVO_Free (svo_t *svo)
+{
+	SVO_FreeInternal(svo);
 }
 
 //=============================================================================

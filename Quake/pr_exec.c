@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "octree_qc.h"
 
 static const char *const pr_opnames[] = {"DONE",
 
@@ -487,6 +488,7 @@ void PR_ExecuteProgram (func_t fnum)
 
 		case OP_ADDRESS:
 			ed = PROG_TO_EDICT (OPA->edict);
+			OW_QCCheckField (ed, OPB->_int, 1, st - qcvm->statements);
 #ifdef PARANOID
 			NUM_FOR_EDICT (ed); // Make sure it's in range
 #endif
@@ -504,6 +506,7 @@ void PR_ExecuteProgram (func_t fnum)
 		case OP_LOAD_S:
 		case OP_LOAD_FNC:
 			ed = PROG_TO_EDICT (OPA->edict);
+			OW_QCCheckField (ed, OPB->_int, 1, st - qcvm->statements);
 #ifdef PARANOID
 			NUM_FOR_EDICT (ed); // Make sure it's in range
 #endif
@@ -512,6 +515,7 @@ void PR_ExecuteProgram (func_t fnum)
 
 		case OP_LOAD_V:
 			ed = PROG_TO_EDICT (OPA->edict);
+			OW_QCCheckField (ed, OPB->_int, 3, st - qcvm->statements);
 #ifdef PARANOID
 			NUM_FOR_EDICT (ed); // Make sure it's in range
 #endif

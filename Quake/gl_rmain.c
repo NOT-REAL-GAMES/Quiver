@@ -22,14 +22,22 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_main.c
 
 #include "quakedef.h"
+#include "octree_engine.h"
+#include "octree_render.h"
+#include "planet_curvature.h"
 #include "tasks.h"
 #include "atomics.h"
 #include "kd_model.h"
+
+cvar_t r_planet_curvature = {"r_planet_curvature", "0", CVAR_ARCHIVE};
+float r_planet_bend_constants[10] = {};
+qboolean r_planet_bend_active = false;
 
 int r_visframecount; // bumped when going to a new PVS
 int r_framecount;	 // used for dlight push checking
 
 mplane_t frustum[4];
+static mplane_t far_plane;
 
 qboolean render_warp;
 int		 render_scale;
@@ -109,6 +117,7 @@ float map_wateralpha, map_lavaalpha, map_telealpha, map_slimealpha;
 float map_fallbackalpha;
 
 qboolean r_drawworld_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe; // johnfitz
+world_debug_lighting_t r_world_debug_lighting;
 
 cvar_t r_scale = {"r_scale", "1", CVAR_ARCHIVE};
 
@@ -131,15 +140,33 @@ R_CullBox -- johnfitz -- replaced with new function from lordhavoc
 Returns true if the box is completely outside the frustum
 =================
 */
-qboolean R_CullBox (vec3_t emins, vec3_t emaxs)
+static qboolean R_CullBoxPlanes (vec3_t emins, vec3_t emaxs, qboolean include_far)
 {
+	vec3_t curvedMins, curvedMaxs;
+	if (r_planet_bend_active)
+	{
+		std::array<double, 3> low, high;
+		for (int axis = 0; axis < 3; ++axis)
+		{
+			low[axis] = double (emins[axis]) - r_refdef.vieworg[axis];
+			high[axis] = double (emaxs[axis]) - r_refdef.vieworg[axis];
+		}
+		quiver::PlanetCurvature{}.Bounds (low, high);
+		for (int axis = 0; axis < 3; ++axis)
+		{
+			curvedMins[axis] = float (low[axis] + r_refdef.vieworg[axis]);
+			curvedMaxs[axis] = float (high[axis] + r_refdef.vieworg[axis]);
+		}
+		emins = curvedMins;
+		emaxs = curvedMaxs;
+	}
 	int		  i;
 	mplane_t *p;
 	byte	  signbits;
 	float	  vec[3];
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < (include_far ? 5 : 4); i++)
 	{
-		p = frustum + i;
+		p = (i == 4) ? &far_plane : frustum + i;
 		signbits = p->signbits;
 		vec[0] = ((signbits & 1) ? emins : emaxs)[0];
 		vec[1] = ((signbits & 2) ? emins : emaxs)[1];
@@ -148,6 +175,18 @@ qboolean R_CullBox (vec3_t emins, vec3_t emaxs)
 			return true;
 	}
 	return false;
+}
+
+qboolean R_CullBox (vec3_t emins, vec3_t emaxs)
+{
+	return R_CullBoxPlanes (emins, emaxs, false);
+}
+
+qboolean R_CullBoxWithFarClip (vec3_t emins, vec3_t emaxs)
+{
+	// Streamed tiles may extend far beyond a normal BSP's bounds. Cull only
+	// boxes wholly outside the projection; straddling geometry is GPU-clipped.
+	return R_CullBoxPlanes (emins, emaxs, true);
 }
 /*
 ===============
@@ -282,6 +321,9 @@ void R_SetFrustum (float fovx, float fovy)
 		frustum[i].dist = DotProduct (r_origin, frustum[i].normal); // FIXME: shouldn't this always be zero?
 		frustum[i].signbits = SignbitsForPlane (&frustum[i]);
 	}
+	VectorScale (vpn, -1, far_plane.normal);
+	far_plane.dist = DotProduct (r_origin, far_plane.normal) - R_FarClip ();
+	far_plane.signbits = SignbitsForPlane (&far_plane);
 }
 
 /*
@@ -290,6 +332,14 @@ GL_FrustumMatrix
 =============
 */
 #define NEARCLIP 4
+
+float R_FarClip (void)
+{
+	// A perspective frustum needs its far plane strictly beyond the near
+	// plane, which reaches NEARCLIP. Do not modify the archived cvar.
+	return std::isfinite (gl_farclip.value) ? q_max (float (NEARCLIP + 1), gl_farclip.value) : 16384.0f;
+}
+
 static void GL_FrustumMatrix (float matrix[16], float fovx, float fovy)
 {
 	const float w = 1.0f / tanf (fovx * 0.5f);
@@ -298,7 +348,9 @@ static void GL_FrustumMatrix (float matrix[16], float fovx, float fovy)
 	// reduce near clip distance at high FOV's to avoid seeing through walls
 	const float d = 12.f * q_min (w, h);
 	const float n = CLAMP (0.5f, d, NEARCLIP);
-	const float f = gl_farclip.value;
+	// Terrain LOD controls coverage only. All world geometry shares Quake's
+	// forward-facing clip plane, even when the prepared terrain extends past it.
+	const float f = R_FarClip ();
 
 	memset (matrix, 0, 16 * sizeof (float));
 
@@ -309,11 +361,13 @@ static void GL_FrustumMatrix (float matrix[16], float fovx, float fovy)
 	matrix[1 * 4 + 1] = -h;
 
 	// Third column
-	matrix[2 * 4 + 2] = f / (f - n) - 1.0f;
+	// Avoid subtracting nearly equal floats (which can turn a distant but
+	// finite far plane into infinity). The cloud ray pass inverts this matrix.
+	matrix[2 * 4 + 2] = n / (f - n);
 	matrix[2 * 4 + 3] = -1.0f;
 
 	// Fourth column
-	matrix[3 * 4 + 2] = (n * f) / (f - n);
+	matrix[3 * 4 + 2] = n * (1.0f + matrix[2 * 4 + 2]);
 }
 
 /*
@@ -345,6 +399,19 @@ static void R_SetupMatrices ()
 	// View projection matrix
 	memcpy (vulkan_globals.view_projection_matrix, vulkan_globals.projection_matrix, 16 * sizeof (float));
 	MatrixMultiply (vulkan_globals.view_projection_matrix, vulkan_globals.view_matrix);
+	r_planet_bend_active = r_planet_curvature.value != 0 && OW_Active () && OW_GetWorld () &&
+		OW_GetWorld ()->Config ().generator == quiver::Generator::Planet;
+	memset (r_planet_bend_constants, 0, sizeof (r_planet_bend_constants));
+	if (r_planet_bend_active)
+	{
+		for (int axis = 0; axis < 2; ++axis)
+		{
+			r_planet_bend_constants[axis * 3] = vulkan_globals.view_matrix[axis * 4] / vulkan_globals.projection_matrix[0];
+			r_planet_bend_constants[axis * 3 + 1] = vulkan_globals.view_matrix[axis * 4 + 1] / vulkan_globals.projection_matrix[5];
+			r_planet_bend_constants[axis * 3 + 2] = -vulkan_globals.view_matrix[axis * 4 + 2];
+		}
+		memcpy (r_planet_bend_constants + 6, vulkan_globals.view_projection_matrix + 8, 4 * sizeof (float));
+	}
 }
 
 /*
@@ -422,6 +489,9 @@ static void R_SetupViewBeforeMark (void *unused)
 		else if (r_fullbright.value)
 			r_fullbright_cheatsafe = true;
 	}
+	// Procedural terrain supplies its own lighting. Retain the explicit mode
+	// for it and its sky before applying the stock fallback to BSP and models.
+	r_world_debug_lighting = r_lightmap_cheatsafe ? WORLD_DEBUG_LIGHTMAP : (r_fullbright_cheatsafe ? WORLD_DEBUG_FULLBRIGHT : WORLD_DEBUG_NORMAL);
 	if (!cl.worldmodel->lightdata)
 	{
 		r_fullbright_cheatsafe = true;
@@ -753,12 +823,17 @@ static void R_ShowBoundingBoxes (cb_context_t *cbx)
 R_ShowTris -- johnfitz
 ================
 */
+qboolean R_ShowTrisEnabled (void)
+{
+	return r_showtris.value >= 1 && r_showtris.value <= 2 && cl.maxclients <= 1 && vulkan_globals.non_solid_fill;
+}
+
 void R_ShowTris (cb_context_t *cbx)
 {
 	extern cvar_t r_particles;
 	int			  i;
 
-	if (r_showtris.value < 1 || r_showtris.value > 2 || cl.maxclients > 1 || !vulkan_globals.non_solid_fill)
+	if (!R_ShowTrisEnabled ())
 		return;
 
 	R_BeginDebugUtilsLabel (cbx, "show tris");
@@ -766,6 +841,8 @@ void R_ShowTris (cb_context_t *cbx)
 		R_DrawIndirectBrushes_ShowTris (cbx);
 	else if (r_drawworld.value)
 		R_DrawWorld_ShowTris (cbx);
+	R_OctreeDrawShowTris (cbx);
+	Sky_DrawShowTris (cbx);
 
 	if (r_drawentities.value)
 	{
@@ -832,6 +909,9 @@ static void R_DrawWorldTask (int index, void *use_tasks)
 			R_DrawWorld (cbx, index);
 	}
 
+	if (index == 0)
+		R_OctreeDraw (cbx);
+
 	// Draw kd-tree debug surfaces if loaded
 	KD_DrawDebugSurfaces (cbx);
 }
@@ -852,6 +932,12 @@ static void R_DrawSkyTask (void *unused)
 	}
 	// Always draw sky - KD maps need it too (rendered as fullscreen background)
 	Sky_DrawSky (cbx);
+	cbx = vulkan_globals.secondary_cb_contexts[SCBX_CLOUDS];
+	GL_Viewport (cbx, r_refdef.vrect.x, glheight - r_refdef.vrect.y - r_refdef.vrect.height, r_refdef.vrect.width, r_refdef.vrect.height, 0.0f, 1.0f);
+	Sky_DrawClouds (cbx);
+	cbx = vulkan_globals.secondary_cb_contexts[SCBX_SKY_DEPTH];
+	R_SetupContext (cbx);
+	Sky_DrawDepth (cbx);
 }
 
 /*
@@ -1064,6 +1150,9 @@ void R_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_
 	static qboolean stats_ready;
 	double			time1;
 
+	OW_ClientFrame ();
+	R_OctreePrepare ();
+
 	indirect = r_indirect.value && indirect_ready && r_gpulightmapupdate.value && !r_speeds.value;
 
 	if (!cl.worldmodel)
@@ -1160,6 +1249,9 @@ void R_RenderView (qboolean use_tasks, task_handle_t begin_rendering_task, task_
 
 		if (r_showtris.value)
 		{
+			// The octree overlay replays the indexed draws recorded by the world task.
+			if (R_ShowTrisEnabled ())
+				Task_AddDependency (draw_world_task, draw_view_model_task);
 			if (!indirect)
 				Task_AddDependency (chain_surfaces, draw_view_model_task);
 

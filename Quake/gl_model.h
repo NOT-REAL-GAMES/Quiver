@@ -692,6 +692,7 @@ void	  Mod_Init (void);
 void	  Mod_ClearAll (void);
 void	  Mod_ResetAll (void); // for gamedir changes (Host_Game_f)
 qmodel_t *Mod_ForName (const char *name, qboolean crash);
+qboolean  Mod_IsVirtualWorld (const char *name);
 void	 *Mod_Extradata_CheckSkin (qmodel_t *mod, int skinnum);
 void	 *Mod_Extradata (qmodel_t *mod);
 void	  Mod_TouchModel (const char *name);

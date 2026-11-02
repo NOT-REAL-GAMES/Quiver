@@ -1,0 +1,90 @@
+LOG started on: 10/25/2026 21:52:29 
+Playing registered version.
+Console initialized.
+Jolt Physics initialized
+UDP4 Initialized
+UDPv6 Initialized
+Exe: 21:50:28 Oct 25 2026
+
+Vulkan Initialization
+Using Vulkan 1.1
+Instance extensions:
+ VK_KHR_surface
+ VK_KHR_xlib_surface
+ VK_KHR_get_surface_capabilities2
+ VK_KHR_get_physical_device_properties2
+ VK_EXT_debug_utils
+
+Vendor: NVIDIA
+Device: NVIDIA GeForce RTX 4080
+Driver: NVIDIA 615.71.09
+Using subgroup operations
+Using ray queries
+Device extensions:
+ VK_KHR_swapchain
+ VK_KHR_get_memory_requirements2
+ VK_KHR_dedicated_allocation
+ VK_EXT_subgroup_size_control
+ VK_KHR_acceleration_structure
+ VK_EXT_descriptor_indexing
+ VK_KHR_buffer_device_address
+ VK_KHR_deferred_host_operations
+ VK_KHR_shader_float_controls
+ VK_KHR_spirv_1_4
+ VK_KHR_acceleration_structure
+ VK_KHR_ray_query
+Using A2B10G10R10 color buffer format
+Using D32_S8 depth buffer format
+
+Creating command buffers
+Initializing staging
+
+Language initialization
+Couldn't load 'localization/loc_english.txt'
+from '/tmp/quiver-empty-debug-y5w425w_'
+
+========= Quake Initialized =========
+
+execing quake.rc
+execing default.cfg
+couldn't exec config.cfg
+couldn't exec autoexec.cfg
+execing startup.cfg
+Task tests passed
+SpawnServer: __empty
+Clearing memory
+progs.dat occupies 332K.
+Loaded virtual world maps/__empty.bsp (no BSP geometry)
+Empty world: free-fly camera. Move normally; use move up/down to change height.
+Server spawned.
+CL_EstablishConnection: connected to local
+3 demo(s) in loop
+Client LOCAL connected
+unconnected tried to pext 0x58455446 0x40000000 0x32455446 0x28
+
+vkQuake 1.33.0 Server (3064 CRC)
+Serverinfo packet received.
+
+
+
+Quiver empty world
+Using protocol fte999
+FindFile: can't find particles/map___empty.cfg
+FindFile: can't find map___empty.cfg
+Generated 256x256x256 cloud noise texture
+CL_SignonReply: 1
+FindFile: can't find csprogsvers/0.dat
+FindFile: can't find csprogs.dat
+progs.dat occupies 332K.
+unconnected tried to name "player"
+
+player tried to prespawn
+CL_SignonReply: 2
+player tried to color 0 0
+
+player tried to spawn 
+CL_SignonReply: 3
+player tried to begin
+CL_SignonReply: 4
+Sending clc_disconnect
+Wrote vkQuake-Quiver_empty_world-__empty-20261025-215237-00.png

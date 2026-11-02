@@ -9,6 +9,10 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <None Include="..\..\Shaders\sky_clouds_common.glsl" />
+    <None Include="..\..\Shaders\sky_atmosphere_common.glsl" />
+    <None Include="..\..\Shaders\sky_clouds_frame.glsl" />
+    <None Include="..\..\Shaders\tonemap_agx.glsl" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\..\Shaders\alias.frag">
@@ -24,6 +28,9 @@
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\basic.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\basic_sky.vert">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\basic_alphatest.frag">
@@ -105,10 +112,58 @@ $(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(Solution
     <CustomBuild Include="..\..\Shaders\sky_layer.frag">
       <FileType>Document</FileType>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;$(SolutionDir)..\..\Shaders\sky_atmosphere_common.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_msaa.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_atmosphere_lut.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_atmosphere_common.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced.vert">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_reduced_msaa.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_composite.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds_composite_msaa.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\sky_clouds_common.glsl;$(SolutionDir)..\..\Shaders\sky_clouds_frame.glsl;$(SolutionDir)..\..\Shaders\tonemap_agx.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\sky_clouds.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\sky_layer.vert">
       <FileType>Document</FileType>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\terrain.frag">
+      <FileType>Document</FileType>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\world.frag">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\terrain.vert">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\world.vert">

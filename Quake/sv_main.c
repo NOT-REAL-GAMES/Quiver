@@ -23,6 +23,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_main.c -- server main program
 
 #include "quakedef.h"
+#include "octree_engine.h"
+#include "octree_checkpoint.h"
 
 server_t		sv;
 server_static_t svs;
@@ -901,6 +903,8 @@ static void SVFTE_BuildSnapshotForClient (client_t *client)
 	ent = NEXT_EDICT (qcvm->edicts);
 	for (e = 1; e < maxentities; e++, ent = NEXT_EDICT (ent))
 	{
+		if (!OW_EntityVisible (ent))
+			continue;
 		eflags = 0;
 		if (ent != clent) // clent is ALLWAYS sent
 		{
@@ -1228,6 +1232,8 @@ void SV_StartParticle (vec3_t org, vec3_t dir, int color, int count)
 {
 	int i, v;
 
+	if (OW_StartParticle (org, dir, color, count))
+		return;
 	if (sv.datagram.cursize > sv.datagram.maxsize - 18)
 		return;
 	MSG_WriteByte (&sv.datagram, svc_particle);
@@ -1298,6 +1304,8 @@ void SV_StartSound (edict_t *entity, float *origin, int channel, const char *sam
 		return;
 	}
 
+	if (OW_StartSound (entity, origin, channel, sound_num, volume, attenuation))
+		return;
 	ent = NUM_FOR_EDICT (entity);
 
 	field_mask = 0;
@@ -1450,6 +1458,8 @@ void SV_SendServerinfo (client_t *client)
 		return;
 	}
 	client->protocol_pext2 &= sv_protocol_pext2;
+	if (OW_ServerActive ())
+		client->protocol_pext2 = 0; // World snapshots carry an explicit canonical frame.
 
 	if (!(client->protocol_pext2 & PEXT2_REPLACEMENTDELTAS))
 		client->protocol_pext2 &= ~PEXT2_PREDINFO; // stats can't be deltaed if there's no deltas, so just pretend its not supported on its own.
@@ -1539,6 +1549,7 @@ retry:
 	MSG_WriteString (&client->message, message);
 
 	MSG_WriteByte (&client->message, svc_serverinfo);
+	OW_WriteServerInfo (&client->message);
 	if (client->protocol_pext2)
 	{ // pext stuff takes the form of modifiers to an underlaying protocol
 		MSG_WriteLong (&client->message, PROTOCOL_FTE_PEXT2);
@@ -1679,19 +1690,30 @@ void SV_Pext_f (void)
 
 /*
 ================
-SV_ConnectClient
+SV_NewSpawnParms
 
-Initializes a client_t for a new net connection.  This will only be called
-once for a player each game, not once for each level change.
+Read the destination mod's defaults when a connection first becomes a player.
 ================
 */
+static void SV_NewSpawnParms (client_t *client)
+{
+	PR_ExecuteProgram (pr_global_struct->SetNewParms);
+	for (int i = 0; i < NUM_BASIC_SPAWN_PARMS; ++i)
+		client->spawn_parms[i] = (&pr_global_struct->parm1)[i];
+	for (int i = NUM_BASIC_SPAWN_PARMS; i < NUM_TOTAL_SPAWN_PARMS; ++i)
+	{
+		ddef_t *global = ED_FindGlobal (va ("parm%i", i + 1));
+		client->spawn_parms[i] = global ? qcvm->globals[global->ofs] : 0;
+	}
+}
+
+/* Initialize a client_t for a new connection, rather than a level change. */
 void SV_ConnectClient (int clientnum)
 {
 	edict_t			 *ent;
 	client_t		 *client;
 	int				  edictnum;
 	struct qsocket_s *netconnection;
-	int				  i;
 	float			  spawn_parms[NUM_TOTAL_SPAWN_PARMS];
 
 	client = svs.clients + clientnum;
@@ -1718,6 +1740,7 @@ void SV_ConnectClient (int clientnum)
 	client->active = true;
 	client->spawned = false;
 	client->edict = ent;
+	OW_ClientConnected (client);
 	client->message.data = client->msgbuf;
 	client->message.maxsize = sizeof (client->msgbuf);
 	client->message.allowoverflow = true; // we can catch it
@@ -1731,12 +1754,10 @@ void SV_ConnectClient (int clientnum)
 
 	if (sv.loadgame)
 		memcpy (client->spawn_parms, spawn_parms, sizeof (spawn_parms));
-	else
+	else if (!OW_IsEmptyMap ())
 	{
 		// call the progs to get default spawn parms for the new client
-		PR_ExecuteProgram (pr_global_struct->SetNewParms);
-		for (i = 0; i < NUM_TOTAL_SPAWN_PARMS; i++)
-			client->spawn_parms[i] = (&pr_global_struct->parm1)[i];
+		SV_NewSpawnParms (client);
 	}
 
 	SV_SendServerinfo (client);
@@ -1959,6 +1980,8 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 	ent = NEXT_EDICT (qcvm->edicts);
 	for (e = 1; e < maxedict; e++, ent = NEXT_EDICT (ent))
 	{
+		if (!OW_EntityVisible (ent))
+			continue;
 		if (ent != clent) // clent already added before the loop
 		{
 			// hide if the current client is specified
@@ -2528,6 +2551,7 @@ qboolean SV_SendClientDatagram (client_t *client)
 	if (client->spawned)
 	{
 		sv_player = client->edict;
+		OW_WriteFrame (client, &msg);
 
 		if (client->protocol_pext2 & PEXT2_REPLACEMENTDELTAS)
 		{
@@ -2842,6 +2866,7 @@ void SV_SendClientMessages (void)
 		if (!host_client->active)
 			continue;
 
+		OW_SendChunks (host_client);
 		if (!SV_SendClientDatagram (host_client))
 			continue;
 		if (!host_client->spawned)
@@ -3017,7 +3042,7 @@ void SV_CreateBaseline (void)
 		if (entnum > 0 && entnum <= svs.maxclients)
 		{
 			svent->baseline.colormap = entnum;
-			svent->baseline.modelindex = SV_ModelIndex ("progs/player.mdl");
+			svent->baseline.modelindex = OW_IsEmptyMap () ? 0 : SV_ModelIndex ("progs/player.mdl");
 		}
 		else
 		{
@@ -3082,6 +3107,11 @@ void SV_SaveSpawnparms (void)
 	{
 		if (!host_client->active)
 			continue;
+		if (OW_IsEmptyMap ())
+		{
+			memset (host_client->spawn_parms, 0, sizeof (host_client->spawn_parms));
+			continue;
+		}
 
 		// call the progs to get default spawn parms for the new client
 		pr_global_struct->self = EDICT_TO_PROG (host_client->edict);
@@ -3117,6 +3147,13 @@ void SV_SpawnServer (const char *server)
 	edict_t	   *ent;
 	int			i;
 	qcvm_t	   *vm = qcvm;
+	const bool	fromEmpty = sv.active && OW_IsEmptyMap ();
+
+	if (svs.maxclients > MAX_LEGACY_SCOREBOARD && strcmp (server, "__octree"))
+	{
+		Con_Printf ("More than 16 clients requires __octree; restart with -dedicated 16 for BSP or empty maps.\n");
+		return;
+	}
 
 	// let's not have any servers with no name
 	if (hostname.string[0] == 0)
@@ -3263,19 +3300,51 @@ void SV_SpawnServer (const char *server)
 	// serverflags are for cross level information (sigils)
 	pr_global_struct->serverflags = svs.serverflags;
 
-	ED_LoadFromFile (qcvm->worldmodel->entities);
+	OW_ServerLoad (server);
+	if (OW_ServerActive () || OW_IsEmptyMap ())
+	{
+		sv.protocol = PROTOCOL_RMQ;
+		sv.protocolflags = PRFL_FLOATCOORD | PRFL_SHORTANGLE;
+	}
+	if (OW_IsEmptyMap ())
+	{
+		// The blank construction scene owns its camera; no mod worldspawn or
+		// player-start entities are needed, and no gameplay callbacks may run.
+		ent->v.classname = PR_SetEngineString ("worldspawn");
+		ent->v.message = PR_SetEngineString ("Quiver empty world");
+		for (i = 0; i < MAX_LIGHTSTYLES; ++i)
+			sv.lightstyles[i] = "m";
+		Con_Printf ("Empty world: free-fly camera. Move normally; use move up/down to change height.\n");
+	}
+	else
+		ED_LoadFromFile (qcvm->worldmodel->entities);
 
 	sv.active = true;
 
-	SV_Precache_Model ("progs/player.mdl"); // Spike -- SV_CreateBaseline depends on this model.
+	if (!OW_IsEmptyMap ())
+		SV_Precache_Model ("progs/player.mdl"); // Spike -- gameplay player baselines depend on this model.
+	bool restored_world = false;
+	if (OW_ServerActive ())
+	{
+		std::string error;
+		if (!OW_CheckpointLoad (*OW_GetWorld (), restored_world, error))
+			Host_Error ("World checkpoint: %s", error.c_str ());
+		// Without a saved entity checkpoint, worldspawn is authoritative. Pages
+		// from an earlier unsaved session must not duplicate its new entities.
+		if (!restored_world && !OW_GetWorld ()->RestoreEntityPagesCheckpoint (&error))
+			Host_Error ("World entity pages: %s", error.c_str ());
+	}
 
 	// all setup is completed, any further precache statements are errors
 	sv.state = ss_active;
 
 	// run two frames to allow everything to settle
 	host_frametime = 0.1;
-	SV_Physics ();
-	SV_Physics ();
+	if (!restored_world)
+	{
+		SV_Physics ();
+		SV_Physics ();
+	}
 
 	// create a baseline for more efficient communications
 	SV_CreateBaseline ();
@@ -3290,7 +3359,13 @@ void SV_SpawnServer (const char *server)
 	{
 		host_client->knowntoqc = false;
 		if (host_client->active)
+		{
+			// changelevel keeps its connections. A camera has no inventory or
+			// gameplay spawn parms to carry into the destination mod's player.
+			if (fromEmpty && !OW_IsEmptyMap () && !sv.loadgame)
+				SV_NewSpawnParms (host_client);
 			SV_SendServerinfo (host_client);
+		}
 	}
 
 	Con_DPrintf ("Server spawned.\n");

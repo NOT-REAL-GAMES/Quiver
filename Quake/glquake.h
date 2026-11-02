@@ -195,6 +195,8 @@ typedef enum
 	SCBX_WORLD,
 	SCBX_ENTITIES,
 	SCBX_SKY,
+	SCBX_CLOUDS,
+	SCBX_SKY_DEPTH,
 	SCBX_ALPHA_ENTITIES_ACROSS_WATER,
 	SCBX_WATER,
 	SCBX_ALPHA_ENTITIES,
@@ -210,6 +212,8 @@ static const int SECONDARY_CB_MULTIPLICITY[SCBX_NUM] = {
 	NUM_WORLD_CBX,	  // SCBX_WORLD,
 	NUM_ENTITIES_CBX, // SCBX_ENTITIES,
 	1,				  // SCBX_SKY,
+	1,				  // SCBX_CLOUDS,
+	1,				  // SCBX_SKY_DEPTH,
 	1,				  // SCBX_ALPHA_ENTITIES_ACROSS_WATER,
 	1,				  // SCBX_WATER,
 	1,				  // SCBX_ALPHA_ENTITIES,
@@ -278,7 +282,26 @@ typedef struct
 
 	// Render passes
 	VkRenderPass main_render_pass[2]; // stencil clear, stencil dont_care
-	VkRenderPass warp_render_pass;
+	VkRenderPass main_resume_render_pass;
+	VkRenderPass clouds_render_pass;
+	VkDescriptorSet clouds_depth_descriptor_set;
+	qboolean clouds_drawn;
+	qboolean clouds_sampled_depth;
+	qboolean		clouds_reduced_active;
+	VkImage			clouds_reduced_image;
+	VkImageView		clouds_reduced_view;
+	VkFramebuffer	clouds_reduced_framebuffer;
+	VkImage			clouds_far_image;
+	VkImageView		clouds_far_view;
+	VkFramebuffer	clouds_far_framebuffer;
+	VkRenderPass	clouds_reduced_render_pass;
+	VkDescriptorSet clouds_sampled_depth_set;
+	VkDescriptorSet clouds_reduced_set;
+	VkDescriptorSet clouds_cascade_set;
+	VkDescriptorSet clouds_far_set;
+	uint32_t		clouds_target_width, clouds_target_height;
+	size_t			clouds_allocated_bytes;
+	VkRenderPass	warp_render_pass;
 
 	// Pipelines
 	vulkan_pipeline_t		 basic_alphatest_pipeline[2];
@@ -287,11 +310,15 @@ typedef struct
 	vulkan_pipeline_layout_t basic_pipeline_layout;
 	vulkan_pipeline_t		 world_pipelines[WORLD_PIPELINE_COUNT];
 	vulkan_pipeline_layout_t world_pipeline_layout;
+	vulkan_pipeline_t		 terrain_pipeline;
+	vulkan_pipeline_t		 terrain_showtris_pipelines[2]; // through walls, depth tested
+	vulkan_pipeline_layout_t terrain_pipeline_layout;
 	vulkan_pipeline_t		 raster_tex_warp_pipeline;
 	vulkan_pipeline_t		 particle_pipeline;
 	vulkan_pipeline_t		 sprite_pipeline;
 	vulkan_pipeline_layout_t sky_pipeline_layout[2]; // one texture (cubemap-like), two textures (animated layers)
 	vulkan_pipeline_t		 sky_stencil_pipeline[2];
+	vulkan_pipeline_t sky_depth_pipeline[2]; // restore sky portal occlusion after clouds
 	vulkan_pipeline_t		 sky_color_pipeline[2];
 	vulkan_pipeline_t		 sky_box_pipeline;
 	vulkan_pipeline_t		 sky_cube_pipeline[2];
@@ -299,7 +326,10 @@ typedef struct
 	vulkan_pipeline_layout_t sky_atmosphere_pipeline_layout;
 	vulkan_pipeline_t		 sky_atmosphere_pipeline[2]; // direct, indirect
 	vulkan_pipeline_layout_t sky_clouds_pipeline_layout;
-	vulkan_pipeline_t		 sky_clouds_pipeline[2]; // direct, indirect
+	vulkan_pipeline_t		 sky_clouds_pipeline; // full-screen, depth-clipped volume
+	vulkan_pipeline_layout_t sky_clouds_reduced_layout;
+	vulkan_pipeline_t sky_clouds_reduced_pipeline;
+	vulkan_pipeline_t sky_clouds_composite_pipeline;
 	vulkan_pipeline_t		 alias_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 md5_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 postprocess_pipeline;
@@ -325,6 +355,7 @@ typedef struct
 	VkDescriptorPool		 descriptor_pool;
 	vulkan_desc_set_layout_t ubo_set_layout;
 	vulkan_desc_set_layout_t single_texture_set_layout;
+	vulkan_desc_set_layout_t cloud_radiance_set_layout;
 	vulkan_desc_set_layout_t input_attachment_set_layout;
 	VkDescriptorSet			 screen_effects_desc_set;
 	vulkan_desc_set_layout_t screen_effects_set_layout;
@@ -525,6 +556,16 @@ extern int				  lightmap_count; // allocated lightmaps
 
 extern qboolean r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; // johnfitz
 
+// Explicit, cheat-protected world lighting mode, before the unlit BSP fallback.
+// The values are shared with terrain.frag via its last push-constant component.
+typedef enum
+{
+	WORLD_DEBUG_NORMAL = 0,
+	WORLD_DEBUG_FULLBRIGHT = 1,
+	WORLD_DEBUG_LIGHTMAP = 2
+} world_debug_lighting_t;
+extern world_debug_lighting_t r_world_debug_lighting;
+
 extern float map_wateralpha, map_lavaalpha, map_telealpha, map_slimealpha; // ericw
 extern float map_fallbackalpha; // spike -- because we might want r_wateralpha to apply to teleporters while water itself wasn't watervised
 
@@ -550,6 +591,9 @@ void R_BuildTopLevelAccelerationStructure (void *unused);
 void R_UpdateLightmapsAndIndirect (void *unused);
 void R_MarkSurfaces (qboolean use_tasks, task_handle_t before_mark, task_handle_t *store_efrags, task_handle_t *cull_surfaces, task_handle_t *chain_surfaces);
 qboolean R_CullBox (vec3_t emins, vec3_t emaxs);
+qboolean R_CullBoxWithFarClip (vec3_t emins, vec3_t emaxs);
+float	 R_FarClip (void);
+qboolean R_ShowTrisEnabled (void);
 void	 R_StoreEfrags (efrag_t **ppefrag);
 qboolean R_CullModelForEntity (entity_t *e);
 void	 R_RotateForEntity (float matrix[16], vec3_t origin, vec3_t angles, unsigned char scale);
@@ -609,6 +653,9 @@ void		Sky_Init (void);
 void		Sky_NewGame (void);
 void		Sky_ClearAll (void);
 void		Sky_DrawSky (cb_context_t *cbx);
+void		Sky_DrawShowTris (cb_context_t *cbx);
+void		Sky_DrawClouds (cb_context_t *cbx);
+void		Sky_DrawDepth (cb_context_t *cbx);
 void		Sky_ProcessPoly (cb_context_t *cbx, glpoly_t *p, float color[3]);
 qboolean	Sky_NeedStencil ();
 void		Sky_NewMap (void);
@@ -634,6 +681,10 @@ void R_CreatePipelineLayouts ();
 void R_CreatePipelines ();
 void R_DestroyPipelines ();
 
+extern cvar_t r_planet_curvature;
+extern float r_planet_bend_constants[10];
+extern qboolean r_planet_bend_active;
+
 #define MAX_PUSH_CONSTANT_SIZE 128 // Vulkan guaranteed minimum maxPushConstantsSize
 
 static inline void R_BindPipeline (cb_context_t *cbx, VkPipelineBindPoint bind_point, vulkan_pipeline_t pipeline)
@@ -657,6 +708,16 @@ static inline void R_BindPipeline (cb_context_t *cbx, VkPipelineBindPoint bind_p
 static inline void R_PushConstants (cb_context_t *cbx, VkShaderStageFlags stage_flags, int offset, int size, const void *data)
 {
 	vulkan_globals.vk_cmd_push_constants (cbx->cb, cbx->current_pipeline.layout.handle, stage_flags, offset, size, data);
+	// All legacy geometry uses a 124-byte range. Reconstruct camera-relative XY
+	// from clip coordinates so rotated/scaled brush and alias models agree.
+	if (offset == 0 && size == 64 && cbx->current_pipeline.layout.push_constant_range.size == 124)
+	{
+		static const float zeroes[10] = {};
+		const float *matrix = static_cast<const float *> (data);
+		const bool perspective = matrix[3] != 0 || matrix[7] != 0 || matrix[11] != 0;
+		vulkan_globals.vk_cmd_push_constants (cbx->cb, cbx->current_pipeline.layout.handle, stage_flags, 84, 40,
+			perspective ? r_planet_bend_constants : zeroes);
+	}
 }
 
 static inline void R_BeginDebugUtilsLabel (cb_context_t *cbx, const char *name)
@@ -726,5 +787,20 @@ byte		  *R_StorageAllocate (int size, VkBuffer *buffer, VkDeviceSize *buffer_off
 void R_AllocateLightmapComputeBuffers ();
 
 void GL_SetObjectName (uint64_t object, VkObjectType object_type, const char *name);
+
+// Snapshot for asynchronous sky diagnostics; dimensions are active ray pixels.
+typedef struct
+{
+	qboolean reduced;
+	int		 width, height, divisor;
+	qboolean cascades;
+	int		 band;
+	float	 split;
+	int		 near_divisor, far_divisor;
+	int		 near_width, near_height, far_width, far_height;
+	size_t	 allocated_bytes;
+} sky_cloud_stats_t;
+sky_cloud_stats_t Sky_GetCloudStats (void);
+void			  Sky_RenderCloudsReduced (cb_context_t *cbx, int band);
 
 #endif /* GLQUAKE_H */

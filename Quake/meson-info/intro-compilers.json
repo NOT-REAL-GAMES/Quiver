@@ -1,0 +1,104 @@
+{
+  "host": {
+    "c": {
+      "id": "gcc",
+      "exelist": [
+        "/usr/bin/gcc"
+      ],
+      "linker_exelist": [
+        "/usr/bin/gcc"
+      ],
+      "file_suffixes": [
+        "c"
+      ],
+      "default_suffix": "c",
+      "version": "15.2.0",
+      "full_version": "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+      "linker_id": "ld.bfd"
+    },
+    "cpp": {
+      "id": "gcc",
+      "exelist": [
+        "/usr/bin/g++"
+      ],
+      "linker_exelist": [
+        "/usr/bin/g++"
+      ],
+      "file_suffixes": [
+        "cpp",
+        "cppm",
+        "cc",
+        "cp",
+        "cxx",
+        "c++",
+        "hh",
+        "hp",
+        "hpp",
+        "ipp",
+        "hxx",
+        "h++",
+        "ino",
+        "ixx",
+        "CPP",
+        "C",
+        "HPP",
+        "H"
+      ],
+      "default_suffix": "cpp",
+      "version": "15.2.0",
+      "full_version": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+      "linker_id": "ld.bfd"
+    }
+  },
+  "build": {
+    "c": {
+      "id": "gcc",
+      "exelist": [
+        "/usr/bin/gcc"
+      ],
+      "linker_exelist": [
+        "/usr/bin/gcc"
+      ],
+      "file_suffixes": [
+        "c"
+      ],
+      "default_suffix": "c",
+      "version": "15.2.0",
+      "full_version": "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+      "linker_id": "ld.bfd"
+    },
+    "cpp": {
+      "id": "gcc",
+      "exelist": [
+        "/usr/bin/g++"
+      ],
+      "linker_exelist": [
+        "/usr/bin/g++"
+      ],
+      "file_suffixes": [
+        "cpp",
+        "cppm",
+        "cc",
+        "cp",
+        "cxx",
+        "c++",
+        "hh",
+        "hp",
+        "hpp",
+        "ipp",
+        "hxx",
+        "h++",
+        "ino",
+        "ixx",
+        "CPP",
+        "C",
+        "HPP",
+        "H"
+      ],
+      "default_suffix": "cpp",
+      "version": "15.2.0",
+      "full_version": "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+      "linker_id": "ld.bfd"
+    }
+  }
+}

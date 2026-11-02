@@ -8,6 +8,13 @@ cd /usr/src/vkQuake
 
 rm -rf build/appimage
 
+cmake -S Jolt/Build -B Jolt/Build/Linux_Distribution \
+	-DCMAKE_BUILD_TYPE=Distribution -DCMAKE_CXX_COMPILER="$CXX" \
+	-DENABLE_OBJECT_STREAM=OFF -DINTERPROCEDURAL_OPTIMIZATION=OFF -DENABLE_ALL_WARNINGS=OFF \
+	-DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+	-DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF -DTARGET_VIEWER=OFF
+cmake --build Jolt/Build/Linux_Distribution --target Jolt --parallel
+
 python3 /opt/meson/meson.py build/appimage -Dbuildtype=release -Db_lto=true -Dmp3_lib=mad
 ninja -C build/appimage
 

@@ -1,0 +1,1106 @@
+Build started at 2026-10-25T00:43:52.693423
+Main binary: /usr/bin/python3
+Build Options: 
+Python system: Linux
+The Meson build system
+Version: 1.10.1
+Source dir: /home/tremor/Desktop/Quiver
+Build dir: /home/tremor/Desktop/Quiver/Quake
+Build type: native build
+Project name: vkquake
+Project version: undefined
+-----------
+Detecting compiler via: `/usr/bin/gcc --version` -> 0
+stdout:
+gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+Copyright (C) 2025 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+-----------
+Running command: -cpp -x c -E -dM -
+-----
+-----------
+Detecting linker via: `/usr/bin/gcc -Wl,--version` -> 0
+stdout:
+GNU ld (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) a later version.
+This program has absolutely no warranty.
+-----------
+stderr:
+collect2 version 15.2.0
+/usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/15/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/15/lto-wrapper -plugin-opt=-fresolution=/tmp/ccpmY7nG.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/15 -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/15/../../.. -L/lib -L/usr/lib --version -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/15/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crtn.o
+-----------
+Sanity testing C compiler: /usr/bin/gcc
+Is cross compiler: False.
+Sanity check compiler command line: /usr/bin/gcc sanitycheckc.c -o sanitycheckc.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command:  /home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckc.exe
+-----------
+Sanity check: `/home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckc.exe` -> 0
+C compiler for the host machine: /usr/bin/gcc (gcc 15.2.0 "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C linker for the host machine: /usr/bin/gcc ld.bfd 2.46
+-----------
+Detecting archiver via: `gcc-ar --version` -> 0
+stdout:
+GNU ar (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) any later version.
+This program has absolutely no warranty.
+-----------
+-----------
+Detecting compiler via: `/usr/bin/g++ --version` -> 0
+stdout:
+g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+Copyright (C) 2025 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+-----------
+Running command: -cpp -x c++ -E -dM -
+-----
+-----------
+Detecting linker via: `/usr/bin/g++ -Wl,--version` -> 0
+stdout:
+GNU ld (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) a later version.
+This program has absolutely no warranty.
+-----------
+stderr:
+collect2 version 15.2.0
+/usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/15/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/15/lto-wrapper -plugin-opt=-fresolution=/tmp/ccnLYLoB.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/15 -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/15/../../.. -L/lib -L/usr/lib --version -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/15/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crtn.o
+-----------
+Sanity testing C++ compiler: /usr/bin/g++
+Is cross compiler: False.
+Sanity check compiler command line: /usr/bin/g++ sanitycheckcpp.cc -o sanitycheckcpp.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command:  /home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckcpp.exe
+-----------
+Sanity check: `/home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckcpp.exe` -> 0
+C++ compiler for the host machine: /usr/bin/g++ (gcc 15.2.0 "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C++ linker for the host machine: /usr/bin/g++ ld.bfd 2.46
+-----------
+Detecting compiler via: `/usr/bin/gcc --version` -> 0
+stdout:
+gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+Copyright (C) 2025 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+-----------
+Running command: -cpp -x c -E -dM -
+-----
+-----------
+Detecting linker via: `/usr/bin/gcc -Wl,--version` -> 0
+stdout:
+GNU ld (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) a later version.
+This program has absolutely no warranty.
+-----------
+stderr:
+collect2 version 15.2.0
+/usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/15/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/15/lto-wrapper -plugin-opt=-fresolution=/tmp/cccscgge.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/15 -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/15/../../.. -L/lib -L/usr/lib --version -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/15/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crtn.o
+-----------
+Sanity testing C compiler: /usr/bin/gcc
+Is cross compiler: False.
+Sanity check compiler command line: /usr/bin/gcc sanitycheckc.c -o sanitycheckc.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command:  /home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckc.exe
+-----------
+Sanity check: `/home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckc.exe` -> 0
+C compiler for the build machine: /usr/bin/gcc (gcc 15.2.0 "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C linker for the build machine: /usr/bin/gcc ld.bfd 2.46
+-----------
+Detecting archiver via: `gcc-ar --version` -> 0
+stdout:
+GNU ar (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) any later version.
+This program has absolutely no warranty.
+-----------
+-----------
+Detecting compiler via: `/usr/bin/g++ --version` -> 0
+stdout:
+g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+Copyright (C) 2025 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+-----------
+Running command: -cpp -x c++ -E -dM -
+-----
+-----------
+Detecting linker via: `/usr/bin/g++ -Wl,--version` -> 0
+stdout:
+GNU ld (GNU Binutils for Ubuntu) 2.46
+Copyright (C) 2026 Free Software Foundation, Inc.
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License version 3 or (at your option) a later version.
+This program has absolutely no warranty.
+-----------
+stderr:
+collect2 version 15.2.0
+/usr/bin/ld -plugin /usr/libexec/gcc/x86_64-linux-gnu/15/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/15/lto-wrapper -plugin-opt=-fresolution=/tmp/cczjhxRM.res -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lgcc --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/15/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/15 -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/15/../../.. -L/lib -L/usr/lib --version -lstdc++ -lm -lgcc_s -lgcc -lc -lgcc_s -lgcc /usr/lib/gcc/x86_64-linux-gnu/15/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/crtn.o
+-----------
+Sanity testing C++ compiler: /usr/bin/g++
+Is cross compiler: False.
+Sanity check compiler command line: /usr/bin/g++ sanitycheckcpp.cc -o sanitycheckcpp.exe -D_FILE_OFFSET_BITS=64
+Sanity check compile stdout:
+
+-----
+Sanity check compile stderr:
+
+-----
+Running test binary command:  /home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckcpp.exe
+-----------
+Sanity check: `/home/tremor/Desktop/Quiver/Quake/meson-private/sanitycheckcpp.exe` -> 0
+C++ compiler for the build machine: /usr/bin/g++ (gcc 15.2.0 "g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0")
+C++ linker for the build machine: /usr/bin/g++ ld.bfd 2.46
+Build machine cpu family: x86_64
+Build machine cpu: x86_64
+Host machine cpu family: x86_64
+Host machine cpu: x86_64
+Target machine cpu family: x86_64
+Target machine cpu: x86_64
+Running compile:
+Working directory:  /tmp/tmpr8zu4k67
+Code:
+int i = static_cast<int>(0);
+-----------
+Command line: `/usr/bin/g++ /tmp/tmpr8zu4k67/testfile.cpp -o /tmp/tmpr8zu4k67/output.obj -D_FILE_OFFSET_BITS=64 -c -std=gnu++26` -> 0
+Compiler accepts -std=gnu++26: YES
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpqa5ler10
+Code:
+#define _GNU_SOURCE
+        #include <sched.h>
+        int main(void) {
+            /* If it's not defined as a macro, try to use as a symbol */
+            #ifndef CPU_ZERO
+                CPU_ZERO;
+            #endif
+            return 0;
+        }
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpqa5ler10/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpqa5ler10/output.obj -c -D_FILE_OFFSET_BITS=64 -O0 -fpermissive -std=gnu++26` -> 0
+stderr:
+/home/tremor/Desktop/Quiver/Quake/meson-private/tmpqa5ler10/testfile.cpp:1:9: warning: '_GNU_SOURCE' redefined
+    1 | #define _GNU_SOURCE
+      |         ^~~~~~~~~~~
+<command-line>: note: this is the location of the previous definition
+-----------
+Header "sched.h" has symbol "CPU_ZERO" : YES 
+Message: Info: Task affinity support enabled.
+Program glslangValidator found: YES (/usr/bin/glslangValidator)
+Program spirv-opt found: YES (/usr/bin/spirv-opt)
+Running command: /usr/bin/spirv-opt -h
+--- stdout ---
+/usr/bin/spirv-opt - Optimize a SPIR-V binary file.
+
+USAGE: /usr/bin/spirv-opt [options] [<input>] -o <output>
+
+The SPIR-V binary is read from <input>. If no file is specified,
+or if <input> is "-", then the binary is read from standard input.
+if <output> is "-", then the optimized output is written to
+standard output.
+
+NOTE: The optimizer is a work in progress.
+
+Options (in lexicographical order):
+  --amd-ext-to-khr
+               Replaces the extensions VK_AMD_shader_ballot, VK_AMD_gcn_shader,
+               and VK_AMD_shader_trinary_minmax with equivalent code using core
+               instructions and capabilities.
+  --before-hlsl-legalization
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --ccp
+               Apply the conditional constant propagation transform.  This will
+               propagate constant values throughout the program, and simplify
+               expressions and conditional jumps with known predicate
+               values.  Performed on entry point call tree functions and
+               exported functions.
+  --cfg-cleanup
+               Cleanup the control flow graph. This will remove any unnecessary
+               code from the CFG like unreachable code. Performed on entry
+               point call tree functions and exported functions.
+  --combine-access-chains
+               Combines chained access chains to produce a single instruction
+               where possible.
+  --compact-ids
+               Remap result ids to a compact range starting from %1 and without
+               any gaps.
+  --convert-local-access-chains
+               Convert constant index access chain loads/stores into
+               equivalent load/stores with inserts and extracts. Performed
+               on function scope variables referenced only with load, store,
+               and constant index access chains in entry point call tree
+               functions.
+  --convert-relaxed-to-half
+               Convert all RelaxedPrecision arithmetic operations to half
+               precision, inserting conversion operations where needed.
+               Run after function scope variable load and store elimination
+               for better results. Simplify-instructions, redundancy-elimination
+               and DCE should be run after this pass to eliminate excess
+               conversions. This conversion is useful when the target platform
+               does not support RelaxedPrecision or ignores it. This pass also
+               removes all RelaxedPrecision decorations.
+  --convert-to-sampled-image "<descriptor set>:<binding> ..."
+               convert images and/or samplers with the given pairs of descriptor
+               set and binding to sampled images. If a pair of an image and a
+               sampler have the same pair of descriptor set and binding that is
+               one of the given pairs, they will be converted to a sampled
+               image. In addition, if only an image or a sampler has the
+               descriptor set and binding that is one of the given pairs, it
+               will be converted to a sampled image.
+  --copy-propagate-arrays
+               Does propagation of memory references when an array is a copy of
+               another.  It will only propagate an array if the source is never
+               written to, and the only store to the target is the copy.
+  --replace-desc-array-access-using-var-index
+               Replaces accesses to descriptor arrays based on a variable index
+               with a switch that has a case for every possible value of the
+               index.
+  --spread-volatile-semantics
+               Spread Volatile semantics to variables with SMIDNV, WarpIDNV,
+               SubgroupSize, SubgroupLocalInvocationId, SubgroupEqMask,
+               SubgroupGeMask, SubgroupGtMask, SubgroupLeMask, or SubgroupLtMask
+               BuiltIn decorations or OpLoad for them when the shader model is
+               ray generation, closest hit, miss, intersection, or callable.
+               For the SPIR-V version is 1.6 or above, it also spreads Volatile
+               semantics to a variable with HelperInvocation BuiltIn decoration
+               in the fragement shader.
+  --descriptor-scalar-replacement
+               Replaces every array variable |desc| that has a DescriptorSet
+               and Binding decorations with a new variable for each element of
+               the array.  Suppose |desc| was bound at binding |b|.  Then the
+               variable corresponding to |desc[i]| will have binding |b+i|.
+               The descriptor set will be the same.  All accesses to |desc|
+               must be in OpAccessChain instructions with a literal index for
+               the first index.
+  --descriptor-composite-scalar-replacement
+               Same as descriptor-scalar-replacement, but only impacts composite/structs.
+               For details, see --descriptor-scalar-replacement help.
+  --descriptor-array-scalar-replacement
+               Same as descriptor-scalar-replacement, but only impacts arrays.
+               For details, see --descriptor-scalar-replacement help.
+  --eliminate-dead-branches
+               Convert conditional branches with constant condition to the
+               indicated unconditional branch. Delete all resulting dead
+               code. Performed only on entry point call tree functions.
+  --eliminate-dead-code-aggressive
+               Delete instructions which do not contribute to a function's
+               output. Performed only on entry point call tree functions.
+  --eliminate-dead-const
+               Eliminate dead constants.
+  --eliminate-dead-functions
+               Deletes functions that cannot be reached from entry points or
+               exported functions.
+  --eliminate-dead-inserts
+               Deletes unreferenced inserts into composites, most notably
+               unused stores to vector components, that are not removed by
+               aggressive dead code elimination.
+  --eliminate-dead-input-components
+               Deletes unused components from input variables. Currently
+               deletes trailing unused elements from input arrays.
+  --eliminate-dead-variables
+               Deletes module scope variables that are not referenced.
+  --eliminate-insert-extract
+               DEPRECATED.  This pass has been replaced by the simplification
+               pass, and that pass will be run instead.
+               See --simplify-instructions.
+  --eliminate-local-multi-store
+               Replace stores and loads of function scope variables that are
+               stored multiple times. Performed on variables referenceed only
+               with loads and stores. Performed only on entry point call tree
+               functions.
+  --eliminate-local-single-block
+               Perform single-block store/load and load/load elimination.
+               Performed only on function scope variables in entry point
+               call tree functions.
+  --eliminate-local-single-store
+               Replace stores and loads of function scope variables that are
+               only stored once. Performed on variables referenceed only with
+               loads and stores. Performed only on entry point call tree
+               functions.
+  --fix-func-call-param
+               fix non memory argument for the function call, replace 
+               accesschain pointer argument with a variable.
+  --flatten-decorations
+               Replace decoration groups with repeated OpDecorate and
+               OpMemberDecorate instructions.
+  --fold-spec-const-op-composite
+               Fold the spec constants defined by OpSpecConstantOp or
+               OpSpecConstantComposite instructions to front-end constants
+               when possible.
+  --freeze-spec-const
+               Freeze the values of specialization constants to their default
+               values.
+  --graphics-robust-access
+               Clamp indices used to access buffers and internal composite
+               values, providing guarantees that satisfy Vulkan's
+               robustBufferAccess rules.
+  --if-conversion
+               Convert if-then-else like assignments into OpSelect.
+  --inline-entry-points-exhaustive
+               Exhaustively inline all function calls in entry point call tree
+               functions. Currently does not inline calls to functions with
+               early return in a loop.
+  --legalize-hlsl
+               Runs a series of optimizations that attempts to take SPIR-V
+               generated by an HLSL front-end and generates legal Vulkan SPIR-V.
+               The optimizations are:
+               
+		wrap-opkill
+		eliminate-dead-branches
+		merge-return
+		inline-entry-points-exhaustive
+		eliminate-dead-functions
+		private-to-local
+		fix-storage-class
+		eliminate-local-single-block
+		eliminate-local-single-store
+		eliminate-dead-code-aggressive
+		scalar-replacement=0
+		eliminate-local-single-block
+		eliminate-local-single-store
+		eliminate-dead-code-aggressive
+		ssa-rewrite
+		eliminate-dead-code-aggressive
+		ccp
+		loop-unroll
+		eliminate-dead-branches
+		simplify-instructions
+		eliminate-dead-code-aggressive
+		copy-propagate-arrays
+		vector-dce
+		eliminate-dead-inserts
+		reduce-load-size
+		eliminate-dead-code-aggressive
+		remove-unused-interface-variables-pass
+		interp-fixup
+		dedupe-interlock-invocation
+		fix-opextinst-opcodes
+
+               Note this does not guarantee legal code. This option passes the
+               option --relax-logical-pointer to the validator.
+  --local-redundancy-elimination
+               Looks for instructions in the same basic block that compute the
+               same value, and deletes the redundant ones.
+  --loop-fission
+               Splits any top level loops in which the register pressure has
+               exceeded a given threshold. The threshold must follow the use of
+               this flag and must be a positive integer value.
+  --loop-fusion
+               Identifies adjacent loops with the same lower and upper bound.
+               If this is legal, then merge the loops into a single loop.
+               Includes heuristics to ensure it does not increase number of
+               registers too much, while reducing the number of loads from
+               memory. Takes an additional positive integer argument to set
+               the maximum number of registers.
+  --loop-invariant-code-motion
+               Identifies code in loops that has the same value for every
+               iteration of the loop, and move it to the loop pre-header.
+  --loop-unroll
+               Fully unrolls loops marked with the Unroll flag
+  --loop-unroll-partial
+               Partially unrolls loops marked with the Unroll flag. Takes an
+               additional non-0 integer argument to set the unroll factor, or
+               how many times a loop body should be duplicated
+  --loop-peeling
+               Execute few first (respectively last) iterations before
+               (respectively after) the loop if it can elide some branches.
+  --loop-peeling-threshold
+               Takes a non-0 integer argument to set the loop peeling code size
+               growth threshold. The threshold prevents the loop peeling
+               from happening if the code size increase created by
+               the optimization is above the threshold.
+  --max-id-bound=<n>
+               Sets the maximum value for the id bound for the module.  The
+               default is the minimum value for this limit, 0x3FFFFF.  See
+               section 2.17 of the Spir-V specification.
+  --merge-blocks
+               Join two blocks into a single block if the second has the
+               first as its only predecessor. Performed only on entry point
+               call tree functions.
+  --merge-return
+               Changes functions that have multiple return statements so they
+               have a single return statement.
+
+               For structured control flow it is assumed that the only
+               unreachable blocks in the function are trivial merge and continue
+               blocks.
+
+               A trivial merge block contains the label and an OpUnreachable
+               instructions, nothing else.  A trivial continue block contain a
+               label and an OpBranch to the header, nothing else.
+
+               These conditions are guaranteed to be met after running
+               dead-branch elimination.
+  --modify-maximal-reconvergence=[add|remove]
+               Add or remove the MaximallyReconvergesKHR execution mode to all
+               entry points in the module.
+               Note: when adding the execution mode, no attempt is made to
+               determine if any ray tracing repack instructions are used.
+  --loop-unswitch
+               Hoists loop-invariant conditionals out of loops by duplicating
+               the loop on each branch of the conditional and adjusting each
+               copy of the loop.
+  -O
+               Optimize for performance. Apply a sequence of transformations
+               in an attempt to improve the performance of the generated
+               code. For this version of the optimizer, this flag is equivalent
+               to specifying the following optimization code names:
+               
+		wrap-opkill
+		eliminate-dead-branches
+		merge-return
+		inline-entry-points-exhaustive
+		eliminate-dead-functions
+		eliminate-dead-code-aggressive
+		private-to-local
+		eliminate-local-single-block
+		eliminate-local-single-store
+		eliminate-dead-code-aggressive
+		scalar-replacement=0
+		convert-local-access-chains
+		eliminate-local-single-block
+		eliminate-local-single-store
+		eliminate-dead-code-aggressive
+		ssa-rewrite
+		eliminate-dead-code-aggressive
+		ccp
+		eliminate-dead-code-aggressive
+		loop-unroll
+		eliminate-dead-branches
+		redundancy-elimination
+		combine-access-chains
+		simplify-instructions
+		scalar-replacement=0
+		convert-local-access-chains
+		eliminate-local-single-block
+		eliminate-local-single-store
+		eliminate-dead-code-aggressive
+		ssa-rewrite
+		eliminate-dead-code-aggressive
+		vector-dce
+		eliminate-dead-inserts
+		eliminate-dead-branches
+		simplify-instructions
+		if-conversion
+		copy-propagate-arrays
+		reduce-load-size
+		eliminate-dead-code-aggressive
+		merge-blocks
+		redundancy-elimination
+		eliminate-dead-branches
+		merge-blocks
+		simplify-instructions
+  -Os
+               Optimize for size. Apply a sequence of transformations in an
+               attempt to minimize the size of the generated code. For this
+               version of the optimizer, this flag is equivalent to specifying
+               the following optimization code names:
+               
+		wrap-opkill
+		eliminate-dead-branches
+		merge-return
+		inline-entry-points-exhaustive
+		eliminate-dead-functions
+		private-to-local
+		scalar-replacement=0
+		ssa-rewrite
+		ccp
+		loop-unroll
+		eliminate-dead-branches
+		simplify-instructions
+		scalar-replacement=0
+		eliminate-local-single-store
+		if-conversion
+		simplify-instructions
+		eliminate-dead-code-aggressive
+		eliminate-dead-branches
+		merge-blocks
+		convert-local-access-chains
+		eliminate-local-single-block
+		eliminate-dead-code-aggressive
+		copy-propagate-arrays
+		vector-dce
+		eliminate-dead-inserts
+		eliminate-dead-members
+		eliminate-local-single-store
+		merge-blocks
+		ssa-rewrite
+		redundancy-elimination
+		simplify-instructions
+		eliminate-dead-code-aggressive
+		cfg-cleanup
+
+               NOTE: The specific transformations done by -O and -Os change
+                     from release to release.
+  -Oconfig=<file>
+               Apply the sequence of transformations indicated in <file>.
+               This file contains a sequence of strings separated by whitespace
+               (tabs, newlines or blanks). Each string is one of the flags
+               accepted by spirv-opt. Optimizations will be applied in the
+               sequence they appear in the file. This is equivalent to
+               specifying all the flags on the command line. For example,
+               given the file opts.cfg with the content:
+
+                --inline-entry-points-exhaustive
+                --eliminate-dead-code-aggressive
+
+               The following two invocations to spirv-opt are equivalent:
+
+               $ spirv-opt -Oconfig=opts.cfg program.spv
+
+               $ spirv-opt --inline-entry-points-exhaustive \
+                    --eliminate-dead-code-aggressive program.spv
+
+               Lines starting with the character '#' in the configuration
+               file indicate a comment and will be ignored.
+
+               The -O, -Os, and -Oconfig flags act as macros. Using one of them
+               is equivalent to explicitly inserting the underlying flags at
+               that position in the command line. For example, the invocation
+               'spirv-opt --merge-blocks -O ...' applies the transformation
+               --merge-blocks followed by all the transformations implied by
+               -O.
+  --preserve-bindings
+               Ensure that the optimizer preserves all bindings declared within
+               the module, even when those bindings are unused.
+  --preserve-interface
+               Ensure that input and output variables are not removed from the
+               shader, even if they are unused. Note that this option applies to
+               all passes that will be run regardless of the order of the flags.
+  --preserve-spec-constants
+               Ensure that the optimizer preserves all specialization constants declared
+               within the module, even when those constants are unused.
+  --print-all
+               Print SPIR-V assembly to standard error output before each pass
+               and after the last pass.
+  --private-to-local
+               Change the scope of private variables that are used in a single
+               function to that function.
+  --reduce-load-size[=<threshold>]
+               Replaces loads of composite objects where not every component is
+               used by loads of just the elements that are used.  If the ratio
+               of the used components of the load is less than the <threshold>,
+               we replace the load.  <threshold> is a double type number.  If
+               it is bigger than 1.0, we always replaces the load.
+  --redundancy-elimination
+               Looks for instructions in the same function that compute the
+               same value, and deletes the redundant ones.
+  --relax-block-layout
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --relax-float-ops
+               Decorate all float operations with RelaxedPrecision if not already
+               so decorated. This does not decorate types or variables.
+  --relax-logical-pointer
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --canonicalize-ids
+               Canonicalize IDs to improve compression of SPIR-V binary files. The resulting
+               modules have an increased ID range (IDs are not as tightly packed
+               around zero), but will compress better when multiple modules are
+               compressed together, since the compressor's dictionary can find better
+               cross module commonality. This pass should be run after most optimization
+               passes except for --strip-debug because this pass will use OpName to
+               canonicalize IDs. i.e. Run --strip-debug after this pass.
+  --relax-struct-store
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --remove-duplicates
+               Removes duplicate types, decorations, capabilities and extension
+               instructions.
+  --remove-unused-interface-variables
+               Removes variables referenced on the |OpEntryPoint| instruction
+               that are not referenced in the entry point function or any function
+               in its call tree.  Note that this could cause the shader interface
+               to no longer match other shader stages.
+  --replace-invalid-opcode
+               Replaces instructions whose opcode is valid for shader modules,
+               but not for the current shader stage.  To have an effect, all
+               entry points must have the same execution model.
+  --resolve-binding-conflicts
+               Renumber bindings to avoid conflicts.
+               When an image and sampler share the same desriptor set and binding,
+               increment the binding number of the sampler. Recursively ripple
+               to higher-numbered bindings until all conflicts resolved resolved.
+  --ssa-rewrite
+               Replace loads and stores to function local variables with
+               operations on SSA IDs.
+  --scalar-block-layout
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --scalar-replacement[=<n>]
+               Replace aggregate function scope variables that are only accessed
+               via their elements with new function variables representing each
+               element.  <n> is a limit on the size of the aggregates that will
+               be replaced.  0 means there is no limit.  The default value is
+               100.
+  --set-spec-const-default-value "<spec id>:<default value> ..."
+               Set the default values of the specialization constants with
+               <spec id>:<default value> pairs specified in a double-quoted
+               string. <spec id>:<default value> pairs must be separated by
+               blank spaces, and in each pair, spec id and default value must
+               be separated with colon ':' without any blank spaces in between.
+               e.g.: --set-spec-const-default-value "1:100 2:400"
+  --simplify-instructions
+               Will simplify all instructions in the function as much as
+               possible.
+  --skip-block-layout
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --skip-validation
+               Will not validate the SPIR-V before optimizing.  If the SPIR-V
+               is invalid, the optimizer may fail or generate incorrect code.
+               This options should be used rarely, and with caution.
+  --split-combined-image-sampler
+               Replace combined image sampler variables and parameters into
+               pairs of images and samplers.  New variables have the same
+               bindings as the original variable.
+  --strength-reduction
+               Replaces instructions with equivalent and less expensive ones.
+  --strip-debug
+               Remove all debug instructions.
+  --strip-nonsemantic
+               Remove all reflection and nonsemantic information.
+  --strip-reflect
+               DEPRECATED.  Remove all reflection information.  For now, this
+               covers reflection information defined by
+               SPV_GOOGLE_hlsl_functionality1 and SPV_KHR_non_semantic_info
+  --struct-packing=name:rule
+               Re-assign layout offsets to a given struct according to
+               its packing rules.
+  --switch-descriptorset=<from>:<to>
+               Switch any DescriptoSet decorations using the value <from> to
+               the new value <to>.
+  --target-env=<env>
+               Set the target environment. Without this flag the target
+               environment defaults to spv1.5. <env> must be one of
+               {vulkan1.0|vulkan1.1spv1.4|vulkan1.1|vulkan1.2|vulkan1.3
+                |vulkan1.4|spv1.0|spv1.1|spv1.2|spv1.3|spv1.4|spv1.5|spv1.6
+                |opencl1.2embedded|opencl1.2|opencl2.0embedded|opencl2.0
+                |opencl2.1embedded|opencl2.1|opencl2.2embedded|opencl2.2
+                |opengl4.0|opengl4.1|opengl4.2|opengl4.3|opengl4.5}
+  --time-report
+               Print the resource utilization of each pass (e.g., CPU time,
+               RSS) to standard error output. Currently it supports only Unix
+               systems. This option is the same as -ftime-report in GCC. It
+               prints CPU/WALL/USR/SYS time (and RSS if possible), but note that
+               USR/SYS time are returned by getrusage() and can have a small
+               error.
+  --trim-capabilities
+               Remove unnecessary capabilities and extensions declared within the
+               module.
+  --upgrade-memory-model
+               Upgrades the Logical GLSL450 memory model to Logical VulkanKHR.
+               Transforms memory, image, atomic and barrier operations to conform
+               to that model's requirements.
+  --vector-dce
+               This pass looks for components of vectors that are unused, and
+               removes them from the vector.  Note this would still leave around
+               lots of dead code that a pass of ADCE will be able to remove.
+  --workaround-1209
+               Rewrites instructions for which there are known driver bugs to
+               avoid triggering those bugs.
+               Current workarounds: Avoid OpUnreachable in loops.
+  --workgroup-scalar-block-layout
+               Forwards this option to the validator.  See the validator help
+               for details.
+  --wrap-opkill
+               Replaces all OpKill instructions in functions that can be called
+               from a continue construct with a function call to a function
+               whose only instruction is an OpKill.  This is done to enable
+               inlining on these functions.
+               
+  --unify-const
+               Remove the duplicated constants.
+  --validate-after-all
+               Validate the module after each pass is performed.
+  -h, --help
+               Print this help.
+  --version
+               Display optimizer version information.
+
+--- stderr ---
+
+
+Message: Info: spirv-opt has --canonicalize-ids (glslang >= 16.0).
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmp9q2ws6cn
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmp9q2ws6cn/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmp9q2ws6cn/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive -lm -Wl,--allow-shlib-undefined` -> 0
+Library m found: YES
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpwc5umgqn
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpwc5umgqn/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpwc5umgqn/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive -ldl -Wl,--allow-shlib-undefined` -> 0
+Library dl found: YES
+Run-time dependency threads found: YES
+Pkg-config binary missing from cross or native file, or env var undefined.
+Trying a default Pkg-config fallback at pkg-config
+Found pkg-config: YES (/usr/bin/pkg-config) 2.5.1
+Determining dependency 'sdl2' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion sdl2` -> 0
+stdout:
+2.32.10
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags sdl2` -> 0
+stdout:
+-I/usr/include/SDL2 -D_REENTRANT
+-----------
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs sdl2` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -lSDL2
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs sdl2` -> 0
+stdout:
+-lSDL2
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmppaxwlio0
+Code:
+
+        #include<stddef.h>
+        #include<stdio.h>
+        int main(void) {
+            printf("%ld\n", (long)(sizeof(void *)));
+            return 0;
+        }
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmppaxwlio0/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmppaxwlio0/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive` -> 0
+Program stdout:
+
+8
+
+Program stderr:
+
+
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpc3ztti2t
+Code:
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpc3ztti2t/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpc3ztti2t/output.obj -c -D_FILE_OFFSET_BITS=64 -O0 -fpermissive --print-search-dirs` -> 0
+stdout:
+install: /usr/lib/gcc/x86_64-linux-gnu/15/
+programs: =/usr/libexec/gcc/x86_64-linux-gnu/15/:/usr/libexec/gcc/x86_64-linux-gnu/15/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/
+libraries: =/usr/lib/gcc/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib/:/lib/x86_64-linux-gnu/15/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/15/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../:/lib/:/usr/lib/
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpz7cuhont
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpz7cuhont/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpz7cuhont/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libSDL2.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency sdl2 found: YES 2.32.10
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmp2h2izhh8
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmp2h2izhh8/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmp2h2izhh8/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /home/tremor/Desktop/Quiver/Jolt/Build/Linux_Distribution/libJolt.a -Wl,--allow-shlib-undefined` -> 0
+Library Jolt found: YES
+Determining dependency 'vulkan' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion vulkan` -> 0
+stdout:
+1.4.341
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags vulkan` -> 0
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vulkan` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -lvulkan
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vulkan` -> 0
+stdout:
+-lvulkan
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmparp26b18
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmparp26b18/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmparp26b18/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libvulkan.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency vulkan found: YES 1.4.341
+Determining dependency 'libmpg123' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion libmpg123` -> 0
+stdout:
+1.33.3
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags libmpg123` -> 0
+stdout:
+-I/usr/include/x86_64-linux-gnu
+-----------
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs libmpg123` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -lmpg123
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs libmpg123` -> 0
+stdout:
+-lmpg123
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpcs3m62jb
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpcs3m62jb/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpcs3m62jb/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libmpg123.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency libmpg123 found: YES 1.33.3
+Determining dependency 'flac' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion flac` -> 1
+stderr:
+Package flac was not found in the pkg-config search path.
+Perhaps you should add the directory containing `flac.pc'
+to the PKG_CONFIG_PATH environment variable
+Package 'flac' not found
+-----------
+CMake binary for host machine is not cached
+CMake binary missing from cross or native file, or env var undefined.
+Trying a default CMake fallback at cmake
+Found CMake: /usr/bin/cmake (4.2.3)
+Extracting basic cmake information
+CMake Toolchain: Calling CMake once to generate the compiler state
+Calling CMake (['/usr/bin/cmake']) in /home/tremor/Desktop/Quiver/Quake/meson-private/__CMake_compiler_info__ with:
+  - "--trace-expand"
+  - "--trace-format=json-v1"
+  - "--no-warn-unused-cli"
+  - "--trace-redirect=cmake_trace.txt"
+  - "-G"
+  - "Ninja"
+  - "-DCMAKE_TOOLCHAIN_FILE=/home/tremor/Desktop/Quiver/Quake/meson-private/__CMake_compiler_info__/CMakeMesonTempToolchainFile.cmake"
+  - "."
+Try CMake generator: auto
+Calling CMake (['/usr/bin/cmake']) in /home/tremor/Desktop/Quiver/Quake/meson-private/cmake_flac with:
+  - "--trace-expand"
+  - "--trace-format=json-v1"
+  - "--no-warn-unused-cli"
+  - "--trace-redirect=cmake_trace.txt"
+  - "-DCMAKE_TOOLCHAIN_FILE=/home/tremor/Desktop/Quiver/Quake/meson-private/cmake_flac/CMakeMesonToolchainFile.cmake"
+  - "."
+  -- Module search paths:    ['/', '/opt', '/usr', '/usr/local']
+  -- CMake root:             /usr/share/cmake-4.2
+  -- CMake architectures:    ['i386-linux-gnu', 'x86_64-linux-gnu']
+  -- CMake lib search paths: ['lib', 'lib32', 'lib64', 'libx32', 'share', '', 'lib/i386-linux-gnu', 'lib/x86_64-linux-gnu']
+Preliminary CMake check failed. Aborting.
+Run-time dependency flac found: NO (tried pkgconfig and cmake)
+Determining dependency 'ogg' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion ogg` -> 0
+stdout:
+1.3.6
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags ogg` -> 0
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs ogg` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -logg
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs ogg` -> 0
+stdout:
+-logg
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpj3mlk7h5
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpj3mlk7h5/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpj3mlk7h5/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libogg.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency ogg found: YES 1.3.6
+Determining dependency 'vorbisfile' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion vorbisfile` -> 0
+stdout:
+1.3.7
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags vorbisfile` -> 0
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vorbisfile` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -lvorbisfile
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vorbisfile` -> 0
+stdout:
+-lvorbisfile
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpp6yymjpp
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpp6yymjpp/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpp6yymjpp/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libvorbisfile.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency vorbisfile found: YES 1.3.7
+Determining dependency 'vorbis' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion vorbis` -> 0
+stdout:
+1.3.7
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --cflags vorbis` -> 0
+env[PKG_CONFIG_ALLOW_SYSTEM_LIBS]: 1
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vorbis` -> 0
+stdout:
+-L/usr/lib/x86_64-linux-gnu -lvorbis
+-----------
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --libs vorbis` -> 0
+stdout:
+-lvorbis
+-----------
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpnsfjraw8
+Code:
+int main(void) { return 0; }
+
+-----------
+Command line: `/usr/bin/g++ /home/tremor/Desktop/Quiver/Quake/meson-private/tmpnsfjraw8/testfile.cpp -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpnsfjraw8/output.exe -D_FILE_OFFSET_BITS=64 -O0 -fpermissive /usr/lib/x86_64-linux-gnu/libvorbis.so -Wl,--allow-shlib-undefined` -> 0
+Run-time dependency vorbis found: YES 1.3.7
+Determining dependency 'opus' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion opus` -> 1
+stderr:
+Package opus was not found in the pkg-config search path.
+Perhaps you should add the directory containing `opus.pc'
+to the PKG_CONFIG_PATH environment variable
+Package 'opus' not found
+-----------
+CMake binary for host machine is cached.
+Preliminary CMake check failed. Aborting.
+Run-time dependency opus found: NO (tried pkgconfig and cmake)
+Determining dependency 'opusfile' with pkg-config executable '/usr/bin/pkg-config'
+env[PKG_CONFIG_PATH]: 
+env[PKG_CONFIG]: /usr/bin/pkg-config
+-----------
+Called: `/usr/bin/pkg-config --modversion opusfile` -> 1
+stderr:
+Package opusfile was not found in the pkg-config search path.
+Perhaps you should add the directory containing `opusfile.pc'
+to the PKG_CONFIG_PATH environment variable
+Package 'opusfile' not found
+-----------
+CMake binary for host machine is cached.
+Preliminary CMake check failed. Aborting.
+Run-time dependency opusfile found: NO (tried pkgconfig and cmake)
+Build targets in project: 126
+
+Found ninja-1.13.2 at /usr/bin/ninja
+Running compile:
+Working directory:  /home/tremor/Desktop/Quiver/Quake/meson-private/tmpzi7711g0
+Code:
+
+-----------
+Command line: `/usr/bin/gcc /home/tremor/Desktop/Quiver/Quake/meson-private/tmpzi7711g0/testfile.c -o /home/tremor/Desktop/Quiver/Quake/meson-private/tmpzi7711g0/output.obj -c -D_FILE_OFFSET_BITS=64 -O0 --print-search-dirs` -> 0
+stdout:
+install: /usr/lib/gcc/x86_64-linux-gnu/15/
+programs: =/usr/libexec/gcc/x86_64-linux-gnu/15/:/usr/libexec/gcc/x86_64-linux-gnu/15/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/bin/
+libraries: =/usr/lib/gcc/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/15/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../lib/:/lib/x86_64-linux-gnu/15/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/15/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../../x86_64-linux-gnu/lib/:/usr/lib/gcc/x86_64-linux-gnu/15/../../../:/lib/:/usr/lib/
+-----------

@@ -22,6 +22,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_edict.c -- entity dictionary
 
 #include "quakedef.h"
+#include "octree_engine.h"
+#include "octree_checkpoint.h"
 
 const int type_size[NUM_TYPE_SIZES] = {
 	1, // ev_void
@@ -121,6 +123,7 @@ FIXME: walk all entities and NULL out references to this entity
 */
 void ED_Free (edict_t *ed)
 {
+	OW_ForgetEntity (ed);
 	if (ed->free)
 	{
 		// Assert that this isn't linked to any area
@@ -1544,6 +1547,7 @@ void PR_ClearProgs (qcvm_t *vm)
 	qcvm = NULL;
 	PR_SwitchQCVM (vm);
 	PR_ShutdownExtensions ();
+	OW_CheckpointResetStrings ();
 
 	if (qcvm->knownstrings)
 	{
@@ -2084,6 +2088,7 @@ int PR_AllocString (int size, char **ptr)
 
 void PR_ClearEdictStrings ()
 {
+	OW_CheckpointResetStrings ();
 	for (int i = qcvm->progsstrings; i < qcvm->numknownstrings; ++i)
 		if (qcvm->knownstringsowned[i])
 		{

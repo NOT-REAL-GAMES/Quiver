@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // cl_parse.c  -- parse a message received from the server
 
 #include "quakedef.h"
+#include "octree_engine.h"
 #include "bgmusic.h"
 
 const char *svc_strings[128] = {
@@ -890,6 +891,11 @@ static void CL_ParseServerInfo (void)
 	for (;;)
 	{
 		i = MSG_ReadLong ();
+		if (i == PROTOCOL_QUIVER_WORLD)
+		{
+			OW_ReadServerInfo ();
+			continue;
+		}
 		if (i == PROTOCOL_FTE_PEXT1)
 		{
 			cl.protocol_pext1 = MSG_ReadLong ();
@@ -943,7 +949,7 @@ static void CL_ParseServerInfo (void)
 
 	// parse maxclients
 	cl.maxclients = MSG_ReadByte ();
-	if (cl.maxclients < 1 || cl.maxclients > MAX_SCOREBOARD)
+	if (cl.maxclients < 1 || cl.maxclients > (OW_ClientProtocol () ? MAX_SCOREBOARD : MAX_LEGACY_SCOREBOARD))
 	{
 		Host_Error ("Bad maxclients (%u) from server", cl.maxclients);
 	}
@@ -1462,8 +1468,8 @@ CL_NewTranslation
 */
 void CL_NewTranslation (int slot)
 {
-	if (slot > cl.maxclients)
-		Sys_Error ("CL_NewTranslation: slot > cl.maxclients");
+	if (slot < 0 || slot >= cl.maxclients)
+		Sys_Error ("CL_NewTranslation: slot outside cl.maxclients");
 	R_TranslatePlayerSkin (slot);
 }
 
@@ -1821,6 +1827,10 @@ void CL_ParseServerMessage (void)
 			SCR_CenterPrint (str);
 			Con_LogCenterPrint (str);
 			// johnfitz
+			break;
+
+		case svc_quiver_world:
+			OW_ReadMessage ();
 			break;
 
 		case svc_stufftext:

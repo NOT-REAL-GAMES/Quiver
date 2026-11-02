@@ -70,7 +70,7 @@ CFLAGS += $(shell pkg-config --cflags opusfile)
 CODECLIBS += $(shell pkg-config --libs opusfile)
 endif
 
-COMMON_LIBS:= -lm -lpthread
+COMMON_LIBS:= -lm -lpthread -lsqlite3
 
 ifneq ($(HOST_OS),darwin)
 COMMON_LIBS+= -lvulkan
@@ -84,7 +84,7 @@ endif
 COMMON_LIBS+= -lMoltenVK
 endif
 
-LIBS := $(COMMON_LIBS) $(CODECLIBS) $(JOLT_LIB)
+LIBS := $(GNS_LIBS) $(COMMON_LIBS) $(CODECLIBS) $(JOLT_LIB)
 
 # ---------------------------
 # targets / rules

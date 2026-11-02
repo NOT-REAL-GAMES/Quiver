@@ -77,6 +77,22 @@ The reason is, all known existing Vulkan-capable systems in the wild are little-
 vkQuake wouldn't even start on an big-endian system, outputing a fatal error.
 
 ## Building
+
+The engine is built as C++26. Use a compiler with C++26 support (GCC 14 or newer, or a recent Clang), and Meson 1.3.0 or newer for Meson builds. Visual Studio builds use the latest C++ language mode (`/std:c++latest`).
+
+For Meson and Make builds, first build the bundled Jolt library with CMake 3.20 or newer from the repository root:
+
+~~~sh
+cmake -S Jolt/Build -B Jolt/Build/Linux_Distribution \
+  -DCMAKE_BUILD_TYPE=Distribution -DENABLE_OBJECT_STREAM=OFF \
+  -DINTERPROCEDURAL_OPTIMIZATION=OFF -DENABLE_ALL_WARNINGS=OFF \
+  -DTARGET_UNIT_TESTS=OFF -DTARGET_HELLO_WORLD=OFF \
+  -DTARGET_PERFORMANCE_TEST=OFF -DTARGET_SAMPLES=OFF -DTARGET_VIEWER=OFF
+cmake --build Jolt/Build/Linux_Distribution --target Jolt --parallel
+~~~
+
+Select the same C++ compiler for both builds. For example, run `export CXX=/usr/bin/g++` on Linux before configuring Jolt and Meson. If `<type_traits>` cannot be found, check that the selected C++ compiler has its matching standard-library headers installed.
+
 > **Note**\
 > For Windows, you will need at least Vulkan SDK version 1.4.321.1 or newer.
 > 
@@ -128,17 +144,17 @@ To compile vkQuake, first install the build dependencies:
 
 Ubuntu:
 ~~~
-apt-get install git meson gcc glslang-tools spirv-tools libsdl2-dev libvulkan-dev libvorbis-dev libmpg123-dev libx11-xcb-dev
+apt-get install git cmake meson g++ glslang-tools spirv-tools libsdl2-dev libvulkan-dev libvorbis-dev libmpg123-dev libx11-xcb-dev libsqlite3-dev
 ~~~
 
 Arch Linux:
 ~~~
-pacman -S git meson flac glibc libgl mpg123 libvorbis libx11 sdl2 vulkan-headers glslang spirv-tools
+pacman -S git cmake meson gcc flac glibc libgl mpg123 libvorbis libx11 sdl2 vulkan-headers glslang spirv-tools
 ~~~
 
 Fedora:
 ~~~
-dnf install git meson gcc glslang spirv-tools vulkan-loader-devel SDL2-devel mpg123-devel libvorbis-devel flac-devel opusfile-devel
+dnf install git cmake meson gcc-c++ glslang spirv-tools vulkan-loader-devel SDL2-devel mpg123-devel libvorbis-devel flac-devel opusfile-devel
 ~~~
 
 Then clone the vkQuake repo:
@@ -155,7 +171,7 @@ meson build && ninja -C build
 ~~~
 
 > **Note**\
-> The Meson version needs to be 0.47.0 or newer. For older distributions you can use make:
+> The Meson version needs to be 1.3.0 or newer. You can also use make with a C++26 compiler:
 > ~~~
 > cd vkQuake/Quake
 > make -j
@@ -170,7 +186,14 @@ meson build && ninja -C build
 To compile vkQuake, first install the build dependencies with Homebrew:
 
 ~~~
-brew install molten-vk vulkan-headers glslang spirv-tools sdl2 libvorbis flac opus opusfile flac mpg123 meson pkgconfig
+brew install sqlite cmake llvm molten-vk vulkan-headers glslang spirv-tools sdl2 libvorbis flac opus opusfile flac mpg123 meson pkgconfig
+~~~
+
+Select Homebrew's C++26 compiler before configuring Jolt and Meson:
+
+~~~sh
+export CC="$(brew --prefix llvm)/bin/clang"
+export CXX="$(brew --prefix llvm)/bin/clang++"
 ~~~
 
 Then clone the vkQuake repo:
@@ -187,7 +210,7 @@ meson build && ninja -C build
 ~~~
 
 > **Note**\
-> The Meson version needs to be 0.47.0 or newer.
+> The Meson version needs to be 1.3.0 or newer.
 
 ## Optional - Music / Soundtrack
 
@@ -205,3 +228,17 @@ Generally, the below setup works for multiple engines, including Quakespasm/vkQu
 * The files are named in the pattern "tracknn", where "nn" is the CD track number that the file was ripped from. Since the soundtrack starts at the second CD track, MP3 soundtrack files are named "track02.mp3", "track03.mp3", etc. OGG soundtrack files are named "track02.ogg", "track03.ogg", etc. FLAC soundtrack files are named "track02.flac", "track03.flac", etc. WAV soundtrack files are named "track02.wav", "track03.wav", etc.
 
 **See more:** [Quake Soundtrack Solutions (Steam Community)](http://steamcommunity.com/sharedfiles/filedetails/?id=119489135)
+
+### Experimental streamed worlds
+
+Run `map __empty` for an empty world with flight, or `world_create firstworld terrain 12345` for a persistent voxel world. See [streamed world commands and implementation status](docs/streamed-worlds.md) and the [QuakeC world-position API](qc/worldpos.qh).
+
+Use `world_create earth planet 1` for a wrapping world with continents, erosion, and volumetric cliffs. Add or subtract sharp construction brushes with `world_brush`, or import watertight OBJ solids with `world_import`. See [planet worlds and construction](docs/planet-worlds.md) for commands, resource limits, measurements, and current limitations.
+
+World persistence stores a versioned generator descriptor plus content-addressed terrain overrides. `world_save` pins the latest whole-world state; `world_snapshot create <name>` and `world_snapshot restore <name>` manage named savepoints. Connected clients can exchange verified terrain objects, with reliable server fallback. Existing world databases migrate to a separate `.sqlite3.merkle` copy, preserving the original.
+
+Optional [GameNetworkingSockets native ICE support](docs/world-networking.md) enables terrain sharing between clients behind routers. Build its pinned dependency with `python3 Misc/build_gns.py`, then configure with `meson configure build -Duse_gns=enabled` and rebuild.
+
+SQLite3 is now a build dependency (`libsqlite3-dev` on Debian/Ubuntu, `sqlite-devel` on Fedora, `sqlite` with Homebrew). For Visual Studio, set `SQLite3Dir` to a directory containing `include/sqlite3.h` and `lib/sqlite3.lib` for x64, or use the default `Windows/sqlite3` directory. Windows builds have not been validated for the new world subsystem.
+
+Run the standalone world checks with `meson test -C build --print-errorlogs`. Runtime network tests require Quake game assets: `python3 tests/run_world_network_smoke.py --binary build/vkquake --basedir /path/to/quake --clients 64`.

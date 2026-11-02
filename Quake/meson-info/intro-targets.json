@@ -1,0 +1,4872 @@
+[
+  {
+    "name": "bintoc",
+    "id": "bintoc@exe",
+    "type": "executable",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/bintoc"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "c",
+        "machine": "build",
+        "compiler": [
+          "/usr/bin/gcc"
+        ],
+        "parameters": [
+          "-I/home/tremor/Desktop/Quiver/Quake/bintoc.p",
+          "-I/home/tremor/Desktop/Quiver/Quake",
+          "-I/home/tremor/Desktop/Quiver",
+          "-fdiagnostics-color=always",
+          "-DNDEBUG",
+          "-D_FILE_OFFSET_BITS=64",
+          "-Wall",
+          "-Winvalid-pch",
+          "-std=gnu11",
+          "-O3"
+        ],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/bintoc.c"
+        ],
+        "generated_sources": [],
+        "unity_sources": []
+      },
+      {
+        "linker": [
+          "/usr/bin/gcc"
+        ],
+        "parameters": [
+          "-Wl,--as-needed",
+          "-Wl,--no-undefined",
+          "-Wl,-O1"
+        ]
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "win_subsystem": "console",
+    "installed": false
+  },
+  {
+    "name": "mkpak",
+    "id": "mkpak@exe",
+    "type": "executable",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/mkpak"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "c",
+        "machine": "build",
+        "compiler": [
+          "/usr/bin/gcc"
+        ],
+        "parameters": [
+          "-I/home/tremor/Desktop/Quiver/Quake/mkpak.p",
+          "-I/home/tremor/Desktop/Quiver/Quake",
+          "-I/home/tremor/Desktop/Quiver",
+          "-fdiagnostics-color=always",
+          "-DNDEBUG",
+          "-D_FILE_OFFSET_BITS=64",
+          "-Wall",
+          "-Winvalid-pch",
+          "-std=gnu11",
+          "-O3"
+        ],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Misc/vq_pak/mkpak.c"
+        ],
+        "generated_sources": [],
+        "unity_sources": []
+      },
+      {
+        "linker": [
+          "/usr/bin/gcc"
+        ],
+        "parameters": [
+          "-Wl,--as-needed",
+          "-Wl,--no-undefined",
+          "-Wl,-O1"
+        ]
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "win_subsystem": "console",
+    "installed": false
+  },
+  {
+    "name": "run-mkpak",
+    "id": "run-mkpak@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/vkquake.pak"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "mkpak",
+          "/home/tremor/Desktop/Quiver/Quake/vkquake.pak",
+          "/home/tremor/Desktop/Quiver/Misc/vq_pak",
+          "/home/tremor/Desktop/Quiver/Misc/vq_pak/vq_pak_contents.txt"
+        ],
+        "parameters": [],
+        "sources": [],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "mkpak@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "run-embed_vkquake_pak",
+    "id": "run-embed_vkquake_pak@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/embedded_pak.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "bintoc",
+          "-c",
+          "/home/tremor/Desktop/Quiver/Quake/vkquake.pak",
+          "vkquake.pak",
+          "/home/tremor/Desktop/Quiver/Quake/embedded_pak.cpp"
+        ],
+        "parameters": [],
+        "sources": [],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_alias_frag",
+    "id": "Shaders_alias_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/alias.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/alias.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_alias_vert",
+    "id": "Shaders_alias_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/alias.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/alias.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_alias_alphatest_frag",
+    "id": "Shaders_alias_alphatest_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/alias_alphatest.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/alias_alphatest.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_md5_vert",
+    "id": "Shaders_md5_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/md5.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/md5.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_basic_frag",
+    "id": "Shaders_basic_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/basic.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/basic.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_basic_vert",
+    "id": "Shaders_basic_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/basic.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/basic.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_basic_alphatest_frag",
+    "id": "Shaders_basic_alphatest_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/basic_alphatest.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/basic_alphatest.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_basic_notex_frag",
+    "id": "Shaders_basic_notex_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/basic_notex.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/basic_notex.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_cs_tex_warp_comp",
+    "id": "Shaders_cs_tex_warp_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cs_tex_warp.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/cs_tex_warp.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_indirect_comp",
+    "id": "Shaders_indirect_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/indirect.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/indirect.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_indirect_clear_comp",
+    "id": "Shaders_indirect_clear_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/indirect_clear.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/indirect_clear.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_postprocess_frag",
+    "id": "Shaders_postprocess_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/postprocess.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/postprocess.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_postprocess_vert",
+    "id": "Shaders_postprocess_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/postprocess.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/postprocess.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_10bit_comp",
+    "id": "Shaders_screen_effects_10bit_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_10bit.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_10bit_scale_comp",
+    "id": "Shaders_screen_effects_10bit_scale_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit_scale.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_10bit_scale.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_10bit_scale_sops_comp",
+    "id": "Shaders_screen_effects_10bit_scale_sops_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit_scale_sops.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "--target-env",
+          "vulkan1.1",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_10bit_scale_sops.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_8bit_comp",
+    "id": "Shaders_screen_effects_8bit_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_8bit.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_8bit_scale_comp",
+    "id": "Shaders_screen_effects_8bit_scale_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit_scale.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_8bit_scale.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_screen_effects_8bit_scale_sops_comp",
+    "id": "Shaders_screen_effects_8bit_scale_sops_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit_scale_sops.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "--target-env",
+          "vulkan1.1",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/screen_effects_8bit_scale_sops.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_showtris_frag",
+    "id": "Shaders_showtris_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/showtris.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/showtris.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_showtris_vert",
+    "id": "Shaders_showtris_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/showtris.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/showtris.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_box_frag",
+    "id": "Shaders_sky_box_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_box.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_box.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_cube_frag",
+    "id": "Shaders_sky_cube_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_cube.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_cube.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_cube_vert",
+    "id": "Shaders_sky_cube_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_cube.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_cube.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_layer_frag",
+    "id": "Shaders_sky_layer_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_layer.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_layer.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_layer_vert",
+    "id": "Shaders_sky_layer_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_layer.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_layer.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_atmosphere_frag",
+    "id": "Shaders_sky_atmosphere_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_atmosphere.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_atmosphere.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_atmosphere_vert",
+    "id": "Shaders_sky_atmosphere_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_atmosphere.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_atmosphere.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_sky_clouds_frag",
+    "id": "Shaders_sky_clouds_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sky_clouds.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/sky_clouds.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_update_lightmap_10bit_comp",
+    "id": "Shaders_update_lightmap_10bit_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/update_lightmap_10bit.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/update_lightmap_10bit.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_update_lightmap_10bit_rt_comp",
+    "id": "Shaders_update_lightmap_10bit_rt_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/update_lightmap_10bit_rt.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/update_lightmap_10bit_rt.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_update_lightmap_8bit_comp",
+    "id": "Shaders_update_lightmap_8bit_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/update_lightmap_8bit.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/update_lightmap_8bit.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_update_lightmap_8bit_rt_comp",
+    "id": "Shaders_update_lightmap_8bit_rt_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/update_lightmap_8bit_rt.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/update_lightmap_8bit_rt.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_world_frag",
+    "id": "Shaders_world_frag@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/world.frag.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/world.frag"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_world_vert",
+    "id": "Shaders_world_vert@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/world.vert.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/world.vert"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "Shaders_ray_debug_comp",
+    "id": "Shaders_ray_debug_comp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/ray_debug.comp.cpp"
+    ],
+    "build_by_default": false,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/glslangValidator",
+          "-V",
+          "-o",
+          "@PLAINNAME@.spv",
+          "@INPUT@",
+          "--depfile",
+          "@PLAINNAME@.deps",
+          "&&",
+          "/usr/bin/spirv-opt",
+          "-Os",
+          "--canonicalize-ids",
+          "--strip-debug",
+          "@PLAINNAME@.spv",
+          "-o",
+          "@PLAINNAME@.spv",
+          "&&",
+          "bintoc",
+          "@PLAINNAME@.spv",
+          "@PLAINNAME@_spv",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Shaders/ray_debug.comp"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [
+      "bintoc@exe"
+    ],
+    "installed": false
+  },
+  {
+    "name": "bgmusic.cpp",
+    "id": "bgmusic.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/bgmusic.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/bgmusic.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cd_null.cpp",
+    "id": "cd_null.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cd_null.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cd_null.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cfgfile.cpp",
+    "id": "cfgfile.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cfgfile.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cfgfile.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "chase.cpp",
+    "id": "chase.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/chase.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/chase.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cl_demo.cpp",
+    "id": "cl_demo.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cl_demo.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cl_demo.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cl_input.cpp",
+    "id": "cl_input.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cl_input.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cl_input.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cl_main.cpp",
+    "id": "cl_main.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cl_main.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cl_main.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cl_parse.cpp",
+    "id": "cl_parse.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cl_parse.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cl_parse.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cl_tent.cpp",
+    "id": "cl_tent.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cl_tent.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cl_tent.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cmd.cpp",
+    "id": "cmd.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cmd.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cmd.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "common.cpp",
+    "id": "common.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/common.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/common.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "console.cpp",
+    "id": "console.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/console.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/console.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "crc.cpp",
+    "id": "crc.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/crc.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/crc.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "cvar.cpp",
+    "id": "cvar.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/cvar.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/cvar.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_draw.cpp",
+    "id": "gl_draw.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_draw.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_draw.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_fog.cpp",
+    "id": "gl_fog.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_fog.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_fog.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_heap.cpp",
+    "id": "gl_heap.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_heap.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_heap.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_mesh.cpp",
+    "id": "gl_mesh.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_mesh.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_mesh.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_model.cpp",
+    "id": "gl_model.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_model.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_model.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_refrag.cpp",
+    "id": "gl_refrag.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_refrag.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_refrag.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_rlight.cpp",
+    "id": "gl_rlight.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_rlight.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_rlight.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_rmain.cpp",
+    "id": "gl_rmain.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_rmain.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_rmain.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_rmisc.cpp",
+    "id": "gl_rmisc.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_rmisc.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_rmisc.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_screen.cpp",
+    "id": "gl_screen.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_screen.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_screen.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_sky.cpp",
+    "id": "gl_sky.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_sky.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_sky.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_texmgr.cpp",
+    "id": "gl_texmgr.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_texmgr.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_texmgr.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_vidsdl.cpp",
+    "id": "gl_vidsdl.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_vidsdl.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_vidsdl.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "gl_warp.cpp",
+    "id": "gl_warp.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/gl_warp.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/gl_warp.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "host.cpp",
+    "id": "host.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/host.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/host.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "host_cmd.cpp",
+    "id": "host_cmd.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/host_cmd.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/host_cmd.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "image.cpp",
+    "id": "image.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/image.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/image.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "in_sdl.cpp",
+    "id": "in_sdl.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/in_sdl.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/in_sdl.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "keys.cpp",
+    "id": "keys.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/keys.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/keys.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "main_sdl.cpp",
+    "id": "main_sdl.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/main_sdl.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/main_sdl.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "mathlib.cpp",
+    "id": "mathlib.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/mathlib.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/mathlib.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "mdfour.cpp",
+    "id": "mdfour.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/mdfour.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/mdfour.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "mem.cpp",
+    "id": "mem.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/mem.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/mem.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "menu.cpp",
+    "id": "menu.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/menu.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/menu.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "net_bsd.cpp",
+    "id": "net_bsd.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/net_bsd.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/net_bsd.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "net_dgrm.cpp",
+    "id": "net_dgrm.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/net_dgrm.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/net_dgrm.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "net_loop.cpp",
+    "id": "net_loop.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/net_loop.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/net_loop.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "net_main.cpp",
+    "id": "net_main.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/net_main.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/net_main.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "net_udp.cpp",
+    "id": "net_udp.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/net_udp.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/net_udp.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "palette.cpp",
+    "id": "palette.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/palette.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/palette.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "pl_linux.cpp",
+    "id": "pl_linux.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/pl_linux.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/pl_linux.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "pr_cmds.cpp",
+    "id": "pr_cmds.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/pr_cmds.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/pr_cmds.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "pr_edict.cpp",
+    "id": "pr_edict.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/pr_edict.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/pr_edict.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "pr_exec.cpp",
+    "id": "pr_exec.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/pr_exec.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/pr_exec.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "pr_ext.cpp",
+    "id": "pr_ext.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/pr_ext.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/pr_ext.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_alias.cpp",
+    "id": "r_alias.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_alias.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_alias.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_brush.cpp",
+    "id": "r_brush.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_brush.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_brush.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_part.cpp",
+    "id": "r_part.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_part.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_part.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_part_fte.cpp",
+    "id": "r_part_fte.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_part_fte.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_part_fte.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_sprite.cpp",
+    "id": "r_sprite.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_sprite.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_sprite.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "r_world.cpp",
+    "id": "r_world.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/r_world.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/r_world.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sbar.cpp",
+    "id": "sbar.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sbar.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sbar.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_codec.cpp",
+    "id": "snd_codec.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_codec.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_codec.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_dma.cpp",
+    "id": "snd_dma.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_dma.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_dma.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_mem.cpp",
+    "id": "snd_mem.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_mem.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_mem.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_mix.cpp",
+    "id": "snd_mix.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_mix.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_mix.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_sdl.cpp",
+    "id": "snd_sdl.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_sdl.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_sdl.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_umx.cpp",
+    "id": "snd_umx.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_umx.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_umx.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_wave.cpp",
+    "id": "snd_wave.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_wave.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_wave.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "strlcat.cpp",
+    "id": "strlcat.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/strlcat.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/strlcat.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "strlcpy.cpp",
+    "id": "strlcpy.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/strlcpy.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/strlcpy.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sv_main.cpp",
+    "id": "sv_main.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sv_main.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sv_main.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sv_move.cpp",
+    "id": "sv_move.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sv_move.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sv_move.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sv_phys.cpp",
+    "id": "sv_phys.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sv_phys.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sv_phys.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sv_user.cpp",
+    "id": "sv_user.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sv_user.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sv_user.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sys_sdl.cpp",
+    "id": "sys_sdl.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sys_sdl.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sys_sdl.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "sys_sdl_unix.cpp",
+    "id": "sys_sdl_unix.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/sys_sdl_unix.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/sys_sdl_unix.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "tasks.cpp",
+    "id": "tasks.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/tasks.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/tasks.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "view.cpp",
+    "id": "view.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/view.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/view.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "wad.cpp",
+    "id": "wad.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/wad.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/wad.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "world.cpp",
+    "id": "world.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/world.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/world.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "hash_map.cpp",
+    "id": "hash_map.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/hash_map.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/hash_map.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "kd_model.cpp",
+    "id": "kd_model.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/kd_model.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/kd_model.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "kd_render.cpp",
+    "id": "kd_render.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/kd_render.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/kd_render.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "kd_world.cpp",
+    "id": "kd_world.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/kd_world.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/kd_world.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "kd_compile.cpp",
+    "id": "kd_compile.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/kd_compile.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/kd_compile.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "kd_svo.cpp",
+    "id": "kd_svo.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/kd_svo.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/kd_svo.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "noise_gen.cpp",
+    "id": "noise_gen.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/noise_gen.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/noise_gen.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_mpg123.cpp",
+    "id": "snd_mpg123.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_mpg123.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_mpg123.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_mp3tag.cpp",
+    "id": "snd_mp3tag.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_mp3tag.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_mp3tag.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "snd_vorbis.cpp",
+    "id": "snd_vorbis.cpp@cus",
+    "type": "custom",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/snd_vorbis.cpp"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "unknown",
+        "compiler": [
+          "/usr/bin/meson",
+          "--internal",
+          "copy",
+          "@INPUT@",
+          "@OUTPUT@"
+        ],
+        "parameters": [],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/snd_vorbis.c"
+        ],
+        "generated_sources": []
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [],
+    "depends": [],
+    "installed": false
+  },
+  {
+    "name": "vkquake",
+    "id": "vkquake@exe",
+    "type": "executable",
+    "defined_in": "/home/tremor/Desktop/Quiver/meson.build",
+    "filename": [
+      "/home/tremor/Desktop/Quiver/Quake/vkquake"
+    ],
+    "build_by_default": true,
+    "target_sources": [
+      {
+        "language": "cpp",
+        "machine": "host",
+        "compiler": [
+          "/usr/bin/g++"
+        ],
+        "parameters": [
+          "-I/home/tremor/Desktop/Quiver/Quake/vkquake.p",
+          "-I/home/tremor/Desktop/Quiver/Quake",
+          "-I/home/tremor/Desktop/Quiver",
+          "-I/home/tremor/Desktop/Quiver/Quake",
+          "-I/home/tremor/Desktop/Quiver/Quake/mimalloc",
+          "-I/usr/include/SDL2",
+          "-I/usr/include/x86_64-linux-gnu",
+          "-fdiagnostics-color=always",
+          "-DNDEBUG",
+          "-D_FILE_OFFSET_BITS=64",
+          "-Wall",
+          "-Winvalid-pch",
+          "-std=gnu++26",
+          "-O3",
+          "-D_GNU_SOURCE",
+          "-D_REENTRANT",
+          "-pthread",
+          "-isystem../Jolt",
+          "-Wall",
+          "-Wno-trigraphs",
+          "-Werror",
+          "-DJPH_NO_DEBUG",
+          "-DUSE_CODEC_WAVE",
+          "-DUSE_CODEC_MP3",
+          "-DUSE_CODEC_VORBIS"
+        ],
+        "sources": [
+          "/home/tremor/Desktop/Quiver/Quake/jolt_physics.cpp"
+        ],
+        "generated_sources": [
+          "/home/tremor/Desktop/Quiver/Quake/bgmusic.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cd_null.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cfgfile.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/chase.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cl_demo.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cl_input.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cl_main.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cl_parse.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cl_tent.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cmd.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/common.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/console.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/crc.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cvar.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_draw.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_fog.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_heap.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_mesh.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_model.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_refrag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_rlight.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_rmain.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_rmisc.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_screen.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_sky.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_texmgr.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_vidsdl.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/gl_warp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/host.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/host_cmd.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/image.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/in_sdl.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/keys.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/main_sdl.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/mathlib.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/mdfour.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/mem.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/menu.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/net_bsd.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/net_dgrm.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/net_loop.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/net_main.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/net_udp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/palette.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/pl_linux.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/pr_cmds.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/pr_edict.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/pr_exec.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/pr_ext.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_alias.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_brush.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_part.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_part_fte.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_sprite.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/r_world.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sbar.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_codec.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_dma.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_mem.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_mix.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_sdl.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_umx.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_wave.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/strlcat.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/strlcpy.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sv_main.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sv_move.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sv_phys.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sv_user.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sys_sdl.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sys_sdl_unix.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/tasks.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/view.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/wad.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/world.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/hash_map.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/kd_model.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/kd_render.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/kd_world.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/kd_compile.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/kd_svo.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/noise_gen.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_mpg123.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_mp3tag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/snd_vorbis.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/alias.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/alias.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/alias_alphatest.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/md5.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/basic.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/basic.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/basic_alphatest.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/basic_notex.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/cs_tex_warp.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/indirect.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/indirect_clear.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/postprocess.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/postprocess.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit_scale.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_10bit_scale_sops.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit_scale.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/screen_effects_8bit_scale_sops.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/showtris.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/showtris.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_box.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_cube.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_cube.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_layer.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_layer.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_atmosphere.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_atmosphere.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/sky_clouds.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/update_lightmap_10bit.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/update_lightmap_10bit_rt.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/update_lightmap_8bit.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/update_lightmap_8bit_rt.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/world.frag.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/world.vert.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/ray_debug.comp.cpp",
+          "/home/tremor/Desktop/Quiver/Quake/embedded_pak.cpp"
+        ],
+        "unity_sources": []
+      },
+      {
+        "linker": [
+          "/usr/bin/g++"
+        ],
+        "parameters": [
+          "-Wl,--as-needed",
+          "-Wl,--no-undefined",
+          "-Wl,-O1",
+          "-Wl,--start-group",
+          "-Wl,--start-group",
+          "-lm",
+          "-ldl",
+          "-pthread",
+          "/usr/lib/x86_64-linux-gnu/libSDL2.so",
+          "/home/tremor/Desktop/Quiver/Jolt/Build/Linux_Distribution/libJolt.a",
+          "/usr/lib/x86_64-linux-gnu/libvulkan.so",
+          "/usr/lib/x86_64-linux-gnu/libmpg123.so",
+          "/usr/lib/x86_64-linux-gnu/libogg.so",
+          "/usr/lib/x86_64-linux-gnu/libvorbisfile.so",
+          "/usr/lib/x86_64-linux-gnu/libvorbis.so",
+          "-Wl,--end-group",
+          "-Wl,--end-group"
+        ]
+      }
+    ],
+    "extra_files": [],
+    "subproject": null,
+    "dependencies": [
+      "m",
+      "dl",
+      "threads",
+      "sdl2",
+      "Jolt",
+      "vulkan",
+      "libmpg123",
+      "ogg",
+      "vorbisfile",
+      "vorbis"
+    ],
+    "depends": [],
+    "win_subsystem": "console",
+    "installed": false
+  }
+]

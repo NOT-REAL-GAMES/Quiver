@@ -550,6 +550,86 @@ void Mod_TouchModel (const char *name)
 	Mod_FindName (name);
 }
 
+// Reserved world names are shared by server and client and never require a BSP file.
+qboolean Mod_IsVirtualWorld (const char *name)
+{
+	return name && (!strcmp (name, "maps/__empty.bsp") || !strcmp (name, "maps/__octree.bsp"));
+}
+
+static void Mod_LoadVirtualWorld (qmodel_t *mod)
+{
+	char name[MAX_QPATH];
+	q_strlcpy (name, mod->name, sizeof (name));
+	memset (mod, 0, sizeof (*mod));
+	q_strlcpy (mod->name, name, sizeof (mod->name));
+	mod->type = mod_brush;
+	mod->bspversion = BSPVERSION;
+	mod->numframes = 2;
+	mod->numsubmodels = 1;
+	mod->submodels = static_cast<dmodel_t *> (Mem_Alloc (sizeof (*mod->submodels)));
+	mod->numplanes = 1;
+	mod->planes = static_cast<mplane_t *> (Mem_Alloc (sizeof (*mod->planes)));
+	mod->planes[0].normal[0] = 1;
+	mod->numnodes = 1;
+	mod->nodes = static_cast<mnode_t *> (Mem_Alloc (sizeof (*mod->nodes)));
+	mod->numleafs = 1;
+	mod->leafs = static_cast<mleaf_t *> (Mem_Alloc (2 * sizeof (*mod->leafs)));
+	mod->leafs[0].contents = CONTENTS_SOLID;
+	mod->leafs[1].contents = CONTENTS_EMPTY;
+	mod->nodes[0].plane = mod->planes;
+	mod->nodes[0].children[0] = mod->nodes[0].children[1] = reinterpret_cast<mnode_t *> (&mod->leafs[1]);
+	mod->submodels[0].visleafs = 1;
+
+	// These bounds describe the local broadphase frame, not a finite world boundary.
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		mod->mins[axis] = mod->clipmins[axis] = mod->ymins[axis] = mod->rmins[axis] = -32768;
+		mod->maxs[axis] = mod->clipmaxs[axis] = mod->ymaxs[axis] = mod->rmaxs[axis] = 32768;
+		mod->submodels[0].mins[axis] = mod->nodes[0].minmaxs[axis] = mod->mins[axis];
+		mod->submodels[0].maxs[axis] = mod->nodes[0].minmaxs[axis + 3] = mod->maxs[axis];
+		for (int leaf = 0; leaf < 2; ++leaf)
+		{
+			mod->leafs[leaf].minmaxs[axis] = mod->mins[axis];
+			mod->leafs[leaf].minmaxs[axis + 3] = mod->maxs[axis];
+		}
+	}
+
+	// Hull zero and the player hulls have separate allocation ownership, just like a BSP.
+	// A real root node is required because SV_PointContents starts explicitly at node zero.
+	mod->numclipnodes = 1;
+	mod->clipnodes = static_cast<mclipnode_t *> (Mem_Alloc (sizeof (*mod->clipnodes)));
+	mod->clipnodes[0].children[0] = mod->clipnodes[0].children[1] = CONTENTS_EMPTY;
+	for (int hull = 0; hull < MAX_MAP_HULLS; ++hull)
+	{
+		mod->hulls[hull].planes = mod->planes;
+		mod->hulls[hull].clipnodes = mod->clipnodes;
+	}
+	mod->hulls[0].clipnodes = static_cast<mclipnode_t *> (Mem_Alloc (sizeof (*mod->clipnodes)));
+	*mod->hulls[0].clipnodes = *mod->clipnodes;
+	mod->hulls[1].clip_mins[0] = mod->hulls[1].clip_mins[1] = -16;
+	mod->hulls[1].clip_mins[2] = -24;
+	mod->hulls[1].clip_maxs[0] = mod->hulls[1].clip_maxs[1] = 16;
+	mod->hulls[1].clip_maxs[2] = 32;
+	mod->hulls[2].clip_mins[0] = mod->hulls[2].clip_mins[1] = -32;
+	mod->hulls[2].clip_mins[2] = -24;
+	mod->hulls[2].clip_maxs[0] = mod->hulls[2].clip_maxs[1] = 32;
+	mod->hulls[2].clip_maxs[2] = 64;
+
+	const char *empty_entities =
+		"{\n\"classname\" \"worldspawn\"\n\"message\" \"Quiver virtual world\"\n}\n"
+		"{\n\"classname\" \"info_player_start\"\n\"origin\" \"0 0 96\"\n}\n"
+		"{\n\"classname\" \"info_player_deathmatch\"\n\"origin\" \"0 0 96\"\n}\n";
+	const char *octree_entities =
+		"{\n\"classname\" \"worldspawn\"\n\"message\" \"Quiver octree world\"\n}\n"
+		"{\n\"classname\" \"info_player_start\"\n\"origin\" \"128 128 256\"\n}\n"
+		"{\n\"classname\" \"info_player_deathmatch\"\n\"origin\" \"128 128 256\"\n}\n";
+	const char *entities = !strcmp (mod->name, "maps/__octree.bsp") ? octree_entities : empty_entities;
+	mod->entities = static_cast<char *> (Mem_Alloc (strlen (entities) + 1));
+	strcpy (mod->entities, entities);
+	mod->contentstransparent = SURF_DRAWWATER | SURF_DRAWLAVA | SURF_DRAWSLIME | SURF_DRAWTELE;
+	Con_DPrintf ("Loaded virtual world %s (no BSP geometry)\n", mod->name);
+}
+
 /*
 ==================
 Mod_LoadModel
@@ -566,6 +646,12 @@ static qmodel_t *Mod_LoadModel (qmodel_t *mod, qboolean crash)
 		return mod;
 
 	InvalidateTraceLineCache ();
+
+	if (Mod_IsVirtualWorld (mod->name))
+	{
+		Mod_LoadVirtualWorld (mod);
+		return mod;
+	}
 
 	if (mod->type == mod_alias)
 	{

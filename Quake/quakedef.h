@@ -211,8 +211,9 @@ typedef enum
 // clang-format on
 //===========================================
 
-#define MAX_SCOREBOARD	   16
-#define MAX_SCOREBOARDNAME 32
+#define MAX_SCOREBOARD		  128
+#define MAX_LEGACY_SCOREBOARD 16
+#define MAX_SCOREBOARDNAME	  32
 
 #define SOUND_CHANNELS 8
 

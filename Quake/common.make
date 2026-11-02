@@ -12,7 +12,7 @@ DEBUG ?= 0
 
 CHECK_GCC = $(shell if echo | $(CC) $(1) -Werror -S -o /dev/null -xc - > /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi;)
 
-CFLAGS += -MMD -Wall -Wno-trigraphs -Werror -std=gnu++20
+CFLAGS += -MMD -Wall -Wno-trigraphs -Werror -std=gnu++26
 ifneq ($(HOST_OS),darwin)
 CFLAGS += -D_FILE_OFFSET_BITS=64
 endif
@@ -41,6 +41,19 @@ GLSLANG_OUT_FOLDER = Release
 else
 GLSLANG_FLAGS = -g -V
 GLSLANG_OUT_FOLDER = Debug
+endif
+
+# Optional native ICE dependency installed with Misc/build_gns.py.
+# Use an absolute prefix (cross-builds require a matching target library).
+GNS_PREFIX ?=
+GNS_LIBS :=
+ifneq ($(strip $(GNS_PREFIX)),)
+CFLAGS += -DQUIVER_HAVE_GNS=1 -I$(GNS_PREFIX)/include/GameNetworkingSockets
+LDFLAGS += -L$(GNS_PREFIX)/lib
+GNS_LIBS += -lGameNetworkingSockets
+ifneq ($(suffix $(DEFAULT_TARGET)),.exe)
+LDFLAGS += -Wl,-rpath,$(abspath $(GNS_PREFIX))/lib
+endif
 endif
 
 # ---------------------------
@@ -115,7 +128,8 @@ CFLAGS += -Imimalloc
 JOLT_DIR = ../Jolt
 JOLT_BUILD_DIR = $(JOLT_DIR)/Build/Linux_Distribution
 JOLT_LIB = $(JOLT_BUILD_DIR)/libJolt.a
-CFLAGS += -I$(JOLT_DIR)
+# Match the prebuilt Distribution library even when the engine is in debug mode.
+CFLAGS += -isystem $(JOLT_DIR) -DJPH_NO_DEBUG
 
 # ---------------------------
 # objects
@@ -158,6 +172,7 @@ SHADER_OBJS = \
 	basic_frag.o \
 	basic_notex_frag.o \
 	basic_vert.o \
+	basic_sky_vert.o \
 	sky_layer_frag.o \
 	sky_layer_vert.o \
 	sky_box_frag.o \
@@ -166,10 +181,20 @@ SHADER_OBJS = \
 	sky_atmosphere_frag.o \
 	sky_atmosphere_vert.o \
 	sky_clouds_frag.o \
+	sky_clouds_msaa_frag.o \
+	sky_clouds_vert.o \
+	sky_atmosphere_lut_comp.o \
+	sky_clouds_reduced_vert.o \
+	sky_clouds_reduced_frag.o \
+	sky_clouds_reduced_msaa_frag.o \
+	sky_clouds_composite_frag.o \
+	sky_clouds_composite_msaa_frag.o \
 	postprocess_frag.o \
 	postprocess_vert.o \
 	world_frag.o \
 	world_vert.o \
+	terrain_frag.o \
+	terrain_vert.o \
 	showtris_frag.o \
 	showtris_vert.o \
 	update_lightmap_8bit_comp.o \
@@ -253,6 +278,25 @@ OBJS := strlcat.o \
 	kd_svo.o \
 	noise_gen.o \
 	jolt_physics.o \
+	jolt_stream_world.o \
+	jolt_stream_character.o \
+	octree_world.o planet_generation.o world_solids.o terrain_features.o planet_surface.o \
+	terrain_lod.o \
+	terrain_mesher.o \
+	terrain_textures.o \
+	terrain_density.o \
+	terrain_collision.o \
+	terrain_lod_cache.o \
+	octree_checkpoint.o \
+	octree_paging.o \
+	octree_engine.o \
+	octree_qc.o \
+	octree_render.o \
+	world_protocol.o \
+	world_peer.o \
+	world_peer_gns.o \
+	sky_atmosphere.o \
+	sky_profile.o \
 	embedded_pak.o \
 	$(SYSOBJ_SYS) $(SYSOBJ_MAIN)
 

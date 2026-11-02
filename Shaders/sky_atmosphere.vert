@@ -8,9 +8,10 @@ layout (push_constant) uniform PushConsts
 	vec3  fog_color;
 	float fog_density;
 	vec3  eye_pos;
-	float time;
+	float display_scale;
 	vec3  sun_dir;
 	float sun_intensity;
+	float use_lut;
 }
 push_constants;
 

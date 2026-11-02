@@ -1,0 +1,57 @@
+// QUIVER_WORLDPOS_V1 -- classic VM opcodes and ordinary vector parameters.
+// Include after your standard Quake definitions. Compile to classic v6 progs.dat.
+// Check checkextension("QUIVER_WORLDPOS_V1") and wp_active() before using this API.
+//
+// A worldpos is an opaque vector token, not coordinates. Assignment aliases the
+// same mutable handle. Use wp_alloc + wp_copy for an independent position.
+// Never add, subtract, normalize, compare distances or access _x/_y/_z on tokens.
+// Handles owned by an entity expire when it is removed; world owns map-lived ones.
+// All handles expire at map transitions. Checkpoints remap explicitly registered
+// vector fields/globals to fresh handles, preserving aliases and exact positions.
+// Temporary/unregistered handles expire on load; never serialize raw tokens.
+#define worldpos vector
+
+float() wp_active = #0;
+worldpos(entity owner) wp_alloc = #0;
+void(worldpos value) wp_free = #0;
+float(worldpos value) wp_valid = #0;
+void(worldpos destination, worldpos source) wp_copy = #0;
+void(worldpos destination, entity subject) wp_getentity = #0;
+void(entity subject, worldpos position) wp_setentity = #0;
+void(worldpos destination, worldpos source, vector local_offset) wp_add = #0;
+// Delta is limited to 1048576 units per axis. Distance/direction support far positions.
+vector(worldpos to, worldpos from) wp_delta = #0;
+float(worldpos to, worldpos from) wp_distance = #0;
+vector(worldpos to, worldpos from) wp_direction = #0;
+// Contents matches Quake except -6 means unloaded terrain, which blocks movement.
+// Terrain-world solid contents follow the smooth density surface.
+float(worldpos position) wp_contents = #0;
+// Terrain-only sweep. Sets trace_fraction/startsolid/allsolid/plane_normal.
+// Uses smooth terrain geometry; empty-generator worlds use voxel boxes.
+// The end position is written to destination; trace_endpos is deliberately zero.
+// Entity collision is not included. Unknown chunks are solid. No chunks are loaded.
+float(worldpos destination, worldpos start, vector offset, vector mins, vector maxs) wp_tracebox_terrain = #0;
+// Iterate solid entity origins within radius, starting after world, until world is returned.
+entity(worldpos center, float radius, entity after) wp_findradius = #0;
+
+// Call from worldspawn for every custom vector field/global storing persistent
+// handles. Names must name vector declarations, not their _x/_y/_z components.
+// Registration is idempotent; native engine fields/globals cannot be registered.
+// Null ('0 0 0') is allowed. Saving a nonzero stale token fails: clear references
+// after wp_free or owner removal. Referenced owners must survive the checkpoint.
+// Multiplayer checkpoints reset player fields and all references to player-owned
+// handles; reconnecting players start fresh. World/nonplayer-owned handles persist.
+// Example: .worldpos home; worldpos quest_target;
+//          wp_register_field("home"); wp_register_global("quest_target");
+void(string name) wp_register_field = #0;
+void(string name) wp_register_global = #0;
+
+// Opt a nonplayer entity into persistent paging. Returning true accepts the opt-in;
+// actual paging also requires self-contained entity references and safe handles.
+// Every self-owned handle must be held only by this entity's registered fields.
+// Globals, other entities, unregistered vectors, temporary self-owned handles,
+// and references to world/other-owned handles pin the entity in memory. Clear
+// temporary aliases before returning from QC. Durable storage completes before
+// old handles expire; page-in remaps owned handles and self references to a fresh
+// entity slot. Never retain an edict reference to a streamable entity elsewhere.
+float(entity subject, float enabled) wp_streamable = #0;

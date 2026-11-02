@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_user.c -- server code for moving users
 
 #include "quakedef.h"
+#include "octree_engine.h"
 
 edict_t *sv_player;
 
@@ -377,6 +378,19 @@ the angle fields specify an exact angular motion in degrees
 void SV_ClientThink (void)
 {
 	vec3_t v_angle;
+	if (OW_IsEmptyMap ())
+	{
+		// Always use view-relative flight, independent of the player's noclip
+		// preference and without handing attack/jump buttons to gameplay QC.
+		sv_player->v.movetype = MOVETYPE_NOCLIP;
+		sv_player->v.solid = SOLID_NOT;
+		sv_player->v.health = 100;
+		VectorCopy (sv_player->v.v_angle, sv_player->v.angles);
+		velocity = sv_player->v.velocity;
+		cmd = host_client->cmd;
+		SV_NoclipMove ();
+		return;
+	}
 
 	if (sv_player->v.movetype == (float)MOVETYPE_NONE)
 		return;
@@ -530,13 +544,19 @@ qboolean SV_ReadClientMessage (void)
 			Sys_Printf ("SV_ReadClientMessage: unknown command char\n");
 			return false;
 
+		case clc_quiver_world:
+			if (!OW_ReadEdit (host_client))
+				return false;
+			break;
+
 		case clc_nop:
 			//			Sys_Printf ("clc_nop\n");
 			break;
 
 		case clc_stringcmd:
 			s = MSG_ReadString ();
-			if (q_strncasecmp (s, "spawn", 5) && q_strncasecmp (s, "begin", 5) && q_strncasecmp (s, "prespawn", 8) && qcvm->extfuncs.SV_ParseClientCommand)
+			if (!OW_IsEmptyMap () && q_strncasecmp (s, "spawn", 5) && q_strncasecmp (s, "begin", 5) && q_strncasecmp (s, "prespawn", 8) &&
+				qcvm->extfuncs.SV_ParseClientCommand)
 			{ // the spawn/begin/prespawn are because of numerous mods that disobey the rules.
 				// at a minimum, we must be able to join the server, so that we can see any sprints/bprints (because dprint sucks, yes there's proper ways
 				// to deal with this, but moders don't always know them).
@@ -594,6 +614,7 @@ void SV_RunClients (void)
 			if (host_client->netconnection == sock)
 			{
 				sv_player = host_client->edict;
+				OW_BeginEntity (sv_player);
 				if (!SV_ReadClientMessage ())
 				{
 					SV_DropClient (false); // client misbehaved...
@@ -610,6 +631,7 @@ void SV_RunClients (void)
 			continue;
 
 		sv_player = host_client->edict;
+		OW_BeginEntity (sv_player);
 
 		if (!host_client->spawned)
 		{

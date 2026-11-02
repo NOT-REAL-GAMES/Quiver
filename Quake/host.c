@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // host.c -- coordinates spawning and killing of local servers
 
 #include "quakedef.h"
+#include "octree_engine.h"
 #include "bgmusic.h"
 #include "tasks.h"
 #include "kd_model.h"
@@ -507,7 +508,7 @@ void SV_DropClient (qboolean crash)
 			NET_SendMessage (host_client->netconnection, &host_client->message);
 		}
 
-		if (host_client->edict && host_client->spawned)
+		if (host_client->edict && host_client->spawned && !OW_IsEmptyMap ())
 		{
 			// call the prog function for removing a client
 			// this will set the body to a dead frame, among other things
@@ -648,6 +649,7 @@ void Host_ClearMemory (void)
 	}
 
 	Con_DPrintf ("Clearing memory\n");
+	OW_Clear ();
 	Mod_ClearAll ();
 	Sky_ClearAll ();
 	if (!isDedicated)
@@ -760,6 +762,7 @@ void Host_ServerFrame (void)
 	SV_CheckForNewClients ();
 
 	// read client messages
+	OW_ServerFrame ();
 	SV_RunClients ();
 
 	// move things around and think
@@ -784,12 +787,15 @@ void Host_ServerFrame (void)
 	// johnfitz
 
 	// send all messages to the clients
+	OW_SyncEntities ();
 	SV_SendClientMessages ();
 }
 
 static void CL_LoadCSProgs (void)
 {
 	PR_ClearProgs (&cl.qcvm);
+	if (cl.worldmodel && !strcmp (cl.worldmodel->name, "maps/__empty.bsp"))
+		return; // Native empty-scene camera and HUD do not invoke mod scripts.
 	if (pr_checkextension.value && !cl_nocsqc.value)
 	{ // only try to use csqc if qc extensions are enabled.
 		char		 versionedname[MAX_QPATH];
@@ -1092,6 +1098,7 @@ void Host_Init (void)
 	KD_CompileInit ();
 	NET_Init ();
 	SV_Init ();
+	OW_Init ();
 
 	Con_Printf ("Exe: " __TIME__ " " __DATE__ "\n");
 
@@ -1173,6 +1180,7 @@ void Host_Shutdown (void)
 
 	Host_WriteConfiguration ();
 
+	OW_Clear ();
 	NET_Shutdown ();
 
 	if (cls.state != ca_dedicated)

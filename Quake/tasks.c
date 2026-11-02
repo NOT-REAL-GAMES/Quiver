@@ -59,7 +59,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define MAX_EXECUTABLE_TASKS 256
 #define MAX_DEPENDENT_TASKS	 16
 #define MAX_PAYLOAD_SIZE	 128
-#define WORKER_HUNK_SIZE	 (1 * 1024 * 1024)
 #define WAIT_SPIN_COUNT		 100
 
 COMPILE_TIME_ASSERT (tasks, MAX_EXECUTABLE_TASKS >= 256);
@@ -622,7 +621,9 @@ void Task_Submit (task_handle_t handle)
 	ANNOTATE_HAPPENS_BEFORE (task);
 	if (Atomic_DecrementUInt32 (&task->remaining_dependencies) == 1)
 	{
-		const int num_task_workers = (task->task_type == TASK_TYPE_INDEXED) ? q_min (task->indexed_limit, num_workers) : 1;
+		// An empty indexed task still needs a worker to complete its epoch and
+		// release dependents. Its indexed loop executes no user callbacks.
+		const int num_task_workers = (task->task_type == TASK_TYPE_INDEXED) ? q_max (1, q_min (task->indexed_limit, num_workers)) : 1;
 		Atomic_StoreUInt32 (&task->remaining_workers, num_task_workers);
 		for (int i = 0; i < num_task_workers; ++i)
 		{
@@ -756,6 +757,36 @@ static void IndexedTasks ()
 	TEMP_FREE (counters);
 }
 
+/* Empty indexed tasks must complete, including when submitted before their
+ * prerequisites, and must never invoke their indexed callback. */
+static void EmptyIndexedTestTask (int index, void *unused)
+{
+	TASKS_TEST_ASSERT (false, "Empty indexed task invoked its callback");
+}
+static void EmptyIndexedDependent (void *counter_ptr)
+{
+	++**static_cast<uint32_t **> (counter_ptr);
+}
+static void EmptyIndexedTasks ()
+{
+	uint32_t  completed = 0;
+	uint32_t *counter = &completed;
+	for (int iteration = 0; iteration < 1024; ++iteration)
+	{
+		task_handle_t prerequisite = Task_Allocate ();
+		task_handle_t empty = Task_AllocateAndAssignIndexedFunc (EmptyIndexedTestTask, 0, NULL, 0);
+		task_handle_t dependent = Task_AllocateAndAssignFunc (EmptyIndexedDependent, &counter, sizeof (counter));
+		Task_AddDependency (prerequisite, empty);
+		Task_AddDependency (empty, dependent);
+		Task_Submit (dependent);
+		Task_Submit (empty);
+		Task_Submit (prerequisite);
+		TASKS_TEST_ASSERT (Task_Join (dependent, 5000), "Empty indexed task blocked its dependent");
+		TASKS_TEST_ASSERT (Task_Join (empty, 5000), "Empty indexed task did not complete");
+		TASKS_TEST_ASSERT (completed == uint32_t (iteration + 1), "Empty indexed dependent ran incorrectly");
+	}
+}
+
 /*
 =================
 TestTasks_f
@@ -765,5 +796,7 @@ void TestTasks_f (void)
 {
 	LotsOfTasks ();
 	IndexedTasks ();
+	EmptyIndexedTasks ();
+	Con_Printf ("Task tests passed\n");
 }
 #endif

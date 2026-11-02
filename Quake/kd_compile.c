@@ -728,9 +728,10 @@ static int CreateBaseWindingRaw (vec3_t normal, float dist, vec3_t *verts)
 	vec3_t center;
 	VectorScale(normal, dist, center);
 
-	// Use a large size to accommodate big maps (65536 units = typical max Quake coordinate)
+	// Use a large size to accommodate big maps
 	// Must be larger than half the map size to ensure proper clipping
-	float size = 65536.0f;
+	// Support maps up to 8 million units across
+	float size = 4000000.0f;
 
 	VectorMA(center, -size, right, verts[0]);
 	VectorMA(verts[0], -size, forward, verts[0]);
@@ -1489,7 +1490,10 @@ static void KD_Compile_f (void)
 				vert_offset++;
 			}
 
-			// Fan triangulate the polygon
+			// Fan triangulate the polygon with reversed winding
+			// Quake brush faces have vertices wound CW when viewed from empty space (face normal direction)
+			// Jolt uses CCW winding for front faces, so we reverse: (0, j+1, j) instead of (0, j, j+1)
+			// This makes floor faces point UP (into empty space above) so IgnoreBackFaces works correctly
 			for (int j = 1; j < face->num_verts - 1; j++)
 			{
 				jolt_indices[index_offset++] = first_vert;
@@ -1558,14 +1562,15 @@ static void KD_Compile_f (void)
 		}
 	}
 
-	// Build the SVO
+	// SVO collision disabled - using Jolt physics instead
+#if 0
 	svo_t *svo = SVO_Build(svo_brushes, num_map_brushes, world_mins, world_maxs);
 	if (svo)
 	{
-		// Set as active collision tree
 		SVO_SetCollisionTree(svo);
 		Con_Printf("SVO collision tree activated\n");
 	}
+#endif
 
 	// Free temporary brush data
 	for (int i = 0; i < num_map_brushes; i++)
