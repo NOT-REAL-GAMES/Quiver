@@ -100,8 +100,28 @@ LIBS := $(COMMON_LIBS) $(CODECLIBS)
 # ---------------------------
 all: $(BINTOC_EXE) .WAIT $(DEFAULT_TARGET)
 
-vkquake: $(SHADER_OBJS) $(OBJS)
+QCC_SRCS := qccmain.c qcc_pr_comp.c qcc_pr_lex.c packager.c decomp.c \
+	comprout.c hash.c qcc_cmdlib.c qcd_main.c qcctui.c
+QCC_SRCS := $(addprefix ../ThirdParty/fteqcc/,$(QCC_SRCS))
+
+quiverscript: ../Tools/quiverscript.c
+	$(CC) -std=c11 -O2 $< -o $@
+
+fteqcc: $(QCC_SRCS)
+	$(CC) -std=gnu17 -O2 -DNO_ZLIB -Wno-pointer-sign $(QCC_SRCS) -lm -o $@
+
+id1-quakec/.stamp: $(wildcard ../ThirdParty/id1-quakec/*)
+	mkdir -p id1-quakec
+	cp -f ../ThirdParty/id1-quakec/* id1-quakec/
+	touch $@
+
+quiver_ripple/progs.dat: quiverscript fteqcc id1-quakec/.stamp ../Misc/scripts/ecs_ripple.qs
+	mkdir -p quiver_ripple
+	$(CURDIR)/quiverscript build --script $(CURDIR)/../Misc/scripts/ecs_ripple.qs --game-dir $(CURDIR)/quiver_ripple --qcc $(CURDIR)/fteqcc --qc-source $(CURDIR)/id1-quakec
+
+vkquake: $(SHADER_OBJS) $(OBJS) ../Misc/editor_defaults.wad quiver_ripple/progs.dat
 	$(LINKER) $(SHADER_OBJS) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
+	cp -f ../Misc/editor_defaults.wad ./editor_defaults.wad
 
 #Never strip, we want stack traces	
 #	$(call DO_STRIP,$@)
@@ -112,6 +132,9 @@ debug:
 
 clean:
 	make -C ../Misc/vq_pak clean
+	$(RM) -r .editor-tools
+	$(RM) -r id1-quakec quiver_ripple
+	$(RM) quiverscript fteqcc
 	$(RM) *.o *.d $(DEFAULT_TARGET) \
 	../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/*.c \
 	../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/*.spv \
@@ -126,3 +149,8 @@ INSTALL_PROGRAM ?= $(INSTALL)
 INSTALL_DATA ?= ${INSTALL} -m 644
 install: vkquake
 	$(INSTALL_PROGRAM) $(CURDIR)/vkquake $(DESTDIR)$(bindir)/vkquake
+	$(INSTALL_PROGRAM) $(CURDIR)/quiverscript $(DESTDIR)$(bindir)/quiverscript
+	$(INSTALL_PROGRAM) $(CURDIR)/fteqcc $(DESTDIR)$(bindir)/fteqcc
+	mkdir -p $(DESTDIR)$(bindir)/id1-quakec
+	cp -f id1-quakec/* $(DESTDIR)$(bindir)/id1-quakec/
+	$(INSTALL_DATA) ../Misc/editor_defaults.wad $(DESTDIR)$(bindir)/editor_defaults.wad

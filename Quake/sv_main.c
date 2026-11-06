@@ -36,8 +36,360 @@ unsigned int sv_protocol_pext2 = PEXT2_SUPPORTED_SERVER; // spike
 
 static cvar_t sv_netsort = {"sv_netsort", "1", CVAR_NONE};
 static cvar_t sv_smoothplatformlerps = {"sv_smoothplatformlerps", "1", CVAR_NONE};
+/* PEXT2 does not negotiate the remote peer's actual edict capacity. */
+static cvar_t sv_pext2_maxentities = {"sv_pext2_maxentities", "32000", CVAR_NONE};
 
 extern cvar_t nomonsters;
+
+/* Playable, map-specific ECS workload.  The marker classname makes edicts
+ * recoverable from saves.  A game may optionally provide a QC ripple callback;
+ * markers then acquire a separate local visual component. */
+#define SV_ECS_STRESS_MAX_ENTITIES 32768u
+#define SV_ECS_STRESS_SMALL_ENTITIES 1024u
+static const char sv_ecs_stress_classname[] = "quiver_ecs_stress";
+typedef struct { bool value; } sv_ecs_stress_component_t;
+typedef struct { uint32_t ordinal; } sv_ecs_stress_visual_t;
+static struct
+{
+	uint64_t world, ticks, updates, failures, snapshot_revision;
+	ecs_component_t component, visual_component;
+	uint32_t entities;
+	qboolean enabled, visual_enabled, snapshot_ready;
+	func_t ripple_tick;
+	bool expected;
+	double elapsed_ms, ripple_elapsed_ms, ripple_time;
+} sv_ecs_stress;
+/* This cache is written by the server tick and copied by the local client on
+ * the same host thread. Render workers consume the client's own copy. */
+static vec3_t sv_ecs_stress_positions[SV_ECS_STRESS_MAX_ENTITIES];
+/* Never reset across maps: a client may still hold the prior map's revision. */
+static uint64_t sv_ecs_stress_next_revision;
+/* Batch identity changes on every bind, independently of per-tick updates. */
+static uint32_t sv_ecs_stress_target;
+static struct
+{
+	func_t start, tick;
+	qboolean ready;
+} sv_quiver_script;
+
+static void SV_ECSStressPublishRevision (void)
+{
+	if (!++sv_ecs_stress_next_revision) ++sv_ecs_stress_next_revision;
+	sv_ecs_stress.snapshot_revision = sv_ecs_stress_next_revision;
+}
+
+/* Read the optional worldspawn marker from the compiled BSP.  Unknown
+ * underscore keys aren't retained as ordinary QuakeC edict fields. */
+static qboolean SV_WorldspawnHasKey (const char *data, const char *key, const char *value)
+{
+	if (!data || !(data = COM_Parse (data)) || strcmp (com_token, "{"))
+		return false;
+	while ((data = COM_Parse (data)) != NULL && strcmp (com_token, "}"))
+	{
+		qboolean marker = !strcmp (com_token, key);
+		data = COM_Parse (data);
+		if (!data) break;
+		if (marker && *com_token && (!value || !strcmp (com_token, value))) return true;
+	}
+	return false;
+}
+
+/* A host-issued callback is a top-level QuakeC invocation. Save the VM call
+ * registers as well as the conventional globals so regular game code keeps
+ * the same call context on return. */
+static void SV_QuiverMapCall (func_t function, qboolean pass_time)
+{
+	float saved_globals[OFS_PARM7 + 3 - OFS_RETURN];
+	float saved_time = pr_global_struct->time;
+	int saved_self = pr_global_struct->self, saved_other = pr_global_struct->other;
+	int saved_argc = qcvm->argc;
+	memcpy (saved_globals, &qcvm->globals[OFS_RETURN], sizeof (saved_globals));
+	pr_global_struct->self = EDICT_TO_PROG (qcvm->edicts);
+	pr_global_struct->other = EDICT_TO_PROG (qcvm->edicts);
+	pr_global_struct->time = (float)qcvm->time;
+	qcvm->argc = pass_time ? 1 : 0;
+	if (pass_time) G_FLOAT (OFS_PARM0) = (float)qcvm->time;
+	PR_ExecuteProgram (function);
+	memcpy (&qcvm->globals[OFS_RETURN], saved_globals, sizeof (saved_globals));
+	qcvm->argc = saved_argc;
+	pr_global_struct->self = saved_self;
+	pr_global_struct->other = saved_other;
+	pr_global_struct->time = saved_time;
+}
+
+void SV_QuiverMapTick (void)
+{
+	if (qcvm == &sv.qcvm && sv.active && sv_quiver_script.ready && sv_quiver_script.tick)
+		SV_QuiverMapCall (sv_quiver_script.tick, true);
+}
+
+static void SV_ECSStressPlace (edict_t *ent, uint32_t ordinal)
+{
+	/* Both layouts cover the same area and share the same center and script. */
+	if (sv_ecs_stress_target == SV_ECS_STRESS_SMALL_ENTITIES)
+	{
+		ent->v.origin[0] = ((float)(ordinal % 32u) - 15.5f) * 32.0f;
+		ent->v.origin[1] = ((float)(ordinal / 32u) - 15.5f) * 16.0f;
+	}
+	else
+	{
+		ent->v.origin[0] = ((float)(ordinal % 256u) - 127.5f) * 4.0f;
+		ent->v.origin[1] = ((float)(ordinal / 256u) - 63.5f) * 4.0f;
+	}
+	ent->v.origin[2] = 160.0f;
+}
+
+static void SV_ECSStressAttach (edict_t *ent, uint32_t ordinal, qboolean restored)
+{
+	ecs_entity_t handle = ECS_At (qcvm->ecs_world, (uint32_t)NUM_FOR_EDICT (ent));
+	if (!ECS_Add (qcvm->ecs_world, handle, sv_ecs_stress.component))
+		Sys_Error ("ECS stress: failed to bind test entity");
+	if (sv_ecs_stress.visual_enabled)
+	{
+		sv_ecs_stress_visual_t *visual = ECS_Add (qcvm->ecs_world, handle, sv_ecs_stress.visual_component);
+		if (!visual)
+			Sys_Error ("ECS stress: failed to bind visual component");
+		visual->ordinal = ordinal;
+		/* Old saves may contain inert markers from before the script was added. */
+		if (!restored || (ent->v.origin[0] == 0 && ent->v.origin[1] == 0 && ent->v.origin[2] == 0))
+			SV_ECSStressPlace (ent, ordinal);
+		VectorCopy (ent->v.origin, sv_ecs_stress_positions[ordinal]);
+	}
+}
+
+static qboolean SV_ECSStressMap (void)
+{
+	/* The original isolated benchmark supplies its own entity workload. */
+	return sv_ecs_stress_target != 0 && !COM_CheckParm ("-no-ecs-playable-stress") &&
+		!COM_CheckParm ("-ecs-level-stress");
+}
+
+static qboolean SV_ECSStressBind (void)
+{
+	uint32_t count = 0;
+	int classname;
+	if (!qcvm || !qcvm->ecs_world || !SV_ECSStressMap ())
+		return false;
+
+	ecs_entity_t world = ECS_At (qcvm->ecs_world, 0);
+	if (!ECS_Alive (qcvm->ecs_world, world))
+		return false;
+	memset (&sv_ecs_stress, 0, sizeof (sv_ecs_stress));
+	sv_ecs_stress.world = world.world;
+	sv_ecs_stress.component = ECS_Register (qcvm->ecs_world, sizeof (sv_ecs_stress_component_t));
+	if (sv_ecs_stress.component == ECS_INVALID_COMPONENT)
+	{
+		Con_Printf ("ECS stress: could not register the test component.\n");
+		return false;
+	}
+	/* Do not make a remote server silently depend on an unreplicated local
+	 * rendering path.  The script is opt-in via the separate game progs.dat. */
+	if (!isDedicated && svs.maxclients == 1)
+	{
+		dfunction_t *callback = ED_FindFunction ("quiver_ripple_tick");
+		if (callback)
+		{
+			sv_ecs_stress.ripple_tick = (func_t)(callback - qcvm->functions);
+			sv_ecs_stress.visual_component = ECS_Register (qcvm->ecs_world, sizeof (sv_ecs_stress_visual_t));
+			if (sv_ecs_stress.visual_component == ECS_INVALID_COMPONENT)
+				Sys_Error ("ECS stress: could not register visual component");
+			sv_ecs_stress.visual_enabled = true;
+		}
+	}
+
+	/* Restoring a saved game rebuilds the ECS world. Recover its marker
+	 * edicts first, then create any missing ones. */
+	for (int i = qcvm->reserved_edicts; i < qcvm->num_edicts; ++i)
+	{
+		edict_t *ent = EDICT_NUM (i);
+		if (ent->free || !ent->v.classname || strcmp (PR_GetString (ent->v.classname), sv_ecs_stress_classname))
+			continue;
+		if (count >= sv_ecs_stress_target)
+		{
+			Con_Printf ("ECS stress: too many restored marker entities.\n");
+			return false;
+		}
+		SV_ECSStressAttach (ent, count, true);
+		++count;
+	}
+	if (count > sv_ecs_stress_target ||
+		(uint32_t)(qcvm->max_edicts - qcvm->num_edicts) < sv_ecs_stress_target - count)
+	{
+		Con_Printf ("ECS stress: not enough edict slots; raise max_edicts and reload the map.\n");
+		sv_ecs_stress.entities = count;
+		return false;
+	}
+	classname = PR_SetEngineString (sv_ecs_stress_classname);
+	while (count < sv_ecs_stress_target)
+	{
+		edict_t *ent = ED_Alloc ();
+		ent->v.classname = classname;
+		SV_ECSStressAttach (ent, count, false);
+		++count;
+	}
+	sv_ecs_stress.entities = count;
+	sv_ecs_stress.enabled = true;
+	sv_ecs_stress.snapshot_ready = sv_ecs_stress.visual_enabled;
+	if (sv_ecs_stress.snapshot_ready) SV_ECSStressPublishRevision ();
+	Con_Printf ("ECS stress: %u entities active. Use ecs_stress_stats to inspect the workload.\n", count);
+	if (sv_ecs_stress.visual_enabled)
+		Con_Printf ("ECS stress: scripted local visuals active (%u markers).\n", count);
+	return true;
+}
+
+void SV_ECSStressTick (void)
+{
+	uint32_t cursor = 0, slot, count = 0, run_count;
+	size_t run_stride;
+	byte *run;
+	if (!SV_ECSStressMap () || !qcvm || !qcvm->ecs_world)
+		return;
+	ecs_entity_t world = ECS_At (qcvm->ecs_world, 0);
+	if (sv_ecs_stress.world != world.world && !SV_ECSStressBind ())
+		return;
+	if (!sv_ecs_stress.enabled)
+		return;
+	double start = Sys_DoubleTime ();
+	/* No lifecycle callbacks run during this pass, so iterate contiguous ECS
+	 * storage in batches. The scripted pass below still re-queries each slot
+	 * because arbitrary QuakeC can spawn, free, or alter other entities. */
+	while ((run = ECS_NextComponentRun (qcvm->ecs_world, cursor, (uint32_t)qcvm->num_edicts,
+			sv_ecs_stress.component, &slot, &run_count, &run_stride)) != NULL)
+	{
+		for (uint32_t i = 0; i < run_count; ++i, run += run_stride)
+		{
+			sv_ecs_stress_component_t *component = (sv_ecs_stress_component_t *)run;
+			if (component->value != sv_ecs_stress.expected)
+				++sv_ecs_stress.failures;
+			component->value = !component->value;
+		}
+		count += run_count;
+		cursor = slot + run_count;
+	}
+	sv_ecs_stress.elapsed_ms += (Sys_DoubleTime () - start) * 1000.0;
+	if (sv_ecs_stress.visual_enabled)
+	{
+		uint32_t vcursor = 0, vslot, vcount = 0;
+		sv_ecs_stress_visual_t *visual;
+		ecs_entity_t entity;
+		double visual_start = Sys_DoubleTime ();
+		sv_ecs_stress.ripple_time = qcvm->time;
+		float saved_time = pr_global_struct->time;
+		int saved_self = pr_global_struct->self, saved_other = pr_global_struct->other;
+		int saved_argc = qcvm->argc;
+		float saved_call_globals[OFS_PARM7 + 3 - OFS_RETURN];
+		memcpy (saved_call_globals, &qcvm->globals[OFS_RETURN], sizeof (saved_call_globals));
+		sv_ecs_stress.snapshot_ready = false;
+		while ((visual = ECS_NextComponentEntityUntil (qcvm->ecs_world, vcursor, (uint32_t)qcvm->num_edicts,
+				sv_ecs_stress.visual_component, &entity)) != NULL)
+		{
+			vslot = entity.index;
+			edict_t *ent = EDICT_NUM (vslot);
+			uint32_t ordinal = visual->ordinal;
+			vcursor = vslot + 1;
+			if (ordinal >= sv_ecs_stress_target || ent->free)
+			{
+				++sv_ecs_stress.failures;
+				continue;
+			}
+			G_INT (OFS_PARM0) = EDICT_TO_PROG (ent);
+			G_FLOAT (OFS_PARM1) = (float)sv_ecs_stress.ripple_time;
+			qcvm->argc = 2;
+			pr_global_struct->self = EDICT_TO_PROG (ent);
+			pr_global_struct->other = EDICT_TO_PROG (qcvm->edicts);
+			pr_global_struct->time = (float)sv_ecs_stress.ripple_time;
+			PR_ExecuteProgram (sv_ecs_stress.ripple_tick);
+			/* ECS_Get performs the same world/generation/aliveness checks as
+			 * ECS_Alive; do not look up the slot twice after every callback. */
+			if (ent->free || !ECS_Get (qcvm->ecs_world, entity, sv_ecs_stress.visual_component))
+			{
+				++sv_ecs_stress.failures;
+				continue;
+			}
+			++vcount;
+		}
+		memcpy (&qcvm->globals[OFS_RETURN], saved_call_globals, sizeof (saved_call_globals));
+		qcvm->argc = saved_argc;
+		pr_global_struct->self = saved_self;
+		pr_global_struct->other = saved_other;
+		pr_global_struct->time = saved_time;
+		if (vcount != sv_ecs_stress_target) ++sv_ecs_stress.failures;
+		else
+		{
+			/* Publish only after all callbacks: a later callback can move an
+			 * earlier entity. A partial set is never exposed as a valid frame. */
+			vcursor = vcount = 0;
+			while ((run = ECS_NextComponentRun (qcvm->ecs_world, vcursor, (uint32_t)qcvm->num_edicts,
+					sv_ecs_stress.visual_component, &vslot, &run_count, &run_stride)) != NULL)
+			{
+				uint32_t i;
+				for (i = 0; i < run_count; ++i, run += run_stride)
+				{
+					visual = (sv_ecs_stress_visual_t *)run;
+					edict_t *ent = EDICT_NUM (vslot + i);
+					if (ent->free || visual->ordinal >= sv_ecs_stress_target) break;
+					VectorCopy (ent->v.origin, sv_ecs_stress_positions[visual->ordinal]);
+					++vcount;
+				}
+				if (i != run_count) break;
+				vcursor = vslot + run_count;
+			}
+			if (vcount == sv_ecs_stress_target)
+			{
+				sv_ecs_stress.snapshot_ready = true;
+				SV_ECSStressPublishRevision ();
+			}
+			else ++sv_ecs_stress.failures;
+		}
+		sv_ecs_stress.ripple_elapsed_ms += (Sys_DoubleTime () - visual_start) * 1000.0;
+	}
+	if (count != sv_ecs_stress_target)
+		++sv_ecs_stress.failures;
+	sv_ecs_stress.entities = count;
+	sv_ecs_stress.expected = !sv_ecs_stress.expected;
+	++sv_ecs_stress.ticks;
+	sv_ecs_stress.updates += count;
+}
+
+uint64_t SV_ECSStressVisualRevision (void)
+{
+	if (!sv.active || !SV_ECSStressMap () || isDedicated || svs.maxclients != 1 || !sv_ecs_stress.enabled ||
+		!sv_ecs_stress.visual_enabled || !sv_ecs_stress.snapshot_ready || !sv.qcvm.ecs_world)
+		return 0;
+	ecs_entity_t world = ECS_At (sv.qcvm.ecs_world, 0);
+	if (world.world != sv_ecs_stress.world || !ECS_Alive (sv.qcvm.ecs_world, world))
+		return 0;
+	return sv_ecs_stress.snapshot_revision;
+}
+
+/* Zero means that no stable lifetime is available. */
+
+
+uint32_t SV_ECSStressVisualSnapshot (vec3_t *positions, uint32_t capacity)
+{
+	if (!SV_ECSStressVisualRevision ()) return 0;
+	uint32_t count = sv_ecs_stress.entities;
+	if (positions && capacity)
+		memcpy (positions, sv_ecs_stress_positions, sizeof (*positions) * q_min (count, capacity));
+	return count;
+}
+
+static void SV_ECSStressStats_f (void)
+{
+	if (!sv.active || !SV_ECSStressMap ())
+	{
+		Con_Printf ("ECS stress: inactive (load map ecs1024 or ecs32768).\n");
+		return;
+	}
+	Con_Printf ("ECS stress: active=%u entities=%u ticks=%llu updates=%llu failures=%llu mean_ms=%.6f\n",
+		(unsigned)sv_ecs_stress.enabled, sv_ecs_stress.entities,
+		(unsigned long long)sv_ecs_stress.ticks, (unsigned long long)sv_ecs_stress.updates,
+		(unsigned long long)sv_ecs_stress.failures,
+		sv_ecs_stress.ticks ? sv_ecs_stress.elapsed_ms / sv_ecs_stress.ticks : 0.0);
+	if (sv_ecs_stress.visual_enabled)
+		Con_Printf ("ECS ripple: visuals=%u script_mean_ms=%.6f time=%.6f transport=local_snapshot\n", sv_ecs_stress.entities,
+			sv_ecs_stress.ticks ? sv_ecs_stress.ripple_elapsed_ms / sv_ecs_stress.ticks : 0.0, sv_ecs_stress.ripple_time);
+}
 
 /*
 =============
@@ -53,7 +405,7 @@ static qboolean SV_UsePredThinkPos (edict_t *ent)
 		return false;
 	if (!((int)ent->v.flags & FL_ONGROUND))
 		return false;
-	float elapsedtime = qcvm->time - ent->lastthink;
+	float elapsedtime = qcvm->time - ent->timing.lastthink;
 	if (elapsedtime < 0 || elapsedtime > 0.1)
 		return false;
 	return true;
@@ -741,13 +1093,7 @@ static void SVFTE_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_
 		logbits = 0;
 		if (entbits & UF_REMOVE)
 		{
-			if (entnum > 0x3fff)
-			{
-				MSG_WriteShort (msg, 0xc000 | (entnum & 0x3fff));
-				MSG_WriteByte (msg, (entnum >> 14) & 0xff);
-			}
-			else
-				MSG_WriteShort (msg, 0x8000 | entnum);
+			MSG_WriteFTEEntityNumber (msg, (unsigned int) entnum, true);
 			logbits = UF_REMOVE;
 		}
 		else
@@ -775,13 +1121,7 @@ static void SVFTE_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_
 				else
 					logbits = netbits = entbits;
 
-				if (entnum >= 0x4000)
-				{
-					MSG_WriteShort (msg, 0x4000 | (entnum & 0x3fff));
-					MSG_WriteByte (msg, (entnum >> 14) & 0xff);
-				}
-				else
-					MSG_WriteShort (msg, entnum);
+				MSG_WriteFTEEntityNumber (msg, (unsigned int) entnum, false);
 				//				SV_EmitDeltaEntIndex(msg, j, false, true);
 				MSGFTE_WriteEntityUpdate (netbits, &state->state, msg, client->protocol_pext2, sv.protocolflags);
 			}
@@ -825,7 +1165,7 @@ void SV_BuildEntityState (edict_t *ent, entity_state_t *state)
 	eval_t *val;
 	state->eflags = 0;
 	if (SV_UsePredThinkPos (ent))
-		VectorCopy (ent->predthinkpos, state->origin);
+		VectorCopy (ent->timing.predthinkpos, state->origin);
 	else
 		VectorCopy (ent->v.origin, state->origin);
 	VectorCopy (ent->v.angles, state->angles);
@@ -869,7 +1209,7 @@ void SV_BuildEntityState (edict_t *ent, entity_state_t *state)
 	state->velocity[0] = state->velocity[1] = state->velocity[2] = 0;
 
 #ifdef LERP_BANDAID
-	state->lerp = (ent->sendinterval || ent->sendinterval_default) ? Q_rint ((ent->v.nextthink - qcvm->time) * 1000) + 1 : 0;
+	state->lerp = (ent->timing.sendinterval || ent->timing.sendinterval_default) ? Q_rint ((ent->v.nextthink - qcvm->time) * 1000) + 1 : 0;
 #endif
 }
 
@@ -947,6 +1287,8 @@ static void SVFTE_BuildSnapshotForClient (client_t *client)
 
 		ents[numents].num = e;
 		SV_BuildEntityState (ent, &ents[numents].state);
+		if (ents[numents].state.tagentity >= client->limit_entities)
+			ents[numents].state.tagentity = 0;
 		if ((unsigned int)ents[numents].state.modelindex >= client->limit_models)
 			ents[numents].state.modelindex = 0;
 		if (ent == clent) // add velocity, but we only care for the local player (should add prediction for other entities some time too).
@@ -979,7 +1321,7 @@ void MSG_WriteStaticOrBaseLine (sizebuf_t *buf, int idx, entity_state_t *state, 
 		if (idx >= 0)
 		{
 			MSG_WriteByte (buf, svcfte_spawnbaseline2);
-			MSG_WriteShort (buf, idx);
+			MSG_WriteEntity (buf, idx, protocol_pext2);
 		}
 		else
 			MSG_WriteByte (buf, svcfte_spawnstatic2);
@@ -1181,12 +1523,14 @@ void SV_Init (void)
 	Cvar_RegisterVariable (&sv_altnoclip); // johnfitz
 	Cvar_RegisterVariable (&sv_netsort);
 	Cvar_RegisterVariable (&sv_smoothplatformlerps);
+	Cvar_RegisterVariable (&sv_pext2_maxentities);
 
 	Cvar_RegisterVariable (&sv_fte_recursivehullckeck);
 	Cvar_RegisterVariable (&sv_fte_createareanode);
 
 	Cmd_AddCommand ("pext", SV_Pext_f);
 	Cmd_AddCommand ("sv_protocol", &SV_Protocol_f); // johnfitz
+	Cmd_AddCommand ("ecs_stress_stats", SV_ECSStressStats_f);
 
 	for (i = 0; i < MAX_MODELS; i++)
 		q_snprintf (localmodels[i], 8, "*%i", i);
@@ -1499,7 +1843,7 @@ void SV_SendServerinfo (client_t *client)
 	case PROTOCOL_FTE_PEXT2:					   // not a real protocol in itself, used to indicate QSS's full limits. FTE will match or allow higher.
 		client->limit_unreliable = NET_MAXMESSAGE; // some safe ethernet limit. these clients should accept pretty much anything, but any routers will not.
 		client->limit_reliable = NET_MAXMESSAGE;   // adhere to fitzquake's limits if we're recording a demoquite large, ip allows 16 bits
-		client->limit_entities = MAX_EDICTS;	   // we don't really know, 8k is probably a save guess but could be 32k, 65k, or even more...
+		client->limit_entities = CLAMP (MIN_EDICTS, (int)sv_pext2_maxentities.value, MAX_EDICTS);
 		client->limit_models = MAX_MODELS;		   // not really sure, client's problem until >14bits
 		client->limit_sounds = MAX_SOUNDS;		   // not really sure, client's problem until >14bits
 		break;
@@ -1509,6 +1853,9 @@ void SV_SendServerinfo (client_t *client)
 	{ // might as well super-size it. demo playback doesn't care. mostly only affects vanilla. we should trigger other warnings if this limit is exceeded so
 	  // don't worry about testers.
 		client->limit_unreliable = client->limit_reliable;
+		/* Only replacement deltas can represent entity numbers above 32767. */
+		if (client->protocol_pext2 & PEXT2_REPLACEMENTDELTAS)
+			client->limit_entities = qcvm->max_edicts;
 	}
 	else
 	{ // remote clients must not exceed ip MTUs.
@@ -1923,10 +2270,11 @@ qboolean SV_VisibleToClient (edict_t *client, edict_t *test, qmodel_t *worldmode
 
 //=============================================================================
 
-static uint16_t net_edicts[MAX_EDICTS];
-static byte		net_edict_dists[MAX_EDICTS];
+static uint32_t *net_edicts;
+static byte		*net_edict_dists;
 static int		net_edict_bins[256];
-static uint16_t net_edicts_sorted[MAX_EDICTS];
+static uint32_t *net_edicts_sorted;
+static size_t net_edict_capacity;
 
 /*
 =============
@@ -1957,6 +2305,20 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 
 	if (maxedict > client->limit_entities)
 		maxedict = client->limit_entities;
+	if (maxedict > net_edict_capacity)
+	{
+		/* Scratch space grows with actual network visibility, not the engine's
+		 * maximum edict limit. The buffers are reused across clients/maps. */
+		uint32_t *edicts = Mem_Realloc (net_edicts, (size_t) maxedict * sizeof (*edicts));
+		byte *dists = Mem_Realloc (net_edict_dists, (size_t) maxedict * sizeof (*dists));
+		uint32_t *sorted = Mem_Realloc (net_edicts_sorted, (size_t) maxedict * sizeof (*sorted));
+		if (!edicts || !dists || !sorted)
+			Sys_Error ("SV_WriteEntitiesToClient: unable to grow entity scratch arrays");
+		net_edicts = edicts;
+		net_edict_dists = dists;
+		net_edicts_sorted = sorted;
+		net_edict_capacity = maxedict;
+	}
 
 	// find the client's PVS
 	VectorAdd (clent->v.origin, clent->v.view_ofs, org);
@@ -2087,7 +2449,7 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 
 		vec3_t origin;
 		if (SV_UsePredThinkPos (ent))
-			VectorCopy (ent->predthinkpos, origin);
+			VectorCopy (ent->timing.predthinkpos, origin);
 		else
 			VectorCopy (ent->v.origin, origin);
 
@@ -2167,7 +2529,7 @@ void SV_WriteEntitiesToClient (client_t *client, sizebuf_t *msg, size_t overflow
 				bits |= U_MODEL2;
 			// nonstandard intervals are always sent; the default 0.1 the client assumes anyway is only worth
 			// the extra bytes on clients that are not constrained by the DATAGRAM_MTU packet budget
-			if (ent->sendinterval || (ent->sendinterval_default && client->limit_unreliable > DATAGRAM_MTU))
+			if (ent->timing.sendinterval || (ent->timing.sendinterval_default && client->limit_unreliable > DATAGRAM_MTU))
 				bits |= U_LERPFINISH;
 			if (bits >= 65536)
 				bits |= U_EXTEND1;
@@ -2851,7 +3213,7 @@ int SV_SendPrespawnBaselines (int idx)
 
 	while (1)
 	{
-		if (idx >= qcvm->num_edicts)
+		if (idx >= qcvm->num_edicts || (unsigned int)idx >= host_client->limit_entities)
 			return -1;
 		svent = EDICT_NUM (idx);
 
@@ -2859,7 +3221,12 @@ int SV_SendPrespawnBaselines (int idx)
 			break;
 
 		if (memcmp (&nullentitystate, &svent->baseline, sizeof (nullentitystate)))
-			MSG_WriteStaticOrBaseLine (&host_client->message, idx, &svent->baseline, host_client->protocol_pext2, sv.protocol, sv.protocolflags);
+		{
+			entity_state_t baseline = svent->baseline;
+			if (baseline.tagentity >= host_client->limit_entities)
+				baseline.tagentity = 0;
+			MSG_WriteStaticOrBaseLine (&host_client->message, idx, &baseline, host_client->protocol_pext2, sv.protocol, sv.protocolflags);
+		}
 
 		idx++;
 	}
@@ -3358,12 +3725,15 @@ SV_SpawnServer
 This is called at the start of each level
 ================
 */
-void SV_SpawnServer (const char *server)
+void SV_SpawnServer (const char *server, qboolean restoring)
 {
 	static char dummy[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 	edict_t	   *ent;
 	int			i, signonsize;
 	qcvm_t	   *vm = qcvm;
+	memset (&sv_ecs_stress, 0, sizeof (sv_ecs_stress));
+	memset (&sv_quiver_script, 0, sizeof (sv_quiver_script));
+	sv_ecs_stress_target = 0;
 
 	// let's not have any servers with no name
 	if (hostname.string[0] == 0)
@@ -3426,7 +3796,9 @@ void SV_SpawnServer (const char *server)
 	// allocate server memory
 	/* Host_ClearMemory() called above already cleared the whole sv structure */
 	qcvm->max_edicts = CLAMP (MIN_EDICTS, (int)max_edicts.value, MAX_EDICTS);  // johnfitz -- max_edicts cvar
-	qcvm->edicts = (edict_t *)Mem_Alloc (qcvm->max_edicts * qcvm->edict_size); // ericw -- sv.edicts switched to use malloc()
+	qcvm->edicts = (edict_t *)Mem_Alloc (ED_EdictAllocSize (qcvm));
+	if (!qcvm->edicts)
+		Host_Error ("Unable to allocate %i server edicts", qcvm->max_edicts);
 
 #if defined(DEBUG) || defined(_DEBUG)
 	for (int j = 0; j < qcvm->max_edicts; j++)
@@ -3479,6 +3851,18 @@ void SV_SpawnServer (const char *server)
 		sv.active = false;
 		return;
 	}
+	if (!q_strcasecmp (sv.name, "ecs32768") ||
+		SV_WorldspawnHasKey (qcvm->worldmodel->entities, "_quiver_ecs_stress", "32768"))
+		sv_ecs_stress_target = SV_ECS_STRESS_MAX_ENTITIES;
+	else if (SV_WorldspawnHasKey (qcvm->worldmodel->entities, "_quiver_ecs_stress", "1024"))
+		sv_ecs_stress_target = SV_ECS_STRESS_SMALL_ENTITIES;
+	if (SV_WorldspawnHasKey (qcvm->worldmodel->entities, "_quiver_script", NULL))
+	{
+		dfunction_t *function = ED_FindFunction ("quiver_map_start");
+		if (function) sv_quiver_script.start = (func_t)(function - qcvm->functions);
+		function = ED_FindFunction ("quiver_map_tick");
+		if (function) sv_quiver_script.tick = (func_t)(function - qcvm->functions);
+	}
 	sv.models[1] = qcvm->worldmodel;
 	qcvm->GetModel = SV_ModelForIndex;
 
@@ -3526,6 +3910,16 @@ void SV_SpawnServer (const char *server)
 	pr_global_struct->serverflags = svs.serverflags;
 
 	ED_LoadFromFile (qcvm->worldmodel->entities);
+	if (SV_ECSStressMap ())
+	{
+		ED_ECSReconcile ();
+		SV_ECSStressBind ();
+	}
+	/* A save restores its own globals and entities after SV_SpawnServer; running
+	 * start here would cause non-reversible side effects a second time. Run on
+	 * fresh maps only, after both map and engine-created entities are ready. */
+	if (!restoring && sv_quiver_script.start)
+		SV_QuiverMapCall (sv_quiver_script.start, false);
 
 	sv.active = true;
 
@@ -3538,6 +3932,7 @@ void SV_SpawnServer (const char *server)
 	host_frametime = 0.1;
 	SV_Physics ();
 	SV_Physics ();
+	sv_quiver_script.ready = true;
 
 	// create a baseline for more efficient communications
 	SV_CreateBaseline ();

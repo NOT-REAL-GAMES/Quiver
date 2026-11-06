@@ -26,7 +26,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "bgmusic.h"
 #include "steam.h"
 #include "tasks.h"
+#include "editor.h"
+#include "static_models_engine.h"
 #include <setjmp.h>
+#ifdef ECS_LEVEL_STRESS
+void ECS_LevelStressTick (void);
+#endif
 #ifdef _DEBUG
 #include "gl_heap.h"
 #endif
@@ -70,7 +75,7 @@ cvar_t host_maxfps = {"host_maxfps", "200", CVAR_ARCHIVE};	// johnfitz
 cvar_t host_phys_max_ticrate = {"host_phys_max_ticrate", "0", CVAR_NONE}; // vso = [0 = disabled; MAX_PHYSICS_FREQ]
 
 cvar_t host_timescale = {"host_timescale", "0", CVAR_NONE}; // johnfitz
-cvar_t max_edicts = {"max_edicts", "32000", CVAR_NONE};		// vso -- changed from 8192 to 32000 = MAX_EDICTS, because there is no performance impact to do so
+cvar_t max_edicts = {"max_edicts", "32000", CVAR_NONE};		// default capacity; larger worlds can opt in to more memory
 cvar_t cl_nocsqc = {"cl_nocsqc", "0", CVAR_NONE};			// spike -- blocks the loading of any csqc modules
 
 cvar_t sys_ticrate = {"sys_ticrate", "0.025", CVAR_NONE}; // dedicated server
@@ -351,6 +356,20 @@ void Host_Callback_Notify (cvar_t *var)
 
 static void Host_WriteConfig_f (void);
 
+/* ECS storage is separate from the legacy entity arrays and QuakeC data. */
+static void Host_ECSStats_f (void)
+{
+	Con_Printf ("ECS allocation (bytes, excluding allocator overhead): server %zu, client QC %zu, client render %zu\n",
+		ECS_BytesAllocated (sv.qcvm.ecs_world), ECS_BytesAllocated (cl.qcvm.ecs_world), CL_ECSBytesAllocated ());
+	Con_Printf ("Client protocol slots bound: %u\n", CL_ECSBindingCount ());
+}
+
+/* Two samples give an uncapped frame rate without printing once per frame. */
+static void Host_FrameStats_f (void)
+{
+	Con_Printf ("Host frames: count=%u time=%.9f\n", (unsigned int)host_framecount, Sys_DoubleTime ());
+}
+
 /*
 =======================
 Host_InitLocal
@@ -360,6 +379,8 @@ void Host_InitLocal (void)
 {
 	Cmd_AddCommand ("version", Host_Version_f);
 	Cmd_AddCommand ("writeconfig", Host_WriteConfig_f);
+	Cmd_AddCommand ("ecs_stats", Host_ECSStats_f);
+	Cmd_AddCommand ("host_frame_stats", Host_FrameStats_f);
 
 	Host_InitCommands ();
 
@@ -425,7 +446,7 @@ void Host_WriteConfiguration (void)
 	FILE *f;
 
 	// dedicated servers initialize the host but don't parse and set the config cvars
-	if (host_initialized && !isDedicated && !host_parms->errstate)
+	if (host_initialized && !isDedicated && !host_parms->errstate && !COM_CheckParm ("-quiver-editor-playtest"))
 	{
 		f = COM_FOpenConfigFile (true, "w");
 		if (!f)
@@ -839,7 +860,7 @@ static void Host_CheckAutosave (void)
 {
 	float health_change, speed, elapsed, score;
 
-	if (sv_autosave.value <= 0.0f || sv_autosave_interval.value <= 0.f || svs.maxclients != 1 || sv_player->v.health <= 0.f || cl.intermission ||
+	if (isDedicated || !sv_player || sv_autosave.value <= 0.0f || sv_autosave_interval.value <= 0.f || svs.maxclients != 1 || sv_player->v.health <= 0.f || cl.intermission ||
 		Host_IsSaving ())
 		return;
 
@@ -934,6 +955,9 @@ void Host_ServerFrame (void)
 	double		  t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0;
 	static double clients_ms, physics_ms, stats_ms, send_ms, interval_start;
 	static int	  ticks;
+#ifdef ECS_LEVEL_STRESS
+	qboolean stress_ran_physics = false;
+#endif
 
 	if (sv_speeds.value)
 		t0 = Sys_DoubleTime ();
@@ -956,10 +980,21 @@ void Host_ServerFrame (void)
 	// move things around and think
 	// always pause in single player if in console or menus
 	if (!sv.paused && (svs.maxclients > 1 || key_dest == key_game))
+	{
 		SV_Physics ();
+		SV_ECSStressTick ();
+#ifdef ECS_LEVEL_STRESS
+		stress_ran_physics = true;
+#endif
+	}
 
 	if (sv_speeds.value)
 		t2 = Sys_DoubleTime ();
+
+#ifdef ECS_LEVEL_STRESS
+	if (stress_ran_physics)
+		ECS_LevelStressTick ();
+#endif
 
 	// johnfitz -- devstats
 	// the count is only observable through the devstats overlay and a developer warning, so don't walk every edict per tick unless one of them can see it
@@ -1050,7 +1085,9 @@ static void CL_LoadCSProgs (void)
 			(PR_LoadProgs ("progs.dat", false, PROGHEADER_CRC, pr_csqcbuiltins, pr_csqcnumbuiltins) && qcvm->extfuncs.CSQC_DrawHud))
 		{
 			qcvm->max_edicts = CLAMP (MIN_EDICTS, (int)max_edicts.value, MAX_EDICTS);
-			qcvm->edicts = (edict_t *)Mem_Alloc (qcvm->max_edicts * qcvm->edict_size);
+			qcvm->edicts = (edict_t *)Mem_Alloc (ED_EdictAllocSize (qcvm));
+			if (!qcvm->edicts)
+				Host_Error ("Unable to allocate %i client QuakeC edicts", qcvm->max_edicts);
 			qcvm->num_edicts = qcvm->reserved_edicts = 1;
 #if defined(DEBUG) || defined(_DEBUG)
 			// set debug fiels for all max_edicts
@@ -1212,6 +1249,8 @@ static void _Host_Frame (double time)
 
 	// process console commands
 	Cbuf_Execute ();
+	if (!isDedicated)
+		Editor_Frame ();
 	if (host_framecount == 0)
 		SCR_EndStartupLoadingPlaque ();
 
@@ -1400,6 +1439,7 @@ void Host_Init (void)
 	}
 	PR_Init ();
 	Mod_Init ();
+	StaticModels_Init ();
 	NET_Init ();
 	SV_Init ();
 
@@ -1437,6 +1477,7 @@ void Host_Init (void)
 		BGM_Init ();
 		Sbar_Init ();
 		CL_Init ();
+		Editor_Init ();
 		Tests_Init ();
 	}
 
@@ -1464,6 +1505,20 @@ void Host_Init (void)
 		// johnfitz -- in case the vid mode was locked during vid_init, we can unlock it now.
 		// note: two leading newlines because the command buffer swallows one of them.
 		Cbuf_AddText ("\n\nvid_unlock\n");
+		/* Do not route editor playtest startup through stuffcmds: its legacy
+		 * command-line buffer truncates long basedir/userdir paths. */
+		int playtest = COM_CheckParm ("-quiver-editor-playtest");
+		if (playtest && playtest + 1 < com_argc)
+		{
+			const char *map = com_argv[playtest + 1]; qboolean valid = *map != 0;
+			for (const unsigned char *p = (const unsigned char *)map; *p; ++p)
+				if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+					(*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) valid = false;
+			int edicts_arg = COM_CheckParm ("-quiver-playtest-edicts");
+			if (edicts_arg && edicts_arg + 1 < com_argc)
+				Cbuf_AddText (va ("max_edicts %d\n", CLAMP (MIN_EDICTS, atoi (com_argv[edicts_arg + 1]), MAX_EDICTS)));
+			if (valid) Cbuf_AddText (va ("map %s\n", map));
+		}
 	}
 
 	if (cls.state == ca_dedicated)
@@ -1506,6 +1561,7 @@ void Host_Shutdown (void)
 
 	if (cls.state != ca_dedicated)
 	{
+		Editor_Shutdown ();
 		if (con_initialized)
 			History_Shutdown ();
 		ExtraMaps_ShutDown ();

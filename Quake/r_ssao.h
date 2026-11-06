@@ -20,6 +20,8 @@ typedef struct
 
 void R_InitSSAO (void);
 void R_CreateSSAO (VkImage depth);
+VkResult R_TryCreateSSAO (VkImage depth);
+void R_FinalizeSSAO (void);
 void R_DestroySSAO (void);
 void R_PrepareSSAOWorldDepth (cb_context_t *cbx);
 void R_ComputeSSAO (cb_context_t *cbx);

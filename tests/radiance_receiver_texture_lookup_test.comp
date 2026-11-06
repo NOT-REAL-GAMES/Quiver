@@ -1,0 +1,83 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Compare the compiled fast lookup, at every requested filter strength,
+ * against the production legacy eight-corner lookup on varied probe data. */
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+const float RC_PI=3.14159265358979323846;
+const uint RC_ABSENT=0xffffffffu;
+struct RCCascade { uvec4 meta; vec4 origin_spacing; vec4 interval; };
+RCCascade rcLevels[1];
+uint rcMergedValid[256],rcRawValid[256],rcBrickTable[1];
+float rcMergedDistance[256],rcRawDistance[256];
+vec4 rcMerged[256],rcRaw[256];
+uint RC_RecordIndex(RCCascade c,uvec3 cell,uvec2 direction) {
+    if(any(greaterThanEqual(cell,uvec3(4))) || rcBrickTable[0]==RC_ABSENT) return RC_ABSENT;
+    return rcBrickTable[0]+((cell.z*4u+cell.y)*4u+cell.x)*4u+direction.y*2u+direction.x;
+}
+vec3 RC_ProbePosition(RCCascade c,uvec3 cell) { return c.origin_spacing.xyz+(vec3(cell)+.5)*c.origin_spacing.w; }
+vec3 RC_Direction(uvec2 bin,uint side) {
+    float azimuth=(bin.y&1u)!=0u ? .25 : .75;
+    vec2 uv=(vec2(bin)+vec2(azimuth,.5))/float(side);
+    float z=1.0-2.0*uv.y,r=sqrt(max(0.0,1.0-z*z)),phi=2.0*RC_PI*uv.x;
+    return vec3(r*cos(phi),r*sin(phi),z);
+}
+#define RC_INDIRECT_BOUNCE 0
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#include "radiance_lookup.glsl"
+#undef QUIVER_RADIANCE_LOOKUP_GLSL
+#undef RC_RECEIVER_TEXTURE_FILTER
+#define RC_RECEIVER_TEXTURE_FILTER 0
+#define RC_DirectionBin RC_ReferenceDirectionBin
+#define RC_DirectionBinFromOffset RC_ReferenceDirectionBinFromOffset
+#define RC_ReceiverProbeBase RC_ReferenceProbeBase
+#define RC_SampleDiffuseMode RC_ReferenceDiffuseMode
+#define RC_SampleDiffuse RC_ReferenceDiffuse
+#include "radiance_lookup.glsl"
+#undef RC_DirectionBin
+#undef RC_DirectionBinFromOffset
+#undef RC_ReceiverProbeBase
+#undef RC_SampleDiffuseMode
+#undef RC_SampleDiffuse
+#undef QUIVER_RADIANCE_LOOKUP_GLSL
+#undef RC_RECEIVER_TEXTURE_FILTER
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#define RC_RECEIVER_GAUSSIAN_FALLBACK 1
+#define RC_DirectionBin RC_FallbackDirectionBin
+#define RC_DirectionBinFromOffset RC_FallbackDirectionBinFromOffset
+#define RC_ReceiverProbeBase RC_FallbackProbeBase
+#define RC_SampleDiffuseMode RC_FallbackDiffuseMode
+#define RC_SampleDiffuse RC_FallbackDiffuse
+#include "radiance_lookup.glsl"
+#undef RC_DirectionBin
+#undef RC_DirectionBinFromOffset
+#undef RC_ReceiverProbeBase
+#undef RC_SampleDiffuseMode
+#undef RC_SampleDiffuse
+void main() {
+    for(int i=0;i<16;++i) result[i]=1u;
+    rcLevels[0].meta=uvec4(4,2,0,4); rcLevels[0].origin_spacing=vec4(-1,-2,-3,1.5);
+    rcLevels[0].interval=vec4(0,3,0,0);
+    bool gaussianDifference=false;
+    for(int t=0;t<384;++t) {
+        rcBrickTable[0]=t%19==0 ? RC_ABSENT : 0u;
+        for(int i=0;i<256;++i) {
+            rcMergedValid[i]=uint((i+t)%7!=0); rcRawValid[i]=uint((i+t)%3!=0);
+            rcMergedDistance[i]=float((i*7+t*3)%23)*.2;
+            rcRawDistance[i]=float((i*11+t*5)%29)*.1;
+            rcMerged[i]=vec4(float(i%5)*.2,float(i%7)*.1,float(i%11)*.05,1);
+            rcRaw[i]=vec4(float(i%7)*.13,float(i%3)*.17,float(i%13)*.04,float(i%2));
+        }
+        vec3 cell=vec3(float((t*7)%113),float((t*13)%113),float((t*19)%113))*(4.0/112.0);
+        vec3 p=rcLevels[0].origin_spacing.xyz+cell*rcLevels[0].origin_spacing.w;
+        vec3 n=normalize(vec3(float(t%7)-3.1,float(t%11)-5.2,float(t%13)-6.3));
+        vec3 a,b;
+        bool av=RC_SampleDiffuseMode(p,n,float(t%3),a),bv=RC_ReferenceDiffuseMode(p,n,0.0,b);
+        if(av!=bv || any(greaterThan(abs(a-b),vec3(.00001)))) result[t%16]=0u;
+        bool fv=RC_FallbackDiffuseMode(p,n,float(t%3),a),rv=RC_ReferenceDiffuseMode(p,n,float(t%3),b);
+        if(fv!=rv || any(greaterThan(abs(a-b),vec3(.00001)))) result[t%16]=0u;
+        vec3 fixedEight; RC_SampleDiffuseMode(p,n,float(t%3),fixedEight);
+        gaussianDifference=gaussianDifference || any(greaterThan(abs(a-fixedEight),vec3(.0001)));
+    }
+    if(!gaussianDifference) result[15]=0u;
+}

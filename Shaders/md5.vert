@@ -64,6 +64,11 @@ layout (location = 7) in vec4 in_joint_position_z0;
 layout (location = 0) out vec2 out_texcoord;
 layout (location = 1) out vec4 out_color;
 layout (location = 2) out float out_fog_frag_coord;
+#if RADIANCE_LIGHTING
+layout (location = 3) out vec3 out_world_position;
+layout (location = 4) out vec3 out_world_normal;
+#include "radiance_model_normal.glsl"
+#endif
 
 out gl_PerVertex
 {
@@ -109,6 +114,10 @@ void main ()
 	const vec4 lerped_position = vec4 (mix (skinned_positions[0], skinned_positions[1], ubo.blend_factor), 1.0f);
 	const vec4 model_space_position = ubo.model_matrix * lerped_position;
 	gl_Position = push_constants.view_projection_matrix * model_space_position;
+#if RADIANCE_LIGHTING
+	out_world_position = model_space_position.xyz;
+	out_world_normal = RC_TransformModelNormal (ubo.model_matrix, mix (skinned_normals[0], skinned_normals[1], ubo.blend_factor));
+#endif
 
 	if ((ubo.flags & 0x2) == 0)
 	{

@@ -1,0 +1,39 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) buffer Results { vec4 result[]; };
+
+void main()
+{
+	RCLight light = rcLights[0];
+	float front = RC_EvaluateOneLight(light, vec3(-4.5,0,4), vec3(0,0,-1)).r;
+	float blocked = RC_EvaluateOneLight(light, vec3(-3,0,4), vec3(0,0,-1)).r;
+	float back = RC_EvaluateOneLight(light, vec3(-4.5,0,-4), vec3(0,0,1)).r;
+	light.metadata.z &= ~32u;
+	float legacyBack = RC_EvaluateOneLight(light, vec3(-4.5,0,-4), vec3(0,0,1)).r;
+	result[0] = vec4(front, blocked, back, legacyBack);
+	vec3 direct, minimum;
+	RC_EvaluateDirectComponents(vec3(-4.5,0,4), vec3(0,0,-1), direct, minimum);
+	vec3 combined = RC_EvaluateLighting(vec3(-4.5,0,4), vec3(0,0,-1), vec3(0.2));
+	vec3 reconstructed = RC_CombineDirectIndirect(direct, minimum, vec3(0.2));
+	/* Signed direct, local-minimum, and indirect are kept distinct. */
+	vec3 synthetic = RC_CombineDirectIndirect(vec3(-0.5, 0.8, -0.5), vec3(0.1, 0.1, -0.1), vec3(0.2, 0.2, 0.1));
+	result[2] = vec4(length(combined - reconstructed), synthetic);
+	RCSceneHit frontHit, backHit;
+	bool foundFront = RC_SceneTrace(vec3(-4.5,0,4), vec3(0,0,-1), 0.01, 10, frontHit);
+	bool foundBack = RC_SceneTrace(vec3(-4.5,0,-4), vec3(0,0,1), 0.01, 10, backHit);
+	if (!foundFront || !foundBack) { result[1] = vec4(-1); return; }
+	vec3 frontRepresented = RC_ShadeHit(frontHit, vec3(0,0,-1));
+	vec3 backRepresented = RC_ShadeHit(backHit, vec3(0,0,1));
+	frontHit.flags &= ~RC_SCENE_EMISSIVE_PROXY;
+	backHit.flags &= ~RC_SCENE_EMISSIVE_PROXY;
+	vec3 frontUnrepresented = RC_ShadeHit(frontHit, vec3(0,0,-1));
+	vec3 backUnrepresented = RC_ShadeHit(backHit, vec3(0,0,1));
+	result[1] = vec4(length(frontUnrepresented-frontRepresented), length(backUnrepresented-backRepresented),
+		frontHit.normal.z, backHit.normal.z);
+}

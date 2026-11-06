@@ -203,6 +203,8 @@ void MSG_WriteCoord (sizebuf_t *sb, float f, unsigned int flags);
 void MSG_WriteAngle (sizebuf_t *sb, float f, unsigned int flags);
 void MSG_WriteAngle16 (sizebuf_t *sb, float f, unsigned int flags);			  // johnfitz
 void MSG_WriteEntity (sizebuf_t *sb, unsigned int index, unsigned int pext2); // spike
+/* PEXT2 snapshot entity indices use 14 low bits, 8 optional high bits and a removal flag. */
+void MSG_WriteFTEEntityNumber (sizebuf_t *sb, unsigned int index, qboolean remove);
 struct entity_state_s;
 void MSG_WriteStaticOrBaseLine (
 	sizebuf_t *buf, int idx, struct entity_state_s *state, unsigned int protocol_pext2, unsigned int protocol,
@@ -227,6 +229,7 @@ float		 MSG_ReadAngle (unsigned int flags);
 float		 MSG_ReadAngle16 (unsigned int flags); // johnfitz
 byte		*MSG_ReadData (unsigned int length);   // spike
 unsigned int MSG_ReadEntity (unsigned int pext2);  // spike
+unsigned int MSG_ReadFTEEntityNumber (qboolean *remove);
 
 void COM_Effectinfo_Enumerate (int (*cb) (const char *pname)); // spike -- for dp compat
 

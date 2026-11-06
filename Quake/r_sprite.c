@@ -108,7 +108,7 @@ static void R_CreateSpriteVertices (entity_t *e, mspriteframe_t *frame, basicver
 	msprite_t *psprite;
 	float	  *s_up, *s_right;
 	float	   angle, sr, cr;
-	float	   scale = ENTSCALE_DECODE (e->netstate.scale);
+	float	   scale = R_EntityModelScale (e);
 
 	psprite = (msprite_t *)Mod_Extradata (e->model);
 

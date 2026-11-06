@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // view.c -- player eye positioning
 
 #include "quakedef.h"
+#include "editor_ui.h"
 
 /*
 
@@ -914,7 +915,7 @@ extern vrect_t scr_vrect;
 void V_RenderView (
 	qboolean use_tasks, task_handle_t begin_rendering_task, task_handle_t setup_frame_task, task_handle_t draw_done_task, task_handle_t draw_gui_task)
 {
-	if (con_forcedup)
+	if (con_forcedup || EditorUI_IsActive ())
 	{
 		R_ClearDebugEntityInfo ();
 		render_warp = false;

@@ -1,0 +1,122 @@
+#version 460
+// Only complete tiles inside an actual opaque world polygon can acquire depth.
+layout (local_size_x = 32) in;
+layout (set = 0, binding = 0, std430) buffer Hierarchy { uint words[]; };
+const int N = 64, MAX_VERTS = 12;
+struct Polygon { vec4 plane; vec4 verts[MAX_VERTS]; };
+layout (set = 0, binding = 1, std430) readonly buffer Occluders { Polygon faces[]; };
+layout (push_constant) uniform PC { mat4 mvp; vec4 eye; vec2 pixel_ndc; } pc;
+shared vec4 clips[MAX_VERTS], errors[MAX_VERTS];
+shared vec3 edge_test[MAX_VERTS+1];
+shared ivec2 lo, extent;
+shared int edges;
+shared uint bound;
+
+void prepare (int n)
+{
+	edges = 0;
+	vec4 plane = faces[gl_WorkGroupID.x].plane;
+	float side = dot (plane.xyz, pc.eye.xyz) - plane.w;
+	if (!(side > 0.001 + 0.000002 * (dot (abs (plane.xyz), abs (pc.eye.xyz)) + abs (plane.w))))
+		return;
+
+	vec4 e = vec4 (0);
+	for (int i = 0; i < n; ++i)
+		e = max (e, errors[i]);
+	// Clip away a little EXTRA at the near plane. The new vertices lie on
+	// edges of the original convex face. Project only points known to lie
+	// inside the hardware depth range; leave far-plane intersections open.
+	vec2 projected[MAX_VERTS+1];
+	int count = 0;
+	float depth = 1.0;
+	vec2 err = vec2 (0), bmin = vec2 (16), bmax = vec2 (-16);
+	float guard = 2.0 * (e.z + e.w) + 0.001;
+	for (int i = 0; i < n; ++i)
+	{
+		vec4 a = clips[i == 0 ? n-1 : i-1], b = clips[i];
+		float da = a.w - a.z - guard, db = b.w - b.z - guard;
+		bool crossing = (da > 0) != (db > 0);
+		for (int j = 0; j < int (crossing) + int (db > 0); ++j)
+		{
+			vec4 point = crossing && j == 0 ? mix (a, b, clamp (da / (da - db), 0.0, 1.0)) : b;
+			if (count >= MAX_VERTS+1 || !(point.w-e.w > point.z+e.z && point.z > e.z))
+				return;
+			vec2 xy = point.xy / point.w;
+			if (any (isnan (xy)) || any (greaterThan (abs (xy), vec2 (256))))
+				return;
+			projected[count++] = xy;
+			bmin = min (bmin, xy);
+			bmax = max (bmax, xy);
+			err = max (err, (e.xy + abs (xy) * e.w) / (point.w - e.w));
+			depth = min (depth, (point.z - e.z) / (point.w + e.w));
+		}
+	}
+	if (count < 3)
+		return;
+	// Even if large coordinates collapse projected vertices to identical
+	// floats, never certify a zero-area or hardware-back-facing polygon.
+	float area = 0.0;
+	for (int i = 2; i < count; ++i)
+	{
+		vec2 a = projected[i-1] - projected[0], b = projected[i] - projected[0];
+		area += a.x*b.y - a.y*b.x;
+	}
+	if (!(area > 1e-6))
+		return;
+	lo = max (ivec2 (0), ivec2 (floor ((bmin+1.0)*(0.5*N))));
+	extent = min (ivec2 (N-1), ivec2 (floor ((bmax+1.0)*(0.5*N)))) - lo + 1;
+	if (any (lessThanEqual (extent, ivec2 (0))))
+		return;
+	float conservative_z = depth - (0.000001 + depth * 0.00001);
+	if (!(conservative_z > 0))
+		return;
+	bound = floatBitsToUint (conservative_z);
+	// Shrink the contour by an entire scene pixel and floating-point
+	// uncertainty. Every MSAA location in the certified tile is covered.
+	vec2 half_tile = vec2 (1.0/N) + pc.pixel_ndc + err + 0.00002;
+	for (int i = 0; i < count; ++i)
+	{
+		vec2 a = projected[i], b = projected[i+1 < count ? i+1 : 0];
+		vec2 normal = vec2 (a.y - b.y, b.x - a.x);
+		if (all (equal (a,b)))
+			edge_test[i] = vec3 (0,0,-1); // exact duplicate at a clipping boundary
+		else
+		{
+			float threshold = dot (normal,a) + dot (abs (normal), half_tile);
+			threshold += 0.000004 * (1.0 + dot (abs (normal), abs (a)+1.0));
+			edge_test[i] = vec3 (normal,threshold);
+		}
+	}
+	// Positive signed area is the stock Vulkan clockwise front face.
+	// Inward positive half-spaces have no intersection for a back face.
+	edges = count;
+}
+
+void main ()
+{
+	int lane = int (gl_LocalInvocationID.x);
+	int n = int (faces[gl_WorkGroupID.x].verts[0].w);
+	if (lane < n)
+	{
+		vec4 v = vec4 (faces[gl_WorkGroupID.x].verts[lane].xyz,1);
+		clips[lane] = pc.mvp * v;
+		// Includes MVP dot product, clip interpolation and perspective error.
+		errors[lane] = 0.000004 * (abs (pc.mvp[0]*v.x) + abs (pc.mvp[1]*v.y) + abs (pc.mvp[2]*v.z) + abs (pc.mvp[3]));
+	}
+	barrier ();
+	if (lane == 0)
+		prepare (n);
+	barrier ();
+	if (edges == 0)
+		return;
+	for (int i = lane; i < extent.x*extent.y; i += 32)
+	{
+		ivec2 tile = lo + ivec2 (i % extent.x, i / extent.x);
+		vec2 center = (vec2 (tile)+0.5)*(2.0/N)-1.0;
+		bool inside = true;
+		for (int j = 0; j < edges; ++j)
+			inside = inside && dot (edge_test[j].xy, center) > edge_test[j].z;
+		if (inside)
+			atomicMax (words[tile.y*N + tile.x], bound);
+	}
+}

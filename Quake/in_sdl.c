@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "in_sdl.h"
+#include "editor_ui.h"
 
 static qboolean textmode;
 
@@ -428,7 +429,7 @@ extern cvar_t scr_fov;
 
 void IN_MouseMotion (float dx, float dy)
 {
-	if (cls.state != ca_connected || cls.signon != SIGNONS || key_dest != key_game || CL_AngleLocked ())
+	if (EditorUI_IsActive () || cls.state != ca_connected || cls.signon != SIGNONS || key_dest != key_game || CL_AngleLocked ())
 	{
 		total_dx = 0;
 		total_dy = 0;
@@ -947,6 +948,23 @@ void IN_ClearStates (void) {}
 
 void IN_UpdateInputMode (void)
 {
+	static qboolean editor_cursor = false;
+	qboolean want_editor_cursor = EditorUI_IsActive () && key_dest == key_game;
+	if (want_editor_cursor != editor_cursor)
+	{
+		editor_cursor = want_editor_cursor;
+		if (editor_cursor)
+		{
+#ifdef USE_SDL3
+			SDL_SetWindowRelativeMouseMode ((SDL_Window *)VID_GetWindow (), false);
+#else
+			SDL_SetRelativeMouseMode (SDL_FALSE);
+#endif
+			IN_EndIgnoringMouseEvents ();
+		}
+		else if (key_dest == key_game && cls.state == ca_connected)
+			IN_Activate ();
+	}
 	qboolean want_textmode = Key_TextEntry ();
 	if (textmode != want_textmode)
 	{

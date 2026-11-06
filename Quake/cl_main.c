@@ -23,6 +23,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "bgmusic.h"
+#include "ecs.h"
+#include "net_sys.h"
+#include "net_defs.h"
 
 // we need to declare some mouse variables here, because the menu system
 // references them even when on a unix system.
@@ -67,11 +70,171 @@ int		   cl_maxvisedicts;
 entity_t **cl_visedicts;
 entity_t **cl_visedicts_alpha;
 
+/* These are client-owned render objects, never protocol entities.  The local
+ * server publishes their positions after its authoritative ECS tick. */
+static entity_t *cl_ecs_visual_entities;
+static vec3_t *cl_ecs_visual_positions;
+static uint32_t cl_ecs_visual_capacity, cl_ecs_visual_count;
+static qmodel_t *cl_ecs_visual_model;
+static qboolean cl_ecs_visual_batched;
+static uint64_t cl_ecs_visual_revision;
+/* Never reuse a nonzero batch identity across reallocations or server binds. */
+static byte *cl_ecs_visual_colormap;
+static uint32_t cl_ecs_visual_snapshot_count;
+extern uint32_t SV_ECSStressVisualSnapshot (vec3_t *positions, uint32_t capacity);
+
+static void CL_FreeECSVisuals (void)
+{
+	Mem_Free (cl_ecs_visual_entities);
+	Mem_Free (cl_ecs_visual_positions);
+	cl_ecs_visual_entities = NULL;
+	cl_ecs_visual_positions = NULL;
+	cl_ecs_visual_capacity = cl_ecs_visual_count = 0;
+	cl_ecs_visual_model = NULL;
+	cl_ecs_visual_batched = false;
+	cl_ecs_visual_revision = 0;
+	cl_ecs_visual_colormap = NULL;
+	cl_ecs_visual_snapshot_count = 0;
+}
+
+/* The returned client-owned array is valid until the next relink or teardown.
+ * The renderer calls this only after the relink has published a complete frame. */
+uint32_t CL_ECSVisualBatch (entity_t **entities)
+{
+	if (entities) *entities = cl_ecs_visual_batched ? cl_ecs_visual_entities : NULL;
+	return cl_ecs_visual_batched ? cl_ecs_visual_count : 0;
+}
+
+/* The renderer and temporary-entity list share these arrays. Grow together,
+ * on the main thread before rendering, rather than losing entities for many
+ * frames while a large level slowly grows its visible list. */
+static void CL_ReserveVisedicts (size_t required)
+{
+	if (required <= (size_t)cl_maxvisedicts) return;
+	size_t capacity = cl_maxvisedicts ? (size_t)cl_maxvisedicts : 4096;
+	while (capacity < required)
+	{
+		if (capacity > (size_t)INT_MAX / 2) { capacity = required; break; }
+		capacity *= 2;
+	}
+	if (capacity > (size_t)INT_MAX || capacity > SIZE_MAX / sizeof (*cl_visedicts))
+		Host_Error ("CL_ReserveVisedicts: capacity overflow");
+	cl_visedicts = Mem_Realloc (cl_visedicts, capacity * sizeof (*cl_visedicts));
+	cl_visedicts_alpha = Mem_Realloc (cl_visedicts_alpha, capacity * sizeof (*cl_visedicts_alpha));
+	if (!cl_visedicts || !cl_visedicts_alpha)
+		Host_Error ("CL_ReserveVisedicts: allocation failed");
+	cl_maxvisedicts = (int)capacity;
+}
+
+static void CL_AppendECSVisuals (void)
+{
+	cl_ecs_visual_count = 0;
+	cl_ecs_visual_batched = false;
+	if (!sv.active || cls.demoplayback || cls.signon != SIGNONS || !cls.netcon || !IS_LOOP_DRIVER (cls.netcon->driver)) return;
+	uint32_t count = SV_ECSStressVisualSnapshot (NULL, 0);
+	if (!count) return;
+	if (count > (uint32_t)MAX_EDICTS || count > SIZE_MAX / sizeof (*cl_ecs_visual_entities) ||
+		count > SIZE_MAX / sizeof (*cl_ecs_visual_positions))
+		Host_Error ("CL_AppendECSVisuals: invalid snapshot size");
+	if (count > cl_ecs_visual_capacity)
+	{
+		CL_FreeECSVisuals ();
+		cl_ecs_visual_entities = Mem_Alloc ((size_t)count * sizeof (*cl_ecs_visual_entities));
+		cl_ecs_visual_positions = Mem_Alloc ((size_t)count * sizeof (*cl_ecs_visual_positions));
+		if (!cl_ecs_visual_entities || !cl_ecs_visual_positions)
+			Host_Error ("CL_AppendECSVisuals: allocation failed");
+		cl_ecs_visual_capacity = count;
+	}
+	if (!cl_ecs_visual_model)
+		cl_ecs_visual_model = Mod_ForName ("progs/quiver_ripple.mdl", false);
+	if (!cl_ecs_visual_model) { Con_Warning ("ECS visuals: marker model unavailable\n"); return; }
+	uint64_t revision = SV_ECSStressVisualRevision ();
+	qboolean changed = !revision || revision != cl_ecs_visual_revision || count != cl_ecs_visual_snapshot_count;
+	if (changed)
+	{
+		uint32_t actual = SV_ECSStressVisualSnapshot (cl_ecs_visual_positions, count);
+		if (actual != count) return; /* Do not publish a partial snapshot. */
+	}
+	qboolean batch = R_ECSVisualBatchSupported (cl_ecs_visual_model);
+	/* The legacy path needs room for temporary and static entities appended later. */
+	if (!batch) CL_ReserveVisedicts ((size_t)cl_numvisedicts + count + (size_t)cl.num_statics + 4096);
+	if (changed || cl_ecs_visual_colormap != vid.colormap)
+	{
+		for (uint32_t i = 0; i < count; ++i)
+		{
+			entity_t *ent = &cl_ecs_visual_entities[i];
+			ent->model = cl_ecs_visual_model;
+			ent->colormap = vid.colormap;
+			ent->netstate.scale = ENTSCALE_DEFAULT;
+			VectorCopy (cl_ecs_visual_positions[i], ent->origin);
+		}
+	}
+	if (!batch)
+		for (uint32_t i = 0; i < count; ++i)
+			cl_visedicts[cl_numvisedicts++] = &cl_ecs_visual_entities[i];
+	cl_ecs_visual_revision = revision;
+	cl_ecs_visual_colormap = vid.colormap;
+	cl_ecs_visual_snapshot_count = count;
+	cl_ecs_visual_count = count;
+	cl_ecs_visual_batched = batch;
+}
+
+static void CL_ECSVisualStats_f (void)
+{
+	Con_Printf ("ECS visuals: local=%u capacity=%u revision=%llu batched=%u\n", cl_ecs_visual_count, cl_ecs_visual_capacity,
+		(unsigned long long)(cl_ecs_visual_count ? cl_ecs_visual_revision : 0), (unsigned)cl_ecs_visual_batched);
+	if (Cmd_Argc () == 2)
+	{
+		int index = atoi (Cmd_Argv (1));
+		if (index >= 0 && (uint32_t)index < cl_ecs_visual_count)
+			Con_Printf ("ECS visual %i: %.3f %.3f %.3f\n", index,
+				cl_ecs_visual_positions[index][0], cl_ecs_visual_positions[index][1], cl_ecs_visual_positions[index][2]);
+	}
+}
+
 extern cvar_t r_lerpmodels, r_lerpmove; // johnfitz
 extern cvar_t r_lerpturn;				// Danni
 extern float  host_netinterval;			// Spike
 
 qboolean needs_relink;
+
+/* Network numbers continue to index cl.entities and are never ECS handles.
+ * A binding represents the protocol slot (including an empty slot), not the
+ * transient model in it. This preserves baselines and packet/demoplayback
+ * behavior while render lists continue to hold stable entity_t pointers. */
+typedef struct cl_network_binding_s
+{
+	entity_t *entity;
+	int protocol_number;
+} cl_network_binding_t;
+
+static ecs_world_t *cl_network_world;
+static ecs_component_t cl_network_binding_type = ECS_INVALID_COMPONENT;
+
+size_t CL_ECSBytesAllocated (void)
+{
+	return ECS_BytesAllocated (cl_network_world);
+}
+
+unsigned int CL_ECSBindingCount (void)
+{
+	return cl_network_world ? (unsigned int)cl.num_entities : 0;
+}
+
+void CL_ECSBindNetworkEntity (int index)
+{
+	ecs_entity_t handle;
+	cl_network_binding_t *binding;
+
+	if (!cl_network_world || index < 0 || index >= cl.max_edicts)
+		Host_Error ("CL_ECSBindNetworkEntity: invalid client world or index %i", index);
+	handle = ECS_Spawn (cl_network_world, (uint32_t)index);
+	binding = ECS_Add (cl_network_world, handle, cl_network_binding_type);
+	if (!binding)
+		Host_Error ("CL_ECSBindNetworkEntity: failed to bind %i", index);
+	binding->entity = &cl.entities[index];
+	binding->protocol_number = index;
+}
 
 void CL_ClearTrailStates (void)
 {
@@ -95,6 +258,11 @@ void CL_ClearTrailStates (void)
 void CL_FreeState (void)
 {
 	int i;
+	CL_FreeECSVisuals ();
+	/* Destroy the world before its protocol-slot pointers become invalid. */
+	ECS_DestroyWorld (cl_network_world);
+	cl_network_world = NULL;
+	cl_network_binding_type = ECS_INVALID_COMPONENT;
 	for (i = 0; i < MAX_CL_STATS; i++)
 		Mem_Free (cl.statss[i]);
 	PR_ClearProgs (&cl.qcvm);
@@ -138,12 +306,22 @@ void CL_ClearState (void)
 	// clear other arrays
 	memset (cl_dlights, 0, sizeof (cl_dlights));
 	memset (cl_lightstyle, 0, sizeof (cl_lightstyle));
-	memset (cl_temp_entities, 0, sizeof (cl_temp_entities));
+	CL_ClearTempEntities ();
 	memset (cl_beams, 0, sizeof (cl_beams));
 
 	// johnfitz -- cl_entities is now dynamically allocated
 	cl.max_edicts = CLAMP (MIN_EDICTS, (int)max_edicts.value, MAX_EDICTS);
-	cl.entities = (entity_t *)Mem_Alloc (cl.max_edicts * sizeof (entity_t));
+	if ((size_t)cl.max_edicts > SIZE_MAX / sizeof (entity_t))
+		Host_Error ("CL_ClearState: client entity allocation overflow");
+	cl.entities = (entity_t *)Mem_Alloc ((size_t)cl.max_edicts * sizeof (entity_t));
+	if (!cl.entities)
+		Host_Error ("CL_ClearState: could not allocate %i client entities", cl.max_edicts);
+	cl_network_world = ECS_CreateWorld ((uint32_t)cl.max_edicts);
+	if (!cl_network_world)
+		Host_Error ("CL_ClearState: could not create client entity world");
+	cl_network_binding_type = ECS_Register (cl_network_world, sizeof (cl_network_binding_t));
+	if (cl_network_binding_type == ECS_INVALID_COMPONENT)
+		Host_Error ("CL_ClearState: could not register network entity component");
 	// johnfitz
 
 	cl.viewent.netstate = nullentitystate;
@@ -330,12 +508,30 @@ CL_PrintEntities_f
 void CL_PrintEntities_f (void)
 {
 	entity_t *ent;
-	int		  i;
+	int		  i, first = 0, last = cl.num_entities;
 
 	if (cls.state != ca_connected)
 		return;
 
-	for (i = 0, ent = cl.entities; i < cl.num_entities; i++, ent++)
+	if (Cmd_Argc () > 2)
+	{
+		Con_Printf ("entities [index]\n");
+		return;
+	}
+	if (Cmd_Argc () == 2)
+	{
+		char *end;
+		const char *arg = Cmd_Argv (1);
+		long index = strtol (arg, &end, 10);
+		if (!*arg || *end || index < 0 || index >= cl.num_entities)
+		{
+			Con_Printf ("entities: index must be between 0 and %d\n", cl.num_entities - 1);
+			return;
+		}
+		first = (int) index;
+		last = first + 1;
+	}
+	for (i = first, ent = cl.entities + first; i < last; i++, ent++)
 	{
 		Con_Printf ("%3i:", i);
 		if (!ent->model)
@@ -661,12 +857,7 @@ void CL_RelinkEntities (void)
 	if (frametime > 0.1)
 		frametime = 0.1;
 
-	if (cl_numvisedicts + 256 > cl_maxvisedicts)
-	{
-		cl_maxvisedicts += cl_maxvisedicts ? 256 : 4096;
-		cl_visedicts = Mem_Realloc (cl_visedicts, sizeof (*cl_visedicts) * cl_maxvisedicts);
-		cl_visedicts_alpha = Mem_Realloc (cl_visedicts_alpha, sizeof (*cl_visedicts_alpha) * cl_maxvisedicts);
-	}
+	CL_ReserveVisedicts ((size_t)cl_numvisedicts + (size_t)cl.num_statics + 256);
 	cl_numvisedicts = 0;
 
 	//
@@ -693,10 +884,15 @@ void CL_RelinkEntities (void)
 
 	bobjrotate = anglemod (100 * cl.time);
 
-	// start on the entity after the world
-	ent = (cl.entities != NULL) ? (cl.entities + 1) : NULL;
-	for (i = 1; i < cl.num_entities; i++, ent++)
+	// Ordered ECS system: protocol slot order is observable through effects,
+	// particle RNG and attachment resolution. Keep the renderer's entity_t
+	// pointers stable and leave all mutable network state in those entities.
+	uint32_t slot = 0;
+	cl_network_binding_t *binding;
+	while ((binding = ECS_NextComponentUntil (cl_network_world, slot + 1, (uint32_t)cl.num_entities, cl_network_binding_type, &slot)) != NULL)
 	{
+		i = binding->protocol_number;
+		ent = binding->entity;
 		if (!ent->model)
 		{ // empty slot, ish.
 
@@ -724,6 +920,7 @@ void CL_RelinkEntities (void)
 		if (cl.time < cl.oldtime)
 		{
 			// time ran backwards (demo jump): show current state without lerping
+			++ent->render_generation; /* prior cached pose belongs to future time */
 			ent->lerp.prev_frame = ent->frame;
 			ent->lerp.frame_change_time = 0;
 			ent->lerp.snap_frames = 0;
@@ -914,14 +1111,12 @@ void CL_RelinkEntities (void)
 		if (i == cl.viewentity && !chase_active.value)
 			continue;
 
-		if (cl_numvisedicts < cl_maxvisedicts)
-		{
-			R_AllocateEntityBLAS (ent);
-			cl_visedicts[cl_numvisedicts] = ent;
-			cl_numvisedicts++;
-		}
+		CL_ReserveVisedicts ((size_t)cl_numvisedicts + 257);
+		R_AllocateEntityBLAS (ent);
+		cl_visedicts[cl_numvisedicts++] = ent;
 	}
 
+	CL_AppendECSVisuals ();
 	R_UpdateEntityDlights (); // 2021 rerelease shadow casting light entities
 }
 
@@ -1408,6 +1603,7 @@ void CL_Init (void)
 	Cvar_RegisterVariable (&cl_confirmquit);
 
 	Cmd_AddCommand ("entities", CL_PrintEntities_f);
+	Cmd_AddCommand ("ecs_visual_stats", CL_ECSVisualStats_f);
 	Cmd_AddCommand ("disconnect", CL_Disconnect_f);
 	Cmd_AddCommand ("record", CL_Record_f);
 	Cmd_AddCommand ("stop", CL_Stop_f);

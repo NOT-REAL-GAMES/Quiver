@@ -1,0 +1,4 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+layout (set = 0, binding = 2, rgba16f) uniform writeonly image2D output_image;
+#include "screen_effects.inc"

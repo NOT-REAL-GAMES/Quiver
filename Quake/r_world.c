@@ -25,6 +25,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "atomics.h"
+#include "radiance_graphics.h"
+#include "radiance_receiver_capture.h"
 
 extern cvar_t gl_fullbrights;
 extern cvar_t r_drawflat;
@@ -377,7 +379,7 @@ void R_MarkVisSurfacesSIMD (qboolean *use_tasks)
 
 	int current_combined_dep_index = INT_MAX;
 
-	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe;
+	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe && !R_MeshletsIndependent ();
 	const bool cst_indirect = indirect;
 	const bool cst_r_oldskyleaf = (r_oldskyleaf.value > 0.0f);
 	const bool cst_r_gpulightmapupdate = (r_gpulightmapupdate.value > 0.0f);
@@ -479,7 +481,7 @@ void R_MarkLeafsSIMD (int index, void *unused)
 	uint32_t	 current_surfvis_written = 0;
 	int			 current_combined_dep_index = INT_MAX;
 
-	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe;
+	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe && !R_MeshletsIndependent ();
 	const bool cst_indirect = indirect;
 	const bool cst_r_oldskyleaf = (r_oldskyleaf.value > 0.0f);
 	const int  worker_index = Tasks_GetWorkerIndex ();
@@ -538,7 +540,8 @@ void R_MarkLeafsSIMD (int index, void *unused)
 		}
 	}
 
-	Atomic_OrUInt32 (&surfvis[current_surfvis_index_written], current_surfvis_written);
+	if (cst_r_drawworld_cheatsafe)
+		Atomic_OrUInt32 (&surfvis[current_surfvis_index_written], current_surfvis_written);
 }
 
 /*
@@ -702,11 +705,13 @@ R_ChainVisSurfaces_TransparentWater
 static void R_ChainVisSurfaces_TransparentWater ()
 {
 	R_PrepareTransparentWaterSurfList ();
+	const qboolean independent = R_MeshletsIndependent ();
 	uint32_t *surfvis = (uint32_t *)cl.worldmodel->surfvis;
 	for (int i = 0; i < cl.worldmodel->used_water_surfs; i++)
 	{
 		int j = cl.worldmodel->water_surfs[i];
-		if (surfvis[j / 32] & 1 << j % 32 && !R_BackFaceCull (&cl.worldmodel->surfaces[j]))
+		const qboolean static_world = (unsigned)(j - cl.worldmodel->firstmodelsurface) < (unsigned)cl.worldmodel->nummodelsurfaces;
+		if (((independent && static_world) || (surfvis[j / 32] & (1u << (j % 32)))) && !R_BackFaceCull (&cl.worldmodel->surfaces[j]))
 			R_ChainSurface (&cl.worldmodel->surfaces[j], chain_world);
 	}
 }
@@ -738,7 +743,7 @@ void R_MarkLeafsParallel (int index, void *unused)
 	uint32_t	 current_surfvis_written = 0;
 	int			 current_combined_dep_index = INT_MAX;
 
-	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe;
+	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe && !R_MeshletsIndependent ();
 	const bool cst_indirect = indirect;
 	const bool cst_r_oldskyleaf = (r_oldskyleaf.value > 0.0f);
 	const int  worker_index = Tasks_GetWorkerIndex ();
@@ -801,7 +806,8 @@ void R_MarkLeafsParallel (int index, void *unused)
 		}
 	}
 
-	Atomic_OrUInt32 (&surfvis[current_surfvis_index_written], current_surfvis_written);
+	if (cst_r_drawworld_cheatsafe)
+		Atomic_OrUInt32 (&surfvis[current_surfvis_index_written], current_surfvis_written);
 }
 
 /*
@@ -876,7 +882,7 @@ void R_MarkVisSurfaces (qboolean *use_tasks)
 
 	int current_combined_dep_index = INT_MAX;
 
-	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe;
+	const bool cst_r_drawworld_cheatsafe = r_drawworld_cheatsafe && !R_MeshletsIndependent ();
 	const bool cst_indirect = indirect;
 	const bool cst_r_oldskyleaf = (r_oldskyleaf.value > 0.0f);
 	const bool cst_r_gpulightmapupdate = (r_gpulightmapupdate.value > 0.0f);
@@ -947,6 +953,9 @@ static void R_MarkSurfacesPrepare (void *unused)
 	int		 i;
 	qboolean nearwaterportal;
 	int		 numleafs = cl.worldmodel->numleafs;
+
+	if (r_drawworld_cheatsafe && R_MeshletsIndependent ())
+		R_MarkIndependentWorldDeps ();
 
 	// check this leaf for water portals
 	// TODO: loop through all water surfs and use distance to leaf cullbox
@@ -1163,7 +1172,12 @@ static void R_FlushBatch (
 		vulkan_pipeline_t pipeline = R_PipelineForSubpassType (
 			cbx->subpass_type, vulkan_globals.world_pipelines[cbx->pipeline_variant][pipeline_index], vulkan_globals.world_wboit_pipelines[pipeline_index],
 			vulkan_globals.world_mboit_moment_pipelines[pipeline_index], vulkan_globals.world_mboit_composite_pipelines[pipeline_index]);
+		const rc_graphics_t *radiance = RCGraphics_Frame ();
+		if (radiance)
+			pipeline = RCGraphics_WorldPipeline (radiance, cbx->subpass_type, cbx->pipeline_variant, pipeline_index);
 		R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		if (radiance)
+			RCGraphics_BindFrame (cbx);
 
 		float constant_factor = 0.0f, slope_factor = 0.0f;
 		if (use_zbias)
@@ -1192,6 +1206,24 @@ static void R_FlushBatch (
 		VkDeviceSize buffer_offset;
 		byte		*indices = R_IndexAllocate (cbx->num_vbo_indices * sizeof (uint32_t), &buffer, &buffer_offset);
 		memcpy (indices, cbx->vbo_indices, cbx->num_vbo_indices * sizeof (uint32_t));
+		if (cbx->receiver_world_capture)
+		{
+			rc_receiver_world_draw_t draw = {0};
+			rc_receiver_forward_material_t material = {0};
+			draw.vertex_buffer = bmodel_vertex_buffer; draw.index_buffer = buffer; draw.index_offset = buffer_offset;
+			draw.index_type = VK_INDEX_TYPE_UINT32; draw.index_count = cbx->num_vbo_indices;
+			draw.diffuse_set = cbx->receiver_diffuse; draw.instance_set = vulkan_globals.bmodel_instances_desc_set;
+			draw.camera_set = RCGraphics_FrameDescriptor (); draw.alpha_test = alpha_test;
+			draw.depth_bias_constant = constant_factor; draw.depth_bias_slope = slope_factor;
+			memcpy (draw.mvp, vulkan_globals.view_projection_matrix, sizeof (draw.mvp));
+			material.lightmap_set = r_fullbright_cheatsafe ? greylightmap->descriptor_set : lightmap_texture->descriptor_set;
+			material.fullbright_set = cbx->receiver_fullbright; material.fullbright = fullbright_enabled;
+			float fog[4]; Fog_GetColor (fog);
+			for (int i = 0; i < 3; ++i) material.fog_color[i] = CLAMP (0.0f, fog[i], 1.0f);
+			material.fog_density = Fog_GetDensity () / 64.0f; material.alpha = 1.0f;
+			/* The caller supplies the per-frame reuse descriptor before staging. */
+			RCReceiverCapture_Add (cbx->receiver_world_capture, &draw, &material);
+		}
 
 		vulkan_globals.vk_cmd_bind_index_buffer (cbx->cb, buffer, buffer_offset, VK_INDEX_TYPE_UINT32);
 		vulkan_globals.vk_cmd_draw_indexed (cbx->cb, cbx->num_vbo_indices, 1, 0, 0, 0);
@@ -1302,6 +1334,11 @@ void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *en
 			if (!t || !t->texturechains[chain])
 				continue;
 
+			/* The high bit is consumed only by Radiance world fragments;
+			 * the vertex shader masks it out of the instance-buffer index. */
+			const uint32_t liquid_instance_base = (type == TEXTYPE_LAVA && RCGraphics_Frame ()) ? UINT32_C (0x80000000) : 0;
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (liquid_instance_base), &liquid_instance_base);
+
 			gltexture_t *lightmap_texture = NULL;
 			R_ClearBatch (cbx);
 
@@ -1334,6 +1371,7 @@ void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *en
 			R_FlushBatch (cbx, false, false, alpha_blend, false, lightmap_texture, &brushpasses);
 		}
 	}
+	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (instance_base), &instance_base);
 
 	Atomic_AddUInt32 (&rs_brushpasses, brushpasses);
 }
@@ -1402,6 +1440,11 @@ void R_DrawTextureChains_Multitexture (cb_context_t *cbx, qmodel_t *model, entit
 
 		texture_t	*texture = R_TextureAnimation (t, ent_frame);
 		gltexture_t *gl_texture = texture->gltexture;
+		if (cbx->receiver_world_capture)
+		{
+			cbx->receiver_diffuse = r_lightmap_cheatsafe ? greytexture->descriptor_set : gl_texture->descriptor_set;
+			cbx->receiver_fullbright = fullbright_enabled ? fullbright->descriptor_set : nulltexture->descriptor_set;
+		}
 		if (!r_lightmap_cheatsafe)
 			vulkan_globals.vk_cmd_bind_descriptor_sets (
 				cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle, 0, 1, &gl_texture->descriptor_set, 0, NULL);

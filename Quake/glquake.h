@@ -31,6 +31,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 void		  GL_WaitForDeviceIdle (void);
 void		  VID_Restart (qboolean set_mode);
+// Current command-buffer slot, valid after the begin-rendering task has waited for its fence.
+uint32_t	  GL_RenderFrameSlot (void);
+// Optional frame-slot timestamp pair for the selected world draw commands.
+VkQueryPool   GL_GPUStageWorldQueries (uint32_t *first_query);
+// Optional three timestamp pairs for receiver classification, shading and filtering.
+VkQueryPool   GL_GPUReceiverStageQueries (uint32_t *first_query);
 // Prepares the frame. With use_tasks, creates a task for the caller to submit,
 // which runs after the previous frame's end task and before drawing starts.
 qboolean	  GL_BeginRendering (qboolean use_tasks, task_handle_t *begin_rendering_task, int *width, int *height);
@@ -115,6 +121,7 @@ void PScript_Shutdown (void);
 void PScript_FlushDlightsTask (void *unused);				// serial: dlights queued by last frame's deferred effect spawns; must
 															// run before anything reads cl_dlights and before the next layout
 void PScript_UpdateParticlesSetupTask (void *unused);		// serial: frame time step, rain spawns, kill + flatten live particles
+unsigned int PScript_ParticleTaskCount (void);
 void PScript_UpdateParticlesTask (int index, void *unused); // indexed over the worker count: the parallel particle update
 void PScript_LayoutParticlesTask (void *unused);			// serial: batch creation and vertex range reservation, beams, decals
 void PScript_EmitParticlesTask (int index, void *unused);	// indexed over the worker count: parallel vertex generation
@@ -204,6 +211,7 @@ typedef enum
 	PCBX_BUILD_ACCELERATION_STRUCTURES,
 	PCBX_UPDATE_LIGHTMAPS,
 	PCBX_UPDATE_WARP,
+	PCBX_RADIANCE,
 	PCBX_RENDER_PASSES,
 	PCBX_NUM,
 } primary_cb_contexts_t;
@@ -213,6 +221,7 @@ typedef enum
 	// Main render pass:
 	SCBX_WORLD,
 	SCBX_ENTITIES,
+	SCBX_MODELS,
 	SCBX_SKY,
 	SCBX_VIEW_MODEL,
 	SCBX_FTE_PARTICLES_BLEND,
@@ -288,6 +297,14 @@ typedef enum
 	PIPELINE_GUI,
 	PIPELINE_GUI_BLEND,
 	PIPELINE_BASIC_NOTEX_BLEND,
+	PIPELINE_EDITOR_DEPTH,
+	PIPELINE_EDITOR_DEPTH_READ,
+	PIPELINE_EDITOR_ALIAS,
+	PIPELINE_EDITOR_ALIAS_ALPHATEST,
+	PIPELINE_EDITOR_MD5,
+	PIPELINE_EDITOR_MD5_ALPHATEST,
+	PIPELINE_EDITOR_MD5_8,
+	PIPELINE_EDITOR_MD5_8_ALPHATEST,
 	PIPELINE_MENU_XBR,
 	PIPELINE_MENU_XBR_BLEND,
 	GRAPHICS_PIPELINE_COUNT,
@@ -296,6 +313,7 @@ typedef enum
 static const int SECONDARY_CB_MULTIPLICITY[SCBX_NUM] = {
 	NUM_WORLD_CBX,	  // SCBX_WORLD,
 	NUM_ENTITIES_CBX, // SCBX_ENTITIES,
+	NUM_ENTITIES_CBX, // SCBX_MODELS,
 	1,				  // SCBX_SKY,
 	1,				  // SCBX_VIEW_MODEL,
 	1,				  // SCBX_FTE_PARTICLES_BLEND,
@@ -326,6 +344,10 @@ typedef struct cb_context_s
 	vulkan_pipeline_t		   current_pipeline;
 	uint32_t				   vbo_indices[MAX_BATCH_SIZE];
 	unsigned int			   num_vbo_indices;
+	struct rc_receiver_world_capture_s *receiver_world_capture;
+	struct rc_receiver_model_capture_s *receiver_model_capture;
+	struct cb_context_s *receiver_model_context;
+	VkDescriptorSet receiver_diffuse, receiver_fullbright;
 } cb_context_t;
 
 typedef struct
@@ -348,7 +370,12 @@ typedef struct
 	VkPhysicalDeviceMemoryProperties memory_properties;
 	uint32_t						 gfx_queue_family_index;
 	VkFormat						 color_format;
+	/* Scene may be floating point; native UI and lightmaps retain color_format. */
+	VkFormat                         scene_color_format;
+	qboolean                         scene_hdr_active;
+	qboolean                         scene_hdr_supported;
 	VkFormat						 depth_format;
+	VkFormat						 ui_depth_format;
 	VkSampleCountFlagBits			 sample_count;
 	qboolean						 supersampling;
 	qboolean						 non_solid_fill;
@@ -356,6 +383,12 @@ typedef struct
 	qboolean						 screen_effects_sops;
 	qboolean						 ssao_broken;
 	qboolean						 shader_float16;
+#if defined(VK_EXT_mesh_shader)
+	qboolean						 mesh_shader;
+	uint32_t					 mesh_shader_max_workgroups;
+	qboolean						 task_shader;
+	uint32_t					 task_shader_max_workgroups;
+#endif
 
 	// Instance extensions
 	qboolean get_surface_capabilities_2;
@@ -391,6 +424,15 @@ typedef struct
 	VkDescriptorSet			 particle_depth_descriptor_set;
 	vulkan_pipeline_layout_t gui_pipeline_layout;
 	vulkan_pipeline_t		 world_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][WORLD_PIPELINE_COUNT];
+#if defined(VK_EXT_mesh_shader)
+	vulkan_pipeline_t		 world_mesh_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][WORLD_PIPELINE_COUNT];
+	vulkan_pipeline_layout_t world_mesh_pipeline_layout;
+	vulkan_desc_set_layout_t world_mesh_set_layout;
+	qboolean				 world_mesh_ready;
+	vulkan_pipeline_t		 world_task_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][WORLD_PIPELINE_COUNT];
+	vulkan_pipeline_layout_t world_task_pipeline_layout;
+	qboolean				 world_task_ready;
+#endif
 	vulkan_pipeline_t		 world_wboit_pipelines[WORLD_PIPELINE_COUNT];
 	vulkan_pipeline_t		 world_mboit_moment_pipelines[WORLD_PIPELINE_COUNT];
 	vulkan_pipeline_t		 world_mboit_composite_pipelines[WORLD_PIPELINE_COUNT];
@@ -412,6 +454,7 @@ typedef struct
 	vulkan_pipeline_t		 sky_cube_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT][2];
 	vulkan_pipeline_t		 sky_layer_pipeline[MAIN_RENDER_PASS_VARIANT_COUNT][2];
 	vulkan_pipeline_t		 alias_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][MODEL_PIPELINE_COUNT];
+	vulkan_pipeline_t		 alias_instanced_pipelines[MAIN_RENDER_PASS_VARIANT_COUNT];
 	vulkan_pipeline_t		 alias_wboit_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 alias_mboit_moment_pipelines[MODEL_PIPELINE_COUNT];
 	vulkan_pipeline_t		 alias_mboit_composite_pipelines[MODEL_PIPELINE_COUNT];
@@ -438,6 +481,9 @@ typedef struct
 	vulkan_pipeline_t		 update_lightmap_rt_pipeline;
 	vulkan_pipeline_t		 indirect_draw_pipeline;
 	vulkan_pipeline_t		 indirect_clear_pipeline;
+	vulkan_pipeline_t		 meshlet_cull_pipeline;
+	vulkan_pipeline_t		 meshlet_hiz_pipeline;
+	vulkan_pipeline_t		 ecs_cull_pipeline;
 	vulkan_pipeline_t		 ray_debug_pipeline;
 	vulkan_pipeline_t		 mesh_interpolate_pipeline;
 	vulkan_pipeline_t		 skinning_pipeline;
@@ -460,6 +506,7 @@ typedef struct
 	vulkan_desc_set_layout_t lightmap_compute_set_layout;
 	VkDescriptorSet			 indirect_compute_desc_set;
 	vulkan_desc_set_layout_t indirect_compute_set_layout;
+	vulkan_desc_set_layout_t ecs_cull_set_layout;
 	VkDescriptorSet			 bmodel_instances_desc_set;
 	vulkan_desc_set_layout_t bmodel_instances_set_layout;
 	vulkan_desc_set_layout_t ray_query_push_set_layout;
@@ -493,6 +540,9 @@ typedef struct
 	PFN_vkCmdDraw					vk_cmd_draw;
 	PFN_vkCmdDrawIndexed			vk_cmd_draw_indexed;
 	PFN_vkCmdDrawIndexedIndirect	vk_cmd_draw_indexed_indirect;
+#if defined(VK_EXT_mesh_shader)
+	PFN_vkCmdDrawMeshTasksEXT		vk_cmd_draw_mesh_tasks;
+#endif
 	PFN_vkCmdPipelineBarrier		vk_cmd_pipeline_barrier;
 	PFN_vkCmdCopyBufferToImage		vk_cmd_copy_buffer_to_image;
 	PFN_vkCmdDispatch				vk_cmd_dispatch;
@@ -712,6 +762,7 @@ qboolean	  R_CullBox (vec3_t emins, vec3_t emaxs);
 void		  R_StoreEfrags (efrag_t **ppefrag);
 qboolean	  R_CullModelForEntity (entity_t *e);
 void		  R_RotateForEntity (float matrix[16], vec3_t origin, vec3_t angles, unsigned char scale);
+void R_RotateForEntityScale (float matrix[16], vec3_t origin, vec3_t angles, float scale);
 void		  R_MarkLights (dlight_t *light, int num, mnode_t *node);
 extern vec3_t lightmap_dlight_origins[MAX_DLIGHTS]; // dlight origins in the space of the model currently having its lightmaps built (CPU lightmap update path)
 void		  R_ParseEntityDlights (void);			// 2021 rerelease "dynamiclight" entities, parsed from the entity lump at map load
@@ -729,6 +780,23 @@ void R_UpdateWarpTextures (void *unused);
 void R_MarkDeps (int combined_deps, int worker_index);
 
 qboolean R_IndirectBrush (entity_t *e);
+void	 R_MeshletStats_f (void);
+void	 R_PrepareMeshlets (void);
+void     R_SetMeshletRadianceFrame (bool active);
+/* The radiance primary command buffer is independent of other frame work;
+ * all calls are serial with frame recording/submission. */
+VkPhysicalDevice GL_RadiancePhysicalDevice (void);
+void GL_RadiancePrepareTask (void *unused);
+bool GL_RadianceCommandsReady (void);
+bool R_RadianceFramePrepare (uint32_t slot, VkFence fence, VkCommandBuffer commands);
+/* Main-thread frame boundary; failures retain the previous probe resources. */
+bool R_RadianceFrameApplySpacing (void);
+void R_RadianceFrameSubmitted (uint32_t slot, VkCommandBuffer commands);
+void R_RadianceFrameDiscard (uint32_t slot, VkCommandBuffer commands);
+void R_RadianceFrameShutdown (void);
+qboolean R_MeshletsIndependent (void);
+void	 R_MarkIndependentWorldDeps (void);
+void	 R_ShutdownMeshlets (void);
 void	 R_ClearBModelInstanceClaims (void);
 
 void R_DrawWorld (cb_context_t *cbx, int index);
@@ -747,6 +815,23 @@ typedef struct
 void R_GetEntityLerpedTransform (const entity_t *e, vec3_t out_origin, vec3_t out_angles);
 void R_SetupAliasFrame (const entity_t *e, aliashdr_t *paliashdr, lerpdata_t *lerpdata);
 void R_DrawAliasModel (cb_context_t *cbx, entity_t *e, int *aliaspolys);
+qboolean R_ECSVisualBatchSupported (qmodel_t *model);
+void R_DrawECSVisualBatch (cb_context_t *cbx, unsigned part, unsigned parts);
+void R_PrepareECSVisualGPU (void *unused);
+qboolean R_ECSGPUShouldPrepare (void);
+void R_FillECSVisualGPU (int index, void *unused);
+void R_DisableECSVisualGPU (void);
+void R_ECSGPUStats_f (void);
+qboolean R_ECSGPUAvailable (void);
+void R_ECSGPUReset (void);
+qboolean R_ECSGPUAllocate (uint32_t count, uint32_t index_count, void **input, VkBuffer *output, VkDeviceSize *output_offset,
+	VkBuffer *indirect, VkDeviceSize *indirect_offset);
+void R_ECSGPUSetPlanes (const float planes[4][4], const float mins[3], const float maxs[3]);
+qboolean R_ECSGPUPathActive (void);
+uint64_t R_ECSGPUDispatchCount (void);
+void R_RecordECSVisualCull (VkCommandBuffer commands);
+int R_ECSGPUFrameIndex (void);
+void R_ECSGPUShutdown (void);
 void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpolys, qboolean sort, qboolean water_opaque_only, qboolean water_transparent_only);
 void R_DrawSpriteModel (cb_context_t *cbx, entity_t *e);
 void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean transparent_water, qboolean draw_sky, int index);
@@ -802,6 +887,7 @@ void		Sky_NewMap (void);
 void		Sky_LoadTexture (qmodel_t *mod, texture_t *mt, int tex_index);
 void		Sky_LoadTextureQ64 (qmodel_t *mod, texture_t *mt, int tex_index);
 void		Sky_LoadSkyBox (const char *name);
+qboolean Sky_GetRadianceColor (float color[3]);
 const char *Sky_GetSkyCommand (qboolean always);
 void		Sky_SetSkyfog (float value);
 
@@ -815,12 +901,16 @@ float GL_WaterAlphaForTextureType (textype_t type);
 float GL_WaterAlphaForEntityTextureType (entity_t *ent, textype_t type);
 
 int GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);
+int GL_TryMemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask);
 
 void R_CreateDescriptorPool ();
 void R_CreateDescriptorSetLayouts ();
 void R_InitSamplers ();
 void R_CreatePipelineLayouts ();
-void R_CreatePipelines ();
+VkPipelineCache R_PipelineCache (void);
+void R_PipelineCacheShutdown (void);
+bool R_TryCreatePipelines (void);
+void R_CreatePipelines (void);
 void R_DestroyPipelines ();
 
 #define MAX_PUSH_CONSTANT_SIZE 128 // Vulkan guaranteed minimum maxPushConstantsSize
@@ -883,6 +973,7 @@ static inline void R_EndDebugUtilsLabel (cb_context_t *cbx)
 }
 
 void R_AllocateVulkanMemory (vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations);
+VkResult R_TryAllocateVulkanMemory (vulkan_memory_t *memory, const VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations);
 void R_FreeVulkanMemory (vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
 
 void R_CreateBuffer (
@@ -906,6 +997,7 @@ size_t R_CreateBuffers (
 void R_FreeBuffers (const int num_buffers, VkBuffer *buffers, vulkan_memory_t *memory, atomic_uint32_t *num_allocations);
 
 VkDescriptorSet R_AllocateDescriptorSet (vulkan_desc_set_layout_t *layout);
+VkResult R_TryAllocateDescriptorSet (vulkan_desc_set_layout_t *layout, VkDescriptorSet *out);
 void			R_FreeDescriptorSet (VkDescriptorSet desc_set, vulkan_desc_set_layout_t *layout);
 
 void  R_InitStagingBuffers (void);

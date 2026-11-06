@@ -30,6 +30,10 @@ layout (location = 2) in vec2 in_texcoord2;
 
 layout (location = 0) out vec4 out_texcoords;
 layout (location = 1) out float out_fog_frag_coord;
+#if RADIANCE_LIGHTING
+layout (location = 2) out vec3 out_world_position;
+#include "radiance_receiver_camera.glsl"
+#endif
 
 out gl_PerVertex
 {
@@ -42,17 +46,24 @@ void main ()
 	out_texcoords.zw = in_texcoord2.xy;
 
 	vec3 position = in_position;
-	if (push_constants.instance_base != 0)
+	/* The upper bit is a Radiance-only material flag for lava, not part of
+	 * the brush-instance buffer offset. */
+	uint instance_base = push_constants.instance_base & 0x7fffffffu;
+	if (instance_base != 0)
 	{
 		const uint instance_index = vertex_instances[gl_VertexIndex];
 		if (instance_index != 0)
 		{
-			const bmodel_instance_t instance = bmodel_instances[push_constants.instance_base - 1 + instance_index];
+			const bmodel_instance_t instance = bmodel_instances[instance_base - 1 + instance_index];
 			const vec4				model_pos = vec4 (in_position, 1.0f);
 			position = vec3 (dot (instance.transform[0], model_pos), dot (instance.transform[1], model_pos), dot (instance.transform[2], model_pos));
 		}
 	}
 	gl_Position = push_constants.mvp * vec4 (position, 1.0f);
+
+#if RADIANCE_LIGHTING
+	out_world_position = RC_WorldFromClip (gl_Position);
+#endif
 
 	out_fog_frag_coord = gl_Position.w;
 }

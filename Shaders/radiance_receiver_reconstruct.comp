@@ -1,0 +1,67 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Materialize the exact checkerboard neighbor reconstruction once per
+ * half-grid receiver instead of repeating it in every forward fragment. */
+#define RC_SET 1
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#include "radiance_cascades.glsl"
+#include "radiance_lookup.glsl"
+#include "radiance_parameters.glsl"
+#include "radiance_receiver_scale.glsl"
+#include "radiance_receiver_visibility.glsl"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D halfPosition;
+layout(set=0,binding=1) uniform sampler2D halfNormal;
+layout(set=0,binding=2) uniform usampler2D halfStatus;
+layout(set=0,binding=3) uniform usampler2D fullReceiverID;
+layout(set=0,binding=4) uniform sampler2D sourceIndirect;
+layout(set=0,binding=5) uniform sampler2D sourceDirect;
+layout(set=0,binding=6) uniform sampler2D sourceMinimum;
+layout(rgba16f,set=0,binding=7) uniform writeonly image2D resolvedIndirect;
+layout(rgba16f,set=0,binding=8) uniform writeonly image2D resolvedDirect;
+layout(rgba16f,set=0,binding=9) uniform writeonly image2D resolvedMinimum;
+layout(push_constant) uniform RCReconstructViewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+uint RC_ResolveStatus(ivec2 p) { return texelFetch(halfStatus,p,0).r; }
+uvec2 RC_ResolveID(ivec2 p) { return texelFetch(fullReceiverID,p,0).rg; }
+vec3 RC_ResolvePosition(ivec2 p) { return texelFetch(halfPosition,p,0).xyz; }
+vec3 RC_ResolveNormal(ivec2 p) { return texelFetch(halfNormal,p,0).xyz; }
+vec4 RC_ResolveValue(ivec2 p, uint field) {
+ if(field==1u) return texelFetch(sourceIndirect,p,0);
+ if(field==2u) return texelFetch(sourceMinimum,p,0);
+ return texelFetch(sourceDirect,p,0);
+}
+bool RC_CheckerFetch(ivec2 p, uint field, out vec3 value) {
+ if(RC_ResolveStatus(p)!=1u) return false;
+ vec4 v=RC_ResolveValue(p,field); value=v.rgb; return v.a>0.5;
+}
+bool RC_CheckerCompatible(ivec2 dst,ivec2 src,uint field) {
+ if(RC_ResolveStatus(dst)!=1u || RC_ResolveStatus(src)!=1u) return false;
+ ivec2 a=rcReceiver.viewport.xy+RC_ReceiverFirstPixel(dst,rcReceiver.normalThreshold.z), b=rcReceiver.viewport.xy+RC_ReceiverFirstPixel(src,rcReceiver.normalThreshold.z);
+ uvec2 id=RC_ResolveID(a);
+ if(any(equal(id,uvec2(0))) || any(notEqual(id,RC_ResolveID(b)))) return false;
+ vec3 p=RC_ResolvePosition(dst),q=RC_ResolvePosition(src);
+ vec3 n=RC_ResolveNormal(dst),m=RC_ResolveNormal(src);
+ if(any(isnan(p)) || any(isinf(p)) || any(isnan(q)) || any(isinf(q)) ||
+    any(isnan(n)) || any(isinf(n)) || any(isnan(m)) || any(isinf(m)) ||
+    dot(n,m)<rcReceiver.normalThreshold.x || abs(dot(q-p,n))>rcReceiver.normalThreshold.y) return false;
+ return field!=1u || RC_ReceiverVisibilityCompatible(p,q,rcLighting.receiver_filter.x);
+}
+#include "radiance_receiver_checkerboard.glsl"
+#include "radiance_receiver_checkerboard_batched.glsl"
+void main() {
+ ivec2 p=ivec2(gl_GlobalInvocationID.xy), extent=RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z);
+ if(any(greaterThanEqual(p,extent))) return;
+ vec3 indirect,direct,minimum;
+ bool i=RC_ReconstructIndirect(p,extent,indirect);
+ bool d,m;
+ RC_CheckerReconstructDirectPair(p,extent,direct,d,minimum,m);
+ /* A producer image is half float; reject sums overflowing half on output. */
+ i=i && !any(greaterThan(abs(indirect),vec3(65504)));
+ d=d && !any(greaterThan(abs(direct),vec3(65504)));
+ m=m && !any(greaterThan(abs(minimum),vec3(65504)));
+ imageStore(resolvedIndirect,p,vec4(i?indirect:vec3(0),i?1:0));
+ imageStore(resolvedDirect,p,vec4(d?direct:vec3(0),d?1:0));
+ imageStore(resolvedMinimum,p,vec4(m?minimum:vec3(0),m?1:0));
+}

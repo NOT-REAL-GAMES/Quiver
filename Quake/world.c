@@ -340,11 +340,17 @@ void SV_UnlinkEdict (edict_t *ent)
 ====================
 SV_AreaTriggerEdicts
 
-Spike -- just builds a list of entities (as edict nums uint16_t) within the area, rather than walking
+Spike -- just builds a list of entity numbers within the area, rather than walking
 them and risking the list getting corrupt.
 ====================
 */
-static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, uint16_t *list, int *listcount, const int listspace)
+typedef struct
+{
+	uint32_t *items;
+	int count, capacity;
+} sv_trigger_list_t;
+
+static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, sv_trigger_list_t *list)
 {
 	link_t	*l, *next;
 	edict_t *touch;
@@ -362,11 +368,16 @@ static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, uint16_t *list
 			ent->v.absmax[0] < touch->v.absmin[0] || ent->v.absmax[1] < touch->v.absmin[1] || ent->v.absmax[2] < touch->v.absmin[2])
 			continue;
 
-		if (*listcount == listspace)
-			return; // should never happen
-
-		list[*listcount] = NUM_FOR_EDICT (touch);
-		(*listcount)++;
+		if (list->count == list->capacity)
+		{
+			int capacity = list->capacity ? list->capacity * 2 : 32;
+			uint32_t *items = Mem_Realloc (list->items, (size_t)capacity * sizeof (*items));
+			if (!items)
+				Sys_Error ("SV_AreaTriggerEdicts: out of memory");
+			list->items = items;
+			list->capacity = capacity;
+		}
+		list->items[list->count++] = (uint32_t)NUM_FOR_EDICT (touch);
 	}
 
 	// recurse down both sides
@@ -374,9 +385,9 @@ static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, uint16_t *list
 		return;
 
 	if (ent->v.absmax[node->axis] > node->dist)
-		SV_AreaTriggerEdicts (ent, node->children[0], list, listcount, listspace);
+		SV_AreaTriggerEdicts (ent, node->children[0], list);
 	if (ent->v.absmin[node->axis] < node->dist)
-		SV_AreaTriggerEdicts (ent, node->children[1], list, listcount, listspace);
+		SV_AreaTriggerEdicts (ent, node->children[1], list);
 }
 
 /*
@@ -392,28 +403,24 @@ Based on code from Spike.
 static void SV_TouchLinks (edict_t *ent)
 {
 	int old_self, old_other;
-	int listcount, retainedcount;
+	int retainedcount;
+	sv_trigger_list_t list = {0};
 
 	assert_always (!ent->free);
 
-	// Make a list of edicts num to take less stack space that edict_t*
-	// TODO : can list be a static variable ? SV_TouchLinks is only called from the main thread,
-	// but it is unclear if recursion could happen.
-	TEMP_ALLOC (uint16_t, list, qcvm->num_edicts);
-
-	listcount = 0;
-	SV_AreaTriggerEdicts (ent, qcvm->areanodes, list, &listcount, qcvm->num_edicts);
+	// Grow with actual overlaps; recursion through QuakeC needs a local list.
+	SV_AreaTriggerEdicts (ent, qcvm->areanodes, &list);
 	ED_Retain (ent);
 
 	retainedcount = 0;
-	for (int i = 0; i < listcount; i++)
+	for (int i = 0; i < list.count; i++)
 	{
-		edict_t *touch = EDICT_NUM (list[i]);
+		edict_t *touch = EDICT_NUM (list.items[i]);
 		if (touch->free || touch == ent)
 			continue;
 
 		ED_Retain (touch);
-		list[retainedcount++] = list[i];
+		list.items[retainedcount++] = list.items[i];
 	}
 
 	old_self = pr_global_struct->self;
@@ -421,7 +428,7 @@ static void SV_TouchLinks (edict_t *ent)
 
 	for (int i = 0; i < retainedcount; i++)
 	{
-		edict_t *touch = EDICT_NUM (list[i]);
+		edict_t *touch = EDICT_NUM (list.items[i]);
 		// Touch only live triggers that still overlap the entity.
 		if (touch->free || touch == ent)
 			continue;
@@ -445,10 +452,10 @@ static void SV_TouchLinks (edict_t *ent)
 	pr_global_struct->other = old_other;
 
 	for (int i = retainedcount - 1; i >= 0; i--)
-		ED_Release (EDICT_NUM (list[i]));
+		ED_Release (EDICT_NUM (list.items[i]));
 	ED_Release (ent);
 
-	TEMP_FREE (list);
+	Mem_Free (list.items);
 }
 
 /*
@@ -1338,6 +1345,35 @@ boxmaxs[0] = boxmaxs[1] = boxmaxs[2] = 9999;
 SV_Move
 ==================
 */
+/* Compiled model triangles are part of the world collision, independent of
+ * whether their visual entities are currently visible or Radiance is enabled. */
+static void SV_ClipToStaticModels (trace_t *trace, const vec3_t start, const vec3_t mins,
+	const vec3_t maxs, const vec3_t end, unsigned int hitcontents)
+{
+	if (!qcvm->worldmodel || !qcvm->worldmodel->static_models ||
+		!(hitcontents & CONTENTMASK_FROMQ1 (CONTENTS_SOLID))) return;
+	qsm_trace_t model;
+	if (!QSM_Trace (qcvm->worldmodel->static_models, start, mins, maxs, end, &model)) return;
+	qboolean startsolid = trace->startsolid || model.startsolid;
+	if (!trace->allsolid && (model.allsolid || model.fraction < trace->fraction))
+	{
+		trace->fraction = model.fraction;
+		trace->allsolid = model.allsolid;
+		trace->inopen = !model.allsolid;
+		VectorCopy (model.endpos, trace->endpos);
+		VectorCopy (model.normal, trace->plane.normal);
+		trace->plane.dist = model.plane_dist;
+		trace->contents = CONTENTS_SOLID;
+		trace->ent = qcvm->edicts;
+	}
+	trace->startsolid = startsolid;
+	if (model.startsolid && !trace->ent)
+	{
+		trace->ent = qcvm->edicts;
+		trace->contents = CONTENTS_SOLID;
+	}
+}
+
 trace_t SV_MoveWithEdictIgnoreMask (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int type, edict_t *passedict, const sv_ignore_edicts_t *ignore_edicts)
 {
 	moveclip_t clip;
@@ -1352,6 +1388,7 @@ trace_t SV_MoveWithEdictIgnoreMask (vec3_t start, vec3_t mins, vec3_t maxs, vec3
 
 	// clip to world
 	clip.trace = SV_ClipMoveToEntity (qcvm->edicts, start, mins, maxs, end, clip.hitcontents);
+	SV_ClipToStaticModels (&clip.trace, start, mins, maxs, end, clip.hitcontents);
 
 	clip.start = start;
 	clip.end = end;

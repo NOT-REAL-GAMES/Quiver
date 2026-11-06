@@ -1079,10 +1079,9 @@ Draw_Fill
 Fills a box of pixels with a single color
 =============
 */
-void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha) // johnfitz -- added alpha
+static void Draw_FillColor (cb_context_t *cbx, float x, float y, float w, float h, byte r, byte g, byte b, float alpha)
 {
 	int	  i;
-	byte *pal = (byte *)d_8to24table; // johnfitz -- use d_8to24table instead of host_basepal
 
 	VkBuffer	   buffer;
 	VkDeviceSize   buffer_offset;
@@ -1105,9 +1104,9 @@ void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, fl
 
 	for (i = 0; i < 4; ++i)
 	{
-		corner_verts[i].color[0] = pal[c * 4];
-		corner_verts[i].color[1] = pal[c * 4 + 1];
-		corner_verts[i].color[2] = pal[c * 4 + 2];
+		corner_verts[i].color[0] = r;
+		corner_verts[i].color[1] = g;
+		corner_verts[i].color[2] = b;
 		corner_verts[i].color[3] = alpha * draw_opacity * 255;
 	}
 
@@ -1121,6 +1120,59 @@ void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, fl
 	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &buffer_offset);
 	R_BindGraphicsPipeline (cbx, PIPELINE_BASIC_NOTEX_BLEND);
 	vkCmdDraw (cbx->cb, 6, 1, 0, 0);
+}
+
+void Draw_FillRGBA (cb_context_t *cbx, float x, float y, float w, float h, float r, float g, float b, float alpha)
+{
+	Draw_FillColor (cbx, x, y, w, h, (byte)(CLAMP (0.0f, r, 1.0f) * 255),
+		(byte)(CLAMP (0.0f, g, 1.0f) * 255), (byte)(CLAMP (0.0f, b, 1.0f) * 255), CLAMP (0.0f, alpha, 1.0f));
+}
+
+void Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha)
+{
+	const byte *pal = (const byte *)d_8to24table + c * 4;
+	Draw_FillColor (cbx, x, y, w, h, pal[0], pal[1], pal[2], alpha);
+}
+
+void Draw_EditorClearDepth (cb_context_t *cbx)
+{
+	const VkClearAttachment attachment = {
+		.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+		.clearValue.depthStencil = {0.0f, 0},
+	};
+	const VkClearRect rect = {{{0, 0}, {glwidth, glheight}}, 0, 1};
+	vkCmdClearAttachments (cbx->cb, 1, &attachment, 1, &rect);
+}
+
+void Draw_EditorPolygonDepth (cb_context_t *cbx, const float (*xyz)[3], int count, int color, float alpha, qboolean depth_write)
+{
+	if (count < 3 || count > 128 || color < 0 || color > 255) return;
+	const byte *pal = (const byte *)d_8to24table;
+	const int num_vertices = (count - 2) * 3;
+	float area = 0;
+	for (int i = 0; i < count; ++i)
+		area += xyz[i][0] * xyz[(i + 1) % count][1] - xyz[(i + 1) % count][0] * xyz[i][1];
+	VkBuffer buffer;
+	VkDeviceSize offset;
+	basicvertex_t *vertices = (basicvertex_t *)R_VertexAllocate (num_vertices * sizeof (*vertices), &buffer, &offset);
+	for (int i = 0; i < count - 2; ++i)
+	{
+		const int indices[3] = {0, area >= 0 ? i + 1 : i + 2, area >= 0 ? i + 2 : i + 1};
+		for (int j = 0; j < 3; ++j)
+		{
+			basicvertex_t *v = &vertices[i * 3 + j];
+			memset (v, 0, sizeof (*v));
+			v->position[0] = xyz[indices[j]][0];
+			v->position[1] = xyz[indices[j]][1];
+			/* CANVAS_DEFAULT maps z to -z/99999; preserve normalized depth. */
+			v->position[2] = -99999.0f * CLAMP (0.0f, xyz[indices[j]][2], 1.0f);
+			v->color[0] = pal[color * 4]; v->color[1] = pal[color * 4 + 1]; v->color[2] = pal[color * 4 + 2];
+			v->color[3] = CLAMP (0, alpha * draw_opacity, 1) * 255;
+		}
+	}
+	vkCmdBindVertexBuffers (cbx->cb, 0, 1, &buffer, &offset);
+	R_BindGraphicsPipeline (cbx, depth_write ? PIPELINE_EDITOR_DEPTH : PIPELINE_EDITOR_DEPTH_READ);
+	vkCmdDraw (cbx->cb, num_vertices, 1, 0, 0);
 }
 
 /*

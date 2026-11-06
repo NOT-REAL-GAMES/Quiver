@@ -1,0 +1,81 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Separable world-scaled irradiance filter; no probe/visibility reads. */
+#define RC_SET 1
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#include "radiance_cascades.glsl"
+#include "radiance_light_query_free.glsl"
+#include "radiance_light_unshadowed.glsl"
+layout(local_size_x=128,local_size_y=1) in;
+layout(set=0,binding=0) uniform sampler2D halfPosition;
+layout(set=0,binding=1) uniform sampler2D halfNormal;
+layout(set=0,binding=2) uniform usampler2D halfStatus;
+layout(set=0,binding=3) uniform usampler2D fullReceiverID;
+layout(set=0,binding=4) uniform sampler2D sourceIndirect;
+layout(set=0,binding=5) uniform sampler2D sourceDirect;
+layout(set=0,binding=6) uniform sampler2D sourceMinimum;
+layout(rgba16f,set=0,binding=7) uniform writeonly image2D resolvedIndirect;
+layout(rgba16f,set=0,binding=8) uniform writeonly image2D resolvedDirect;
+layout(rgba16f,set=0,binding=9) uniform writeonly image2D resolvedMinimum;
+layout(push_constant) uniform RCFilterViewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+uint RC_ResolvePackedStatus(ivec2 p) { return texelFetch(halfStatus,p,0).r; }
+uint RC_ResolveStatus(ivec2 p) { return RC_ResolvePackedStatus(p)&3u; }
+uvec2 RC_ResolveID(ivec2 p) { return texelFetch(fullReceiverID,p,0).rg; }
+vec3 RC_ResolvePosition(ivec2 p) { return texelFetch(halfPosition,p,0).xyz; }
+vec3 RC_ResolveNormal(ivec2 p) { return texelFetch(halfNormal,p,0).xyz; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+    if(field==1u) return texelFetch(sourceIndirect,p,0);
+    if(field==2u) return texelFetch(sourceMinimum,p,0);
+    return texelFetch(sourceDirect,p,0);
+}
+#include "radiance_receiver_guides.glsl"
+#include "radiance_receiver_shadow_filter.glsl"
+bool RC_CheckerFetch(ivec2 p,uint field,out vec3 value) {
+    if(RC_ResolveStatus(p)!=1u) return false;
+    if(field==0u && rcLighting.shadow_parameters.x>0.5 && rcLighting.shadow_parameters.w>0.0)
+        return RC_ShadowFilterDirect(p,RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z),value);
+    vec4 v=RC_ResolveValue(p,field); value=v.rgb;
+    return v.a>0.5;
+}
+bool RC_CheckerCompatible(ivec2 dst,ivec2 src,uint field) {
+    return RC_ReceiverGuidesCompatible(dst,src,RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z));
+}
+#include "radiance_receiver_checkerboard.glsl"
+#include "radiance_receiver_texture_filter.glsl"
+#include "radiance_receiver_filter_axis.glsl"
+void main() {
+    int pass=int(rcReceiver.normalThreshold.w);
+    bool vertical=pass==1;
+    int base=int(gl_WorkGroupID.x)*RC_AXIS_GROUP,line=int(gl_WorkGroupID.y);
+    ivec2 p=RC_AxisPixel(base+int(gl_LocalInvocationID.x),line,vertical);
+    ivec2 extent=RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z);
+    if(pass==2) {
+        if(any(greaterThanEqual(p,extent))) return;
+        imageStore(resolvedIndirect,p,texelFetch(sourceIndirect,p,0));
+        return;
+    }
+    float gain=rcLighting.bounce_parameters.x;
+    bool gi=(rcLighting.counts.w&8u)==0u || isnan(gain) || isinf(gain) || gain>0.0;
+    bool gaussian=rcLighting.receiver_filter.x>0.0;
+    /* All lanes must reach both shared barriers, including the last partial
+     * workgroup. Copy and Gaussian-zero passes do not populate the cache. */
+    if(gi && gaussian) RC_TextureAxisLoad(base,line,vertical,extent);
+    if(any(greaterThanEqual(p,extent))) return;
+    vec3 indirect=vec3(0);
+    bool i=false;
+    if(gi) i=gaussian?RC_TextureFilterAxis(p,extent,base,line,vertical,indirect):RC_TextureFilterIndirect(p,extent,indirect);
+    imageStore(resolvedIndirect,p,vec4(i?indirect:vec3(0),i?1:0));
+    if(vertical) return;
+    vec3 direct=vec3(0),minimum=vec3(0);
+    bool d=false,m=false;
+    if(RC_ResolveStatus(p)==1u) {
+        if(rcLighting.receiver_filter.y>0.5) RC_CheckerReconstructDirectPair(p,extent,direct,d,minimum,m);
+        else { d=RC_ShadowFilterDirect(p,extent,direct); m=RC_TextureRaw(p,2u,minimum); }
+    }
+    d=d && RC_ReceiverFinite(direct) && !any(greaterThan(abs(direct),vec3(65504.0)));
+    m=m && RC_ReceiverFinite(minimum) && !any(greaterThan(abs(minimum),vec3(65504.0)));
+    imageStore(resolvedDirect,p,vec4(d?direct:vec3(0),d?1:0));
+    imageStore(resolvedMinimum,p,vec4(m?minimum:vec3(0),m?1:0));
+}

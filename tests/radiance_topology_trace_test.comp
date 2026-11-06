@@ -1,0 +1,34 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define RC_TRACE_WRITEONLY 1
+#include "radiance_cascades.glsl"
+
+/* Observe the prior merged hierarchy at trace time. The surrounding fixture
+ * seeds one stale level-three merged record whose level-four support is
+ * invalid, then dispatches only one level-zero interval. */
+layout (local_size_x = 64) in;
+layout (push_constant) uniform RCWork { uint level; uint first; uint count; uint flags; } rcWork;
+
+void main ()
+{
+	uint invocation = gl_GlobalInvocationID.x;
+	if (invocation >= rcWork.count || rcWork.level >= RC_LEVELS) return;
+	uvec3 cell; uvec2 bin; uint index;
+	if (!RC_DecodeWork (rcLevels[rcWork.level], rcWork.first + invocation, rcWork.flags, cell, bin, index)) return;
+	RCCascade observed = rcLevels[3];
+	uint side = observed.meta.x / observed.meta.w;
+	uint tableCount = side * side * side;
+	uint valid = 0u;
+	for (uint i = 0u; i < tableCount; ++i)
+	{
+		uint tableIndex = observed.meta.z + i;
+		if (tableIndex >= rcBrickTable.length ()) break;
+		uint base = rcBrickTable[tableIndex];
+		if (base == RC_ABSENT || base >= rcMergedValid.length ()) continue;
+		valid = rcMergedValid[base];
+		break;
+	}
+	rcRaw[index] = vec4 (float (valid), 0.0, 0.0, 0.0);
+	rcRawDistance[index] = 0.0;
+	rcRawValid[index] = 1u;
+}

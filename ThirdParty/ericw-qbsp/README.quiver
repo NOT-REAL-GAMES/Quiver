@@ -1,0 +1,19 @@
+This directory contains the QBSP, VIS and LIGHT source subset from ericw-tools v0.18.1,
+commit b6e2431f29a1f5763d4aa5fa37cb06838580f41a.
+Upstream: https://github.com/ericwa/ericw-tools
+
+The upstream QBSP and common code is GPL-2.0-or-later; see UPSTREAM_README.md,
+the copyright notices in the source files, and COPYING. No Embree code is
+included. Three dynamic-index offsetof expressions were rewritten as standard offset plus
+index times element size for compatibility with current GCC. Each tool is
+compiled in its own C++ namespace: QBSP uses double vectors while VIS/LIGHT
+use float vectors. For environments without Embree, the LIGHT BSP ray-tracing
+backend is enabled and adapted to the current model-info interface. Embedded
+VIS/LIGHT do not create fixed-named logs in the user's working directory.
+The QBSP and common polygon winding ranges are raised from 65,536 to
+1,048,576 units, with corresponding QBSP world bounds raised to 2,097,152.
+The sector exporter allows source coordinates up to 1,047,552 units, leaving
+space for wall shells, collision hulls, and headnode expansion. Sector
+playtests use BSP2 because BSP29 stores node and leaf bounds as 16-bit values.
+Coordinates around 100,000 have been exercised by sector compilation tests;
+the full enlarged range is not a claim of uniform lighting/physics precision.

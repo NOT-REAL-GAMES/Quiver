@@ -1,0 +1,54 @@
+#version 460
+
+// The source and destination records deliberately match the 24-byte vertex
+// instance layout (vec3 origin followed by vec3 light). Scalars avoid std430's
+// 16-byte vec3 alignment.
+struct Instance
+{
+	float x, y, z;
+	float r, g, b;
+};
+
+layout (local_size_x = 64) in;
+layout (set = 0, binding = 0, std430) readonly buffer InputInstances { Instance input_instances[]; };
+layout (set = 0, binding = 1, std430) writeonly buffer VisibleInstances { Instance visible_instances[]; };
+layout (set = 0, binding = 2, std430) buffer DrawCommand
+{
+	uint index_count;
+	uint instance_count;
+	uint first_index;
+	int vertex_offset;
+	uint first_instance;
+} draw;
+
+layout (push_constant) uniform CullParameters
+{
+	vec4 planes[4]; // xyz normal, w distance
+	vec4 model_mins_count; // w holds the instance count as uint bits
+	vec4 model_maxs;
+} params;
+
+void main ()
+{
+	uint i = gl_GlobalInvocationID.x;
+	uint count = floatBitsToUint (params.model_mins_count.w);
+	if (i >= count)
+		return;
+	Instance instance = input_instances[i];
+	vec3 origin = vec3 (instance.x, instance.y, instance.z);
+	vec3 mins = origin + params.model_mins_count.xyz;
+	vec3 maxs = origin + params.model_maxs.xyz;
+	for (uint p = 0; p < 4; ++p)
+	{
+		vec3 normal = params.planes[p].xyz;
+		vec3 corner = mix (maxs, mins, lessThan (normal, vec3 (0.0)));
+		// CPU and shader arithmetic may differ by a few ulps (for example if
+		// the GPU fuses multiplies). Keep borderline boxes conservatively.
+		float tolerance = 0.00001 * max (1.0, abs (params.planes[p].w) + dot (abs (normal), abs (corner)));
+		if (dot (normal, corner) < params.planes[p].w - tolerance)
+			return;
+	}
+	uint output_index = atomicAdd (draw.instance_count, 1u);
+	if (output_index < count)
+		visible_instances[output_index] = instance;
+}

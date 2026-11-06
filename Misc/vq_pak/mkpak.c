@@ -133,7 +133,12 @@ int main (int argc, char *argv[])
 
 		file_index++;
 		// prepend the root dir
-		snprintf (input_file_path, sizeof (input_file_path), "%s/%s", argv[2], entry_path_start);
+		int path_length = snprintf (input_file_path, sizeof (input_file_path), "%s/%s", argv[2], entry_path_start);
+		if (path_length < 0 || (size_t)path_length >= sizeof (input_file_path))
+		{
+			fprintf (stderr, "Input file path too long at index %d\n", file_index);
+			return 1;
+		}
 
 		// Add this input file to the depfile
 		if (dep_file)

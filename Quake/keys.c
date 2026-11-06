@@ -23,6 +23,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "arch_def.h"
+#include "editor_ui.h"
+#include "editor_controls.h"
+#include "editor.h"
 
 /* key up events are sent even if in console mode */
 
@@ -1103,17 +1106,42 @@ void Key_EventWithKeycode (int key, qboolean down, int keycode)
 		return;
 	}
 
+	if (key == K_F9 && key_dest == key_game && EditorUI_IsActive () && EditorControls_BlocksEditor ())
+		return;
+	if (key == K_F9 && key_dest == key_game && Editor_ToggleKey (down && !repeat))
+		return;
+
+	// Continue releasing any gameplay button that was pressed before entering
+	// the editor, while directing editor input away from game bindings.
+	if (EditorUI_IsActive () && key_dest == key_game && key != K_ESCAPE)
+	{
+		if (!down && keybindings[key] && keybindings[key][0] == '+')
+		{
+			q_snprintf (cmd, sizeof (cmd), "-%s %i\n", keybindings[key] + 1, key);
+			Cbuf_AddText (cmd);
+		}
+		EditorUI_KeyEvent (key, down);
+		return;
+	}
+
 	// handle escape specialy, so the user can never unbind it
 	if (key == K_ESCAPE)
 	{
 		if (!down)
+		{
+			if (EditorUI_IsActive ()) EditorControls_EscapeReleased ();
 			return;
+		}
 
 		if (keydown[K_SHIFT])
 		{
 			Con_ToggleConsole_f ();
 			return;
 		}
+		if (key_dest == key_game && EditorUI_IsActive () && EditorControls_Cancel ())
+			return;
+		if (key_dest == key_game && EditorUI_IsActive () && EditorUI_CancelKnife ())
+			return;
 
 		switch (key_dest)
 		{
@@ -1237,6 +1265,14 @@ Called by the backend when the user has input a character.
 */
 void Char_Event (int key)
 {
+	if (EditorUI_IsActive () && key_dest == key_game)
+	{
+		if (key >= 32 && key <= 126 && EditorControls_WantsText ())
+		{
+			char text[2] = {(char)key, 0}; EditorControls_TextInput (text);
+		}
+		return;
+	}
 	if (key < 32 || key > 126)
 		return;
 
@@ -1291,6 +1327,8 @@ qboolean Key_TextEntry (void)
 	// cause SDL_StartTextInput.
 	if (m_is_quitting)
 		return false;
+	if (EditorUI_IsActive () && key_dest == key_game)
+		return EditorControls_WantsText ();
 
 	switch (key_dest)
 	{
@@ -1338,6 +1376,11 @@ void Key_UpdateForDest (void)
 
 	if (cls.state == ca_dedicated)
 		return;
+	if (EditorUI_IsActive () && key_dest == key_game)
+	{
+		forced = false;
+		return;
+	}
 
 	switch (key_dest)
 	{

@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define _QUAKE_RENDER_H
 
 #include "tasks.h"
+#include "static_models.h"
 
 // refresh.h -- public interface to refresh functions
 
@@ -82,6 +83,13 @@ typedef struct entity_s
 {
 	qboolean forcelink; // no previous update to lerp from, snap to the new state
 	qboolean is_static;
+	/* Compiled BSPX placements have no network model slot. The world owns
+	 * their instance records; entity storage follows ordinary static blocks. */
+	const qsm_instance_t *compiled_instance;
+	uint32_t compiled_instance_index;
+	float modelscale_override; // zero keeps the legacy network byte scale
+	qboolean compiled_bounds_valid;
+	vec3_t compiled_mins, compiled_maxs; // conservative world-space bounds
 
 	int update_type;
 
@@ -105,6 +113,10 @@ typedef struct entity_s
 
 	int dlightframe; // dynamic lighting
 	int dlightbits;
+	/* Network slot lifetimes can change between rendered frames while the
+	 * entity_t address stays the same. Renderer caches use this serial to
+	 * reject geometry from the prior occupant. It is never serialized. */
+	uint32_t render_generation;
 
 	// FIXME: could turn these into a union
 	struct mnode_s *topnode; // for bmodels, first world node
@@ -129,6 +141,11 @@ typedef struct entity_s
 	// Per-entity BLAS for animated models
 	struct entity_blas_s *blas_data; // NULL when no BLAS allocated
 } entity_t;
+
+static inline float R_EntityModelScale (const entity_t *entity)
+{
+	return entity->modelscale_override > 0 ? entity->modelscale_override : ENTSCALE_DECODE (entity->netstate.scale);
+}
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct

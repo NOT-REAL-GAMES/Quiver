@@ -14,6 +14,7 @@ layout (input_attachment_index = 0, set = 0, binding = 0) uniform MBOIT_SUBPASS_
 layout (input_attachment_index = 1, set = 0, binding = 2) uniform MBOIT_SUBPASS_INPUT mboit_color_input;
 
 layout (location = 0) out vec4 out_frag_color;
+layout (constant_id = 0) const bool hdr_scene = false;
 
 void main ()
 {
@@ -23,5 +24,5 @@ void main ()
 	// normalizing by the accumulated alpha-weighted transmittance instead of the
 	// total opacity compensates for errors in the reconstructed per-fragment transmittance
 	vec3  average_color = color.rgb / max (color.a, 1e-5f);
-	out_frag_color = vec4 (clamp (average_color, 0.0f, 1.0f), clamp (alpha, 0.0f, 1.0f));
+	out_frag_color = vec4 (hdr_scene ? max (average_color, vec3 (0.0)) : clamp (average_color, 0.0f, 1.0f), clamp (alpha, 0.0f, 1.0f));
 }

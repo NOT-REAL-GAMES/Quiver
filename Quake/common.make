@@ -10,6 +10,29 @@ WINDRES ?= windres
 GLSLANG = glslangValidator
 DEBUG ?= 0
 USE_SDL3 ?= 1
+EMBED_MAPTOOLS ?= 1
+
+# The map compilers are isolated into C++ namespaces and linked into the game.
+# Derive a matching C++ driver for cross compilers unless explicitly supplied.
+ifeq ($(origin CXX),default)
+CXX := $(patsubst %gcc,%g++,$(CC))
+ifeq ($(CXX),$(CC))
+CXX := $(patsubst %clang,%clang++,$(CC))
+endif
+endif
+ifeq ($(EMBED_MAPTOOLS),1)
+LINKER = $(CXX)
+CFLAGS += -DHAVE_EMBEDDED_MAPTOOLS
+MAPTOOLS_ROOT := ../ThirdParty/ericw-qbsp
+MAPTOOLS_WRAPPERS := $(wildcard $(MAPTOOLS_ROOT)/embedded/wrappers/*.cc)
+MAPTOOLS_OBJS := $(patsubst $(MAPTOOLS_ROOT)/embedded/wrappers/%.cc,.editor-tools/%.o,$(MAPTOOLS_WRAPPERS)) .editor-tools/bridge.o
+MAPTOOLS_FLAGS := -std=c++11 -O2 -I$(MAPTOOLS_ROOT)/include -DQUIVER_EMBEDDED_MAPTOOLS -DERICWTOOLS_VERSION=v0.18.1
+ifneq ($(findstring sys_sdl_win.o,$(SYSOBJ_SYS)),)
+MAPTOOLS_FLAGS += -DUSE_WIN32THREADS -DWIN32 -D_CRT_SECURE_NO_WARNINGS -D__USE_MINGW_ANSI_STDIO=1
+else
+MAPTOOLS_FLAGS += -DUSE_PTHREADS -DLINUX -pthread
+endif
+endif
 
 ifeq ($(USE_SDL3),1)
 CFLAGS += -DUSE_SDL3
@@ -161,14 +184,47 @@ SHADER_OBJS = \
 	md5_mboit_composite_msaa_frag.o \
 	md5_alphatest_mboit_composite_msaa_frag.o \
 	alias_vert.o \
+	alias_instanced_vert.o \
+	alias_ecs_cull_comp.o \
+	radiance_trace_sw_comp.o \
+	radiance_trace_rt_comp.o \
+	radiance_merge_comp.o \
+	radiance_receiver_world_frag.o \
+	radiance_receiver_model_frag.o \
+	radiance_receiver_model_alphatest_frag.o \
+	alias_receiver_forward_fast_sw_frag.o \
+	alias_receiver_forward_fast_sw_alphatest_frag.o \
+	alias_receiver_forward_fast_rt_frag.o \
+	alias_receiver_forward_fast_rt_alphatest_frag.o \
+	radiance_receiver_half_comp.o \
+	radiance_receiver_half_fast_comp.o \
+	radiance_receiver_reconstruct_comp.o \
+	radiance_receiver_filter_comp.o \
+	radiance_receiver_diagnostics_comp.o \
+	radiance_receiver_direct_fast_sw_comp.o \
+	radiance_receiver_direct_fast_rt_comp.o \
+	radiance_receiver_soft_sw_comp.o \
+	radiance_receiver_soft_rt_comp.o \
+	world_receiver_forward_fast_sw_frag.o \
+	world_receiver_forward_fast_rt_frag.o \
+	radiance_receiver_direct_sw_comp.o \
+	radiance_receiver_direct_rt_comp.o \
+	world_receiver_forward_sw_frag.o \
+	world_receiver_forward_rt_frag.o \
 	md5_vert.o \
 	md5_8_vert.o \
 	basic_alphatest_frag.o \
 	screen_effects_8bit_comp.o \
 	screen_effects_10bit_comp.o \
+	screen_effects_hdr_comp.o \
+	ray_debug_hdr_comp.o \
 	cs_tex_warp_comp.o \
 	indirect_comp.o \
 	indirect_clear_comp.o \
+	meshlet_cull_comp.o \
+	meshlet_hiz_comp.o \
+	meshlet_hiz_raster_comp.o \
+	meshlet_hiz_reduce_comp.o \
 	basic_frag.o \
 	fte_particles_frag.o \
 	fte_particles_msaa_frag.o \
@@ -227,6 +283,65 @@ SHADER_OBJS = \
 	skinning_comp.o \
 	skinning_8_comp.o
 
+SHADER_OBJS += \
+	world_radiance_vert.o \
+	alias_radiance_vert.o \
+	alias_instanced_radiance_vert.o \
+	md5_radiance_vert.o \
+	md5_8_radiance_vert.o \
+	world_radiance_sw_frag.o \
+	world_radiance_sw_oit_frag.o \
+	world_radiance_sw_mboit_moment_frag.o \
+	world_radiance_sw_mboit_composite_frag.o \
+	world_radiance_sw_mboit_composite_msaa_frag.o \
+	alias_radiance_sw_frag.o \
+	alias_radiance_sw_alphatest_frag.o \
+	alias_radiance_sw_oit_frag.o \
+	alias_radiance_sw_alphatest_oit_frag.o \
+	alias_radiance_sw_mboit_moment_frag.o \
+	alias_radiance_sw_alphatest_mboit_moment_frag.o \
+	alias_radiance_sw_mboit_composite_frag.o \
+	alias_radiance_sw_alphatest_mboit_composite_frag.o \
+	alias_radiance_sw_mboit_composite_msaa_frag.o \
+	alias_radiance_sw_alphatest_mboit_composite_msaa_frag.o \
+	md5_radiance_sw_mboit_composite_frag.o \
+	md5_radiance_sw_alphatest_mboit_composite_frag.o \
+	md5_radiance_sw_mboit_composite_msaa_frag.o \
+	md5_radiance_sw_alphatest_mboit_composite_msaa_frag.o \
+	world_radiance_rt_frag.o \
+	world_radiance_rt_oit_frag.o \
+	world_radiance_rt_mboit_moment_frag.o \
+	world_radiance_rt_mboit_composite_frag.o \
+	world_radiance_rt_mboit_composite_msaa_frag.o \
+	alias_radiance_rt_frag.o \
+	alias_radiance_rt_alphatest_frag.o \
+	alias_radiance_rt_oit_frag.o \
+	alias_radiance_rt_alphatest_oit_frag.o \
+	alias_radiance_rt_mboit_moment_frag.o \
+	alias_radiance_rt_alphatest_mboit_moment_frag.o \
+	alias_radiance_rt_mboit_composite_frag.o \
+	alias_radiance_rt_alphatest_mboit_composite_frag.o \
+	alias_radiance_rt_mboit_composite_msaa_frag.o \
+	alias_radiance_rt_alphatest_mboit_composite_msaa_frag.o \
+	md5_radiance_rt_mboit_composite_frag.o \
+	md5_radiance_rt_alphatest_mboit_composite_frag.o \
+	md5_radiance_rt_mboit_composite_msaa_frag.o \
+	md5_radiance_rt_alphatest_mboit_composite_msaa_frag.o
+
+# Older shader compilers can still build the indexed renderer.
+MESH_SHADER_SUPPORT := $(shell printf '\043version 460\n\043extension GL_EXT_mesh_shader : require\nlayout(local_size_x=1) in;\nlayout(triangles, max_vertices=3, max_primitives=1) out;\nvoid main() { SetMeshOutputsEXT(0,0); }\n' | $(GLSLANG) --stdin -S mesh -V --target-env vulkan1.1 --target-env spirv1.4 -o /dev/null >/dev/null 2>&1 && echo 1)
+ifeq ($(MESH_SHADER_SUPPORT),1)
+DFLAGS += -DHAVE_WORLD_MESH_SHADER=1
+SHADER_OBJS += world_mesh_mesh.o
+SHADER_OBJS += world_mesh_radiance_mesh.o
+TASK_SHADER_SUPPORT := $(shell printf '\043version 460\n\043extension GL_EXT_mesh_shader : require\nlayout(local_size_x=1) in;\nvoid main() { EmitMeshTasksEXT(0,1,1); }\n' | $(GLSLANG) --stdin -S task -V --target-env vulkan1.1 --target-env spirv1.4 -o /dev/null >/dev/null 2>&1 && echo 1)
+ifeq ($(TASK_SHADER_SUPPORT),1)
+DFLAGS += -DHAVE_WORLD_TASK_SHADER=1
+SHADER_OBJS += world_task_task.o world_task_mesh_mesh.o
+SHADER_OBJS += world_task_mesh_radiance_mesh.o
+endif
+endif
+
 GLOBJS = \
 	palette.o \
 	gl_refrag.o \
@@ -235,6 +350,47 @@ GLOBJS = \
 	gl_fog.o \
 	gl_rmisc.o \
 	r_passes.o \
+	r_ecs_gpu.o \
+	radiance_cascades.o \
+	radiance_emissive.o \
+	radiance_sparse.o \
+	radiance_lights.o \
+	radiance_gpu_inputs.o \
+	radiance_material_atlas.o \
+	radiance_materials_quake.o \
+	radiance_coordinator.o \
+	radiance_matrix.o \
+	radiance_receiver_vulkan.o \
+	radiance_receiver_targets.o \
+	radiance_receiver_pipelines.o \
+	radiance_receiver_record.o \
+	radiance_receiver_diagnostics.o \
+	radiance_receiver_world.o \
+	radiance_receiver_model.o \
+	radiance_receiver_frame.o \
+	radiance_receiver_snapshot.o \
+	radiance_receiver_forward.o \
+	radiance_receiver_capture.o \
+	radiance_receiver_select.o \
+	radiance_receiver_descriptors.o \
+	radiance_receiver_layouts.o \
+	radiance_receiver_resources.o \
+	radiance_receiver_stage.o \
+	radiance_receiver_alternates.o \
+	radiance_receiver_shaders.o \
+	radiance_receiver_slot.o \
+	radiance_receiver_live.o \
+	radiance_scene.o \
+	radiance_alias.o \
+	radiance_scene_alias.o \
+	radiance_scene_bsp.o \
+	radiance_scene_runtime.o \
+	radiance_scene_vulkan.o \
+	radiance_scene_rt.o \
+	radiance_scene_collect.o \
+	radiance_vulkan.o \
+	radiance_engine.o \
+	radiance_runtime.o \
 	r_ssao.o \
 	r_part.o \
 	r_part_fte.o \
@@ -251,6 +407,22 @@ GLOBJS = \
 	r_sprite.o \
 	r_alias.o \
 	r_brush.o \
+	bsp_meshlet.o \
+	editor.o \
+	editor_map.o \
+	editor_sector.o \
+	editor_sector_portal.o \
+	editor_process.o \
+	editor_tools.o \
+	editor_ui.o \
+	editor_model_preview.o \
+	ui_control.o \
+	ecs.o \
+	editor_controls.o \
+	static_models.o \
+	static_models_collision.o \
+	static_models_engine.o \
+	meshlet_hiz.o \
 	gl_model.o
 
 OBJS := strlcat.o \
@@ -302,8 +474,36 @@ OBJS := strlcat.o \
 	embedded_pak.o \
 	$(SYSOBJ_SYS) $(SYSOBJ_MAIN)
 
+ifeq ($(EMBED_MAPTOOLS),1)
+OBJS += $(MAPTOOLS_OBJS)
+
+.editor-tools/%.o: $(MAPTOOLS_ROOT)/embedded/wrappers/%.cc
+	@mkdir -p .editor-tools
+	$(CXX) $(MAPTOOLS_FLAGS) $(DFLAGS) -MMD -MP -c $< -o $@
+
+.editor-tools/bridge.o: $(MAPTOOLS_ROOT)/embedded/bridge.cc
+	@mkdir -p .editor-tools
+	$(CXX) $(MAPTOOLS_FLAGS) $(DFLAGS) -MMD -MP -c $< -o $@
+
+sinclude $(MAPTOOLS_OBJS:.o=.d)
+endif
+
 $(BINTOC_EXE): ../Shaders/bintoc.c
 	make -B -C ../Misc/vq_pak
+
+.SECONDARY:
+../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_task.spv: ../Shaders/%.task
+	$(GLSLANG) $(GLSLANG_FLAGS) --target-env vulkan1.1 --target-env spirv1.4 $< -o $@ --depfile ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_task.d
+%_task.o: ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_task.spv $(BINTOC_EXE)
+	$(BINTOC_EXE) $< $*_task_spv ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_task.c
+	$(CC) $(DFLAGS) -c $(CFLAGS) $(SDL_CFLAGS) -o $@ ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_task.c
+
+.SECONDARY:
+../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_mesh.spv: ../Shaders/%.mesh
+	$(GLSLANG) $(GLSLANG_FLAGS) --target-env vulkan1.1 --target-env spirv1.4 $< -o $@ --depfile ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_mesh.d
+%_mesh.o: ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_mesh.spv $(BINTOC_EXE)
+	$(BINTOC_EXE) $< $*_mesh_spv ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_mesh.c
+	$(CC) $(DFLAGS) -c $(CFLAGS) $(SDL_CFLAGS) -o $@ ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_mesh.c
 
 .SECONDARY:
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_frag.spv: ../Shaders/%.frag
@@ -327,6 +527,21 @@ $(BINTOC_EXE): ../Shaders/bintoc.c
 .SECONDARY:
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%_comp.spv: ../Shaders/%.comp
 	$(GLSLANG) $(GLSLANG_FLAGS) $< -o $@ --depfile ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_comp.d
+
+# The filter's shared-memory helper must also invalidate existing SPIR-V.
+../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/radiance_receiver_filter_comp.spv: ../Shaders/radiance_receiver_filter_axis.glsl ../Shaders/radiance_receiver_shadow_filter.glsl ../Shaders/radiance_light_unshadowed.glsl
+
+RECEIVER_SCALE_SPV_NAMES := radiance_receiver_half_comp radiance_receiver_half_fast_comp \
+ radiance_receiver_reconstruct_comp radiance_receiver_filter_comp radiance_receiver_diagnostics_comp \
+ world_receiver_forward_sw_frag world_receiver_forward_rt_frag \
+ world_receiver_forward_fast_sw_frag world_receiver_forward_fast_rt_frag \
+ alias_receiver_forward_fast_sw_frag alias_receiver_forward_fast_rt_frag \
+ alias_receiver_forward_fast_sw_alphatest_frag alias_receiver_forward_fast_rt_alphatest_frag
+$(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(addsuffix .spv,$(RECEIVER_SCALE_SPV_NAMES))): ../Shaders/radiance_receiver_scale.glsl
+
+RECEIVER_SHADOW_SPV_NAMES := $(patsubst %.o,%.spv,$(filter world_%_frag.o alias_%_frag.o md5_%_frag.o radiance_receiver_direct_%.o radiance_receiver_soft_%.o,$(SHADER_OBJS)))
+$(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(RECEIVER_SHADOW_SPV_NAMES)): ../Shaders/radiance_receiver_shadows.glsl ../Shaders/radiance_receiver_shadow_metadata.glsl ../Shaders/radiance_receiver_shadow_source.glsl ../Shaders/radiance_light_unshadowed.glsl ../Shaders/radiance_parameters.glsl
+$(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(RECEIVER_SHADOW_SPV_NAMES) radiance_trace_sw_comp.spv radiance_trace_rt_comp.spv radiance_receiver_filter_comp.spv): ../Shaders/radiance_light_query_free.glsl
 
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/ssao_mip_comp.spv \
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/ssao_mip_msaa_comp.spv \
@@ -395,6 +610,68 @@ $(eval $(call SHADER_VARIANT,update_lightmap_8bit_comp,update_lightmap.comp,))
 $(eval $(call SHADER_VARIANT,update_lightmap_8bit_rt_comp,update_lightmap.comp,-DRAY_QUERIES=1))
 $(eval $(call SHADER_VARIANT,update_lightmap_10bit_comp,update_lightmap.comp,-DUSE_10BIT=1))
 $(eval $(call SHADER_VARIANT,update_lightmap_10bit_rt_comp,update_lightmap.comp,-DUSE_10BIT=1 -DRAY_QUERIES=1))
+$(eval $(call SHADER_VARIANT,world_receiver_forward_sw_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1))
+$(eval $(call SHADER_VARIANT,world_receiver_forward_rt_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_direct_sw_comp,radiance_receiver_direct.comp,))
+$(eval $(call SHADER_VARIANT,radiance_receiver_direct_rt_comp,radiance_receiver_direct.comp,-DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_model_frag,radiance_receiver_model.frag,))
+$(eval $(call SHADER_VARIANT,radiance_receiver_model_alphatest_frag,radiance_receiver_model.frag,-DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_sw_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_sw_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_rt_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_rt_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_half_fast_comp,radiance_receiver_half.comp,-DRC_RECEIVER_TEXTURE_FILTER=1))
+$(eval $(call SHADER_VARIANT,world_receiver_forward_fast_sw_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1))
+$(eval $(call SHADER_VARIANT,world_receiver_forward_fast_rt_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_direct_fast_sw_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_direct_fast_rt_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_soft_sw_comp,radiance_receiver_soft.comp,))
+$(eval $(call SHADER_VARIANT,radiance_receiver_soft_rt_comp,radiance_receiver_soft.comp,-DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,world_radiance_vert,world.vert,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_vert,alias.vert,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,alias_instanced_radiance_vert,alias_instanced.vert,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,md5_radiance_vert,md5.vert,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,md5_8_radiance_vert,md5.vert,-DRADIANCE_LIGHTING=1 -DEIGHT_WEIGHT_SKINNING))
+$(eval $(call SHADER_VARIANT,world_radiance_sw_frag,world.frag,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,world_radiance_sw_oit_frag,world.frag,-DRADIANCE_LIGHTING=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,world_radiance_sw_mboit_moment_frag,world.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,world_radiance_sw_mboit_composite_frag,world.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,world_radiance_sw_mboit_composite_msaa_frag,world.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_frag,alias.frag,-DRADIANCE_LIGHTING=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_oit_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_alphatest_oit_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_mboit_moment_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_alphatest_mboit_moment_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_alphatest_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_sw_alphatest_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,md5_radiance_sw_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_sw_alphatest_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_sw_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_sw_alphatest_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,world_radiance_rt_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,world_radiance_rt_oit_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,world_radiance_rt_mboit_moment_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,world_radiance_rt_mboit_composite_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,world_radiance_rt_mboit_composite_msaa_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_oit_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_alphatest_oit_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_mboit_moment_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_alphatest_mboit_moment_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_alphatest_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,alias_radiance_rt_alphatest_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1))
+$(eval $(call SHADER_VARIANT,md5_radiance_rt_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_rt_alphatest_mboit_composite_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_rt_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,md5_radiance_rt_alphatest_mboit_composite_msaa_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4))
+$(eval $(call SHADER_VARIANT,world_mesh_radiance_mesh,world_mesh.mesh,-DRADIANCE_LIGHTING=1 --target-env vulkan1.1 --target-env spirv1.4))
+$(eval $(call SHADER_VARIANT,world_task_mesh_radiance_mesh,world_task_mesh.mesh,-DRADIANCE_LIGHTING=1 --target-env vulkan1.1 --target-env spirv1.4))
 
 sinclude $(SHADER_OBJS:%.o=../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/%.d)
 

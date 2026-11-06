@@ -24,7 +24,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // gl_vidsdl.c -- SDL vid component
 
 #include "quakedef.h"
+#include "radiance_receiver_live.h"
+#include "radiance_receiver_experimental.h"
+_Static_assert (DOUBLE_BUFFERED == RC_RECEIVER_LIVE_SLOTS, "receiver slot count must match frame fences");
+#include "bsp_meshlet.h"
 #include "r_ssao.h"
+#include "radiance_runtime.h"
 #define NO_SDL_VULKAN_TYPEDEFS
 #include "cfgfile.h"
 #include "bgmusic.h"
@@ -75,6 +80,7 @@ static vmode_t *modelist = NULL;
 static int		nummodes;
 
 static qboolean vid_initialized = false;
+static qboolean vid_staging_ready = false;
 static qboolean has_focus = true;
 static uint32_t num_images_acquired = 0;
 
@@ -89,8 +95,7 @@ static void VID_Restart_f (void);
 static void ClearAllStates (void);
 static void GL_InitInstance (void);
 static void GL_InitDevice (void);
-static void GL_CreateFrameBuffers (void);
-static void GL_CreateOITBuffers (void);
+static VkResult GL_TryCreateFrameBuffers (void);
 static void GL_DestroyOITBuffers (void);
 static void GL_DestroyRenderResources (void);
 
@@ -108,6 +113,8 @@ static cvar_t vid_width = {"vid_width", "1280", CVAR_ARCHIVE};		  // QuakeSpasm,
 static cvar_t r_width = {"r_width", "-1", CVAR_ARCHIVE};
 static cvar_t r_height = {"r_height", "-1", CVAR_ARCHIVE};
 static cvar_t r_upscalefilter = {"r_upscalefilter", "0", CVAR_ARCHIVE};
+static cvar_t r_radiance_hdr = {"r_radiance_hdr", "1", CVAR_ARCHIVE};
+static bool radiance_hdr_failed;
 static cvar_t vid_height = {"vid_height", "720", CVAR_ARCHIVE}; // QuakeSpasm, was 480
 static cvar_t vid_refreshrate = {"vid_refreshrate", "60", CVAR_ARCHIVE};
 static cvar_t vid_vsync = {"vid_vsync", "1", CVAR_ARCHIVE};
@@ -142,9 +149,27 @@ static VkCommandBuffer	primary_command_buffers[PCBX_NUM][DOUBLE_BUFFERED];
 static VkCommandBuffer *secondary_command_buffers[SCBX_NUM][DOUBLE_BUFFERED];
 static VkFence			command_buffer_fences[DOUBLE_BUFFERED];
 static qboolean			frame_submitted[DOUBLE_BUFFERED];
+static bool             radiance_commands_ready[DOUBLE_BUFFERED];
 static VkQueryPool		timestamp_query_pool;
 static qboolean			timestamps_written[DOUBLE_BUFFERED];
 static qboolean			frame_timing_enabled;
+static uint64_t			timestamp_mask;
+static bool				gpu_measure_active, gpu_measure_written[DOUBLE_BUFFERED];
+static double			gpu_measure_ms;
+static unsigned int		gpu_measure_samples;
+#define GPU_MEASURE_HISTORY_CAPACITY 65536u
+static float            gpu_measure_history[GPU_MEASURE_HISTORY_CAPACITY];
+/* Optional graphics-stage timing. Queries live in the same fenced slots as
+ * whole-frame timing. World/entity ranges can overlap GPU work and must not
+ * be summed as though they partition the frame. */
+#define GPU_QUERY_STRIDE 12u
+static bool             gpu_stage_active, gpu_stage_frame_enabled, gpu_stage_written[DOUBLE_BUFFERED];
+static double           gpu_stage_ms[2];
+static unsigned int     gpu_stage_samples;
+static float            gpu_stage_history[2][GPU_MEASURE_HISTORY_CAPACITY];
+static double           gpu_receiver_ms[3];
+static unsigned int     gpu_receiver_samples;
+static float            gpu_receiver_history[3][GPU_MEASURE_HISTORY_CAPACITY];
 static VkSemaphore		image_aquired_semaphores[DOUBLE_BUFFERED];
 static VkSemaphore		draw_complete_semaphores[MAX_SWAP_CHAIN_IMAGES];
 static VkImage			swapchain_images[MAX_SWAP_CHAIN_IMAGES];
@@ -152,6 +177,9 @@ static VkImageView		swapchain_images_views[MAX_SWAP_CHAIN_IMAGES];
 static VkImage			depth_buffer;
 static vulkan_memory_t	depth_buffer_memory;
 static VkImageView		depth_buffer_view;
+static VkImage			ui_depth_buffer;
+static vulkan_memory_t	ui_depth_buffer_memory;
+static VkImageView		ui_depth_buffer_view;
 static vulkan_memory_t	color_buffers_memory[NUM_COLOR_BUFFERS];
 static VkImageView		color_buffers_view[NUM_COLOR_BUFFERS];
 static vulkan_memory_t	oit_accum_buffer_memory;
@@ -1185,6 +1213,11 @@ static void GL_InitDevice (void)
 	qboolean driver_properties_available = false;
 	qboolean present_id = false;
 	qboolean present_wait = false;
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	qboolean mesh_shader_extension = false;
+	qboolean spirv_1_4_extension = false;
+	qboolean shader_float_controls_extension = false;
+#endif
 	uint32_t device_extension_count;
 	err = vkEnumerateDeviceExtensionProperties (vulkan_physical_device, NULL, &device_extension_count, NULL);
 
@@ -1213,6 +1246,14 @@ static void GL_InitDevice (void)
 				push_descriptor = true;
 			if (strcmp (VK_KHR_RAY_QUERY_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
 				vulkan_globals.ray_query = true;
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+			if (strcmp (VK_EXT_MESH_SHADER_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
+				mesh_shader_extension = true;
+			if (strcmp (VK_KHR_SPIRV_1_4_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
+				spirv_1_4_extension = true;
+			if (strcmp (VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
+				shader_float_controls_extension = true;
+#endif
 #if defined(VK_KHR_present_wait2)
 			if (strcmp (VK_KHR_PRESENT_ID_2_EXTENSION_NAME, device_extensions[i].extensionName) == 0)
 				present_id = true;
@@ -1277,6 +1318,8 @@ static void GL_InitDevice (void)
 		{
 			found_graphics_queue = true;
 			vulkan_globals.gfx_queue_family_index = i;
+			const uint32_t bits = queue_family_properties[i].timestampValidBits;
+			timestamp_mask = bits ? UINT64_MAX >> (64 - bits) : 0;
 			break;
 		}
 	}
@@ -1301,6 +1344,11 @@ static void GL_InitDevice (void)
 	ZEROED_STRUCT (VkPhysicalDeviceAccelerationStructureFeaturesKHR, acceleration_structure_features);
 	ZEROED_STRUCT (VkPhysicalDeviceRayQueryFeaturesKHR, ray_query_features);
 	ZEROED_STRUCT (VkPhysicalDeviceShaderFloat16Int8Features, shader_float16_features);
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	ZEROED_STRUCT (VkPhysicalDeviceMeshShaderFeaturesEXT, mesh_shader_features);
+	ZEROED_STRUCT (VkPhysicalDeviceMeshShaderPropertiesEXT, mesh_shader_properties);
+	mesh_shader_extension = mesh_shader_extension && spirv_1_4_extension && shader_float_controls_extension;
+#endif
 #if defined(VK_KHR_present_wait2)
 	ZEROED_STRUCT (VkPhysicalDevicePresentId2FeaturesKHR, present_id_features);
 	ZEROED_STRUCT (VkPhysicalDevicePresentWait2FeaturesKHR, present_wait_features);
@@ -1311,6 +1359,14 @@ static void GL_InitDevice (void)
 		ZEROED_STRUCT (VkPhysicalDeviceProperties2KHR, physical_device_properties_2);
 		physical_device_properties_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 		void **device_properties_next = &physical_device_properties_2.pNext;
+
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+		if (mesh_shader_extension)
+		{
+			mesh_shader_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+			CHAIN_PNEXT (device_properties_next, mesh_shader_properties);
+		}
+#endif
 
 		if (subgroup_size_control)
 		{
@@ -1330,6 +1386,14 @@ static void GL_InitDevice (void)
 		ZEROED_STRUCT (VkPhysicalDeviceFeatures2, physical_device_features_2);
 		physical_device_features_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		void **device_features_next = &physical_device_features_2.pNext;
+
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+		if (mesh_shader_extension)
+		{
+			mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+			CHAIN_PNEXT (device_features_next, mesh_shader_features);
+		}
+#endif
 
 		if (shader_float16_available)
 		{
@@ -1390,6 +1454,42 @@ static void GL_InitDevice (void)
 	if (vulkan_globals.ray_query)
 		Con_Printf ("Using ray queries\n");
 
+#if defined(VK_EXT_mesh_shader)
+	vulkan_globals.mesh_shader = false;
+	vulkan_globals.mesh_shader_max_workgroups = 0;
+	vulkan_globals.task_shader = false;
+	vulkan_globals.task_shader_max_workgroups = 0;
+	vulkan_globals.vk_cmd_draw_mesh_tasks = NULL;
+#if defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	// The engine requests Vulkan 1.1, so enable SPIR-V 1.4 and its float
+	// controls dependency as extensions even on newer physical devices.
+	vulkan_globals.mesh_shader = vulkan_globals.vulkan_1_1_available && mesh_shader_extension && mesh_shader_features.meshShader &&
+		mesh_shader_properties.maxMeshOutputVertices >= BSP_MESHLET_MAX_VERTICES &&
+		mesh_shader_properties.maxMeshOutputPrimitives >= BSP_MESHLET_MAX_TRIANGLES && mesh_shader_properties.maxMeshWorkGroupInvocations >= 32 &&
+		mesh_shader_properties.maxMeshWorkGroupSize[0] >= 32 && mesh_shader_properties.maxMeshWorkGroupCount[0] > 0 &&
+		mesh_shader_properties.maxMeshWorkGroupTotalCount > 0 && mesh_shader_properties.maxMeshSharedMemorySize >= 1024 &&
+		mesh_shader_properties.maxMeshOutputMemorySize >= 8192 && mesh_shader_properties.maxMeshOutputComponents >= 9 &&
+		vulkan_globals.device_properties.limits.maxBoundDescriptorSets >= 5 &&
+		vulkan_globals.device_properties.limits.maxPerStageDescriptorStorageBuffers >= 4 &&
+		vulkan_globals.device_properties.limits.maxDescriptorSetStorageBuffers >= 4;
+	if (vulkan_globals.mesh_shader)
+		vulkan_globals.mesh_shader_max_workgroups = q_min (mesh_shader_properties.maxMeshWorkGroupCount[0], mesh_shader_properties.maxMeshWorkGroupTotalCount);
+#if defined(HAVE_WORLD_TASK_SHADER)
+	// One task workgroup considers up to 32 meshlets and emits at most 32
+	// mesh workgroups. Check both task draw limits and emitted mesh limits.
+	vulkan_globals.task_shader = vulkan_globals.mesh_shader && mesh_shader_features.taskShader &&
+		mesh_shader_properties.maxTaskWorkGroupInvocations >= 32 && mesh_shader_properties.maxTaskWorkGroupSize[0] >= 32 &&
+		mesh_shader_properties.maxTaskWorkGroupCount[0] > 0 && mesh_shader_properties.maxTaskWorkGroupTotalCount > 0 &&
+		mesh_shader_properties.maxMeshWorkGroupCount[0] >= 32 && mesh_shader_properties.maxMeshWorkGroupTotalCount >= 32 &&
+		mesh_shader_properties.maxTaskPayloadSize >= 128 && mesh_shader_properties.maxTaskSharedMemorySize >= 1024 &&
+		mesh_shader_properties.maxTaskPayloadAndSharedMemorySize >= 1152 &&
+		mesh_shader_properties.maxMeshPayloadAndSharedMemorySize >= 1152 && mesh_shader_properties.maxMeshPayloadAndOutputMemorySize >= 8320;
+	if (vulkan_globals.task_shader)
+		vulkan_globals.task_shader_max_workgroups = q_min (mesh_shader_properties.maxTaskWorkGroupCount[0], mesh_shader_properties.maxTaskWorkGroupTotalCount);
+#endif
+#endif
+#endif
+
 	vulkan_globals.present_wait = false;
 #if defined(VK_KHR_present_wait2)
 	vulkan_globals.present_wait = vulkan_globals.vulkan_1_1_available && vulkan_globals.get_surface_capabilities_2 && present_id && present_wait &&
@@ -1432,6 +1532,19 @@ static void GL_InitDevice (void)
 		device_extensions[numEnabledExtensions++] = VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME;
 		device_extensions[numEnabledExtensions++] = VK_KHR_RAY_QUERY_EXTENSION_NAME;
 	}
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	const uint32_t extensions_without_mesh = numEnabledExtensions;
+	if (vulkan_globals.mesh_shader)
+	{
+		// The ray-query extension list already includes both dependencies.
+		if (!vulkan_globals.ray_query)
+		{
+			device_extensions[numEnabledExtensions++] = VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME;
+			device_extensions[numEnabledExtensions++] = VK_KHR_SPIRV_1_4_EXTENSION_NAME;
+		}
+		device_extensions[numEnabledExtensions++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
+	}
+#endif
 
 	const VkBool32 extended_format_support = vulkan_globals.device_features.shaderStorageImageExtendedFormats;
 	const VkBool32 independent_blend = vulkan_globals.device_features.independentBlend;
@@ -1444,6 +1557,7 @@ static void GL_InitDevice (void)
 	device_features.sampleRateShading = vulkan_globals.device_features.sampleRateShading;
 	device_features.fillModeNonSolid = vulkan_globals.device_features.fillModeNonSolid;
 	device_features.multiDrawIndirect = vulkan_globals.device_features.multiDrawIndirect;
+	device_features.geometryShader = vulkan_globals.device_features.geometryShader;
 
 	vulkan_globals.non_solid_fill = (device_features.fillModeNonSolid == VK_TRUE) ? true : false;
 	vulkan_globals.multi_draw_indirect = (device_features.multiDrawIndirect == VK_TRUE) ? true : false;
@@ -1472,6 +1586,21 @@ static void GL_InitDevice (void)
 		CHAIN_PNEXT (device_create_info_next, present_wait_features);
 	}
 #endif
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	// Keep this last so failed optional device creation can retry the same
+	// configuration without the mesh extension and feature chain.
+	void **mesh_feature_link = device_create_info_next;
+	if (vulkan_globals.mesh_shader)
+	{
+		mesh_shader_features.pNext = NULL;
+		mesh_shader_features.taskShader = vulkan_globals.task_shader;
+		mesh_shader_features.meshShader = VK_TRUE;
+		mesh_shader_features.multiviewMeshShader = VK_FALSE;
+		mesh_shader_features.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+		mesh_shader_features.meshShaderQueries = VK_FALSE;
+		CHAIN_PNEXT (device_create_info_next, mesh_shader_features);
+	}
+#endif
 	device_create_info.queueCreateInfoCount = 1;
 	device_create_info.pQueueCreateInfos = &queue_create_info;
 	device_create_info.enabledExtensionCount = numEnabledExtensions;
@@ -1479,8 +1608,46 @@ static void GL_InitDevice (void)
 	device_create_info.pEnabledFeatures = &device_features;
 
 	err = vkCreateDevice (vulkan_physical_device, &device_create_info, NULL, &vulkan_globals.device);
+#if defined(VK_EXT_mesh_shader) && defined(VK_KHR_spirv_1_4) && defined(VK_KHR_shader_float_controls) && defined(HAVE_WORLD_MESH_SHADER)
+	if (err != VK_SUCCESS && vulkan_globals.task_shader)
+	{
+		Con_Warning ("Task shader device creation failed (%i); retrying with mesh shaders only\n", (int)err);
+		vulkan_globals.task_shader = false;
+		vulkan_globals.task_shader_max_workgroups = 0;
+		mesh_shader_features.taskShader = VK_FALSE;
+		err = vkCreateDevice (vulkan_physical_device, &device_create_info, NULL, &vulkan_globals.device);
+	}
+	if (err != VK_SUCCESS && vulkan_globals.mesh_shader)
+	{
+		Con_Warning ("Mesh shader device creation failed (%i); retrying without mesh shaders\n", (int)err);
+		vulkan_globals.mesh_shader = false;
+		vulkan_globals.mesh_shader_max_workgroups = 0;
+		vulkan_globals.task_shader = false;
+		vulkan_globals.task_shader_max_workgroups = 0;
+		*mesh_feature_link = NULL;
+		numEnabledExtensions = extensions_without_mesh;
+		device_create_info.enabledExtensionCount = numEnabledExtensions;
+		err = vkCreateDevice (vulkan_physical_device, &device_create_info, NULL, &vulkan_globals.device);
+	}
+#endif
 	if (err != VK_SUCCESS)
 		Sys_Error ("Couldn't create Vulkan device with code %i", (int)err);
+
+#if defined(VK_EXT_mesh_shader)
+	if (vulkan_globals.mesh_shader)
+	{
+		vulkan_globals.vk_cmd_draw_mesh_tasks = (PFN_vkCmdDrawMeshTasksEXT)fpGetDeviceProcAddr (vulkan_globals.device, "vkCmdDrawMeshTasksEXT");
+		if (!vulkan_globals.vk_cmd_draw_mesh_tasks)
+		{
+			vulkan_globals.mesh_shader = false;
+			vulkan_globals.mesh_shader_max_workgroups = 0;
+			vulkan_globals.task_shader = false;
+			vulkan_globals.task_shader_max_workgroups = 0;
+		}
+		else
+			Con_Printf ("Mesh shaders available\n");
+	}
+#endif
 
 	GET_DEVICE_PROC_ADDR (CreateSwapchainKHR);
 	GET_DEVICE_PROC_ADDR (DestroySwapchainKHR);
@@ -1543,6 +1710,12 @@ static void GL_InitDevice (void)
 	}
 
 	// Find depth format
+	vulkan_globals.scene_color_format = vulkan_globals.color_format;
+	vulkan_globals.scene_hdr_active = false;
+	vkGetPhysicalDeviceFormatProperties (vulkan_physical_device, VK_FORMAT_R16G16B16A16_SFLOAT, &format_properties);
+	vulkan_globals.scene_hdr_supported = (format_properties.optimalTilingFeatures & REQUIRED_COLOR_BUFFER_FEATURES) == REQUIRED_COLOR_BUFFER_FEATURES;
+
+	// Find depth format
 	vkGetPhysicalDeviceFormatProperties (vulkan_physical_device, VK_FORMAT_D24_UNORM_S8_UINT, &format_properties);
 	qboolean x8_d24_support = (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
 	vkGetPhysicalDeviceFormatProperties (vulkan_physical_device, VK_FORMAT_D32_SFLOAT_S8_UINT, &format_properties);
@@ -1564,6 +1737,10 @@ static void GL_InitDevice (void)
 		// This cannot happen with a compliant Vulkan driver. The spec requires support for one of the formats.
 		Sys_Error ("Cannot find VK_FORMAT_D24_UNORM_S8_UINT or VK_FORMAT_D32_SFLOAT_S8_UINT depth buffer format");
 	}
+	/* Avoid an unnecessary stencil component in the native UI depth buffer. */
+	vkGetPhysicalDeviceFormatProperties (vulkan_physical_device, VK_FORMAT_D32_SFLOAT, &format_properties);
+	vulkan_globals.ui_depth_format = (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		? VK_FORMAT_D32_SFLOAT : vulkan_globals.depth_format;
 
 	Con_Printf ("\n");
 
@@ -1659,6 +1836,9 @@ static void GL_InitCommandBuffers (void)
 
 	ZEROED_STRUCT (VkFenceCreateInfo, fence_create_info);
 	fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	/* A never-submitted slot is already safe to reuse, just like a completed
+	 * slot; expose that fact to subsystems checking the same fence. */
+	fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	for (int i = 0; i < DOUBLE_BUFFERED; ++i)
 	{
@@ -1668,95 +1848,104 @@ static void GL_InitCommandBuffers (void)
 	}
 }
 
-/*
-===============
-GL_CreateDepthBuffer
-===============
-*/
-static void GL_CreateDepthBuffer (void)
+/* Create one image attachment without publishing invalid driver outputs. */
+static VkResult GL_TryCreateAttachment (VkImage *image, vulkan_memory_t *memory, VkImageView *view,
+	const VkImageCreateInfo *info, VkImageAspectFlags aspect, const char *name)
 {
-	Sys_Printf ("Creating depth buffer\n");
+	if (*image || memory->handle || *view) return VK_ERROR_INITIALIZATION_FAILED;
+	VkImage created_image = VK_NULL_HANDLE;
+	VkResult err = vkCreateImage (vulkan_globals.device, info, NULL, &created_image);
+	if (err != VK_SUCCESS) return err;
+	*image = created_image;
+	GL_SetObjectName ((uint64_t)*image, VK_OBJECT_TYPE_IMAGE, name);
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements (vulkan_globals.device, *image, &requirements);
+	const int memory_type = GL_TryMemoryTypeFromProperties (requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	if (memory_type < 0) { err = VK_ERROR_FEATURE_NOT_PRESENT; goto fail; }
+	const VkMemoryDedicatedAllocateInfoKHR dedicated = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR, .image = *image,
+	};
+	const VkMemoryAllocateInfo allocation = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.pNext = vulkan_globals.dedicated_allocation ? &dedicated : NULL,
+		.allocationSize = requirements.size, .memoryTypeIndex = (uint32_t)memory_type,
+	};
+	err = R_TryAllocateVulkanMemory (memory, &allocation, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+	if (err != VK_SUCCESS) goto fail;
+	GL_SetObjectName ((uint64_t)memory->handle, VK_OBJECT_TYPE_DEVICE_MEMORY, name);
+	err = vkBindImageMemory (vulkan_globals.device, *image, memory->handle, 0);
+	if (err != VK_SUCCESS) goto fail;
+	const VkImageViewCreateInfo view_info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = *image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D, .format = info->format,
+		.subresourceRange = {aspect, 0, 1, 0, 1},
+	};
+	VkImageView created_view = VK_NULL_HANDLE;
+	err = vkCreateImageView (vulkan_globals.device, &view_info, NULL, &created_view);
+	if (err != VK_SUCCESS) goto fail;
+	*view = created_view;
+	GL_SetObjectName ((uint64_t)*view, VK_OBJECT_TYPE_IMAGE_VIEW, name);
+	return VK_SUCCESS;
+fail:
+	if (*image) vkDestroyImage (vulkan_globals.device, *image, NULL);
+	if (memory->handle) R_FreeVulkanMemory (memory, &num_vulkan_misc_allocations);
+	*image = VK_NULL_HANDLE;
+	return err;
+}
 
-	if (depth_buffer != VK_NULL_HANDLE)
-		return;
+static void GL_DestroyAttachment (VkImage *image, vulkan_memory_t *memory, VkImageView *view)
+{
+	if (*view) vkDestroyImageView (vulkan_globals.device, *view, NULL);
+	if (*image) vkDestroyImage (vulkan_globals.device, *image, NULL);
+	if (memory->handle) R_FreeVulkanMemory (memory, &num_vulkan_misc_allocations);
+	*view = VK_NULL_HANDLE;
+	*image = VK_NULL_HANDLE;
+}
 
-	VkResult err;
+static VkResult GL_TryCreateDepthImage (void)
+{
+	VkImageCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
+		.format = vulkan_globals.depth_format, .extent = {vid.render_width, vid.render_height, 1},
+		.mipLevels = 1, .arrayLayers = 1, .samples = vulkan_globals.sample_count,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
+	};
+	if (r_ssao.value > 0) info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+	return GL_TryCreateAttachment (&depth_buffer, &depth_buffer_memory, &depth_buffer_view, &info,
+		VK_IMAGE_ASPECT_DEPTH_BIT, "Depth Buffer");
+}
 
-	ZEROED_STRUCT (VkImageCreateInfo, image_create_info);
-	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	image_create_info.pNext = NULL;
-	image_create_info.imageType = VK_IMAGE_TYPE_2D;
-	image_create_info.format = vulkan_globals.depth_format;
-	image_create_info.extent.width = vid.render_width;
-	image_create_info.extent.height = vid.render_height;
-	image_create_info.extent.depth = 1;
-	image_create_info.mipLevels = 1;
-	image_create_info.arrayLayers = 1;
-	image_create_info.samples = vulkan_globals.sample_count;
-	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-	if (r_ssao.value > 0)
-		image_create_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-
-	assert (depth_buffer == VK_NULL_HANDLE);
-	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &depth_buffer);
+static VkResult GL_TryCreateDepthBuffer (void)
+{
+	if (vulkan_globals.particle_depth_descriptor_set) return VK_ERROR_INITIALIZATION_FAILED;
+	VkResult err = GL_TryCreateDepthImage ();
+	if (err != VK_SUCCESS) return err;
+	err = R_TryAllocateDescriptorSet (&vulkan_globals.input_attachment_set_layout, &vulkan_globals.particle_depth_descriptor_set);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateImage failed with code %i", (int)err);
-
-	GL_SetObjectName ((uint64_t)depth_buffer, VK_OBJECT_TYPE_IMAGE, "Depth Buffer");
-
-	VkMemoryRequirements memory_requirements;
-	vkGetImageMemoryRequirements (vulkan_globals.device, depth_buffer, &memory_requirements);
-
-	ZEROED_STRUCT (VkMemoryDedicatedAllocateInfoKHR, dedicated_allocation_info);
-	dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
-	dedicated_allocation_info.image = depth_buffer;
-
-	ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
-	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	memory_allocate_info.allocationSize = memory_requirements.size;
-	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
-
-	if (vulkan_globals.dedicated_allocation)
-		memory_allocate_info.pNext = &dedicated_allocation_info;
-
-	assert (depth_buffer_memory.handle == VK_NULL_HANDLE);
-	R_AllocateVulkanMemory (&depth_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
-	GL_SetObjectName ((uint64_t)depth_buffer_memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, "Depth Buffer");
-
-	err = vkBindImageMemory (vulkan_globals.device, depth_buffer, depth_buffer_memory.handle, 0);
-	if (err != VK_SUCCESS)
-		Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
-
-	ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
-	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	image_view_create_info.format = vulkan_globals.depth_format;
-	image_view_create_info.image = depth_buffer;
-	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-	image_view_create_info.subresourceRange.baseMipLevel = 0;
-	image_view_create_info.subresourceRange.levelCount = 1;
-	image_view_create_info.subresourceRange.baseArrayLayer = 0;
-	image_view_create_info.subresourceRange.layerCount = 1;
-	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	image_view_create_info.flags = 0;
-
-	assert (depth_buffer_view == VK_NULL_HANDLE);
-	err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &depth_buffer_view);
-	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateImageView failed with code %i", (int)err);
-
-	GL_SetObjectName ((uint64_t)depth_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "Depth Buffer View");
-	vulkan_globals.particle_depth_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.input_attachment_set_layout);
+	{
+		GL_DestroyAttachment (&depth_buffer, &depth_buffer_memory, &depth_buffer_view);
+		return err;
+	}
 	const VkDescriptorImageInfo depth_info = {VK_NULL_HANDLE, depth_buffer_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-	const VkWriteDescriptorSet	depth_write = {
-		 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		 .dstSet = vulkan_globals.particle_depth_descriptor_set,
-		 .dstBinding = 0,
-		 .descriptorCount = 1,
-		 .descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
-		 .pImageInfo = &depth_info,
-	 };
+	const VkWriteDescriptorSet depth_write = {
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = vulkan_globals.particle_depth_descriptor_set,
+		.dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .pImageInfo = &depth_info,
+	};
 	vkUpdateDescriptorSets (vulkan_globals.device, 1, &depth_write, 0, NULL);
+	return VK_SUCCESS;
+}
+
+static VkResult GL_TryCreateUIDepthBuffer (void)
+{
+	const VkImageCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
+		.format = vulkan_globals.ui_depth_format, .extent = {vid.width, vid.height, 1},
+		.mipLevels = 1, .arrayLayers = 1, .samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	};
+	return GL_TryCreateAttachment (&ui_depth_buffer, &ui_depth_buffer_memory, &ui_depth_buffer_view, &info,
+		VK_IMAGE_ASPECT_DEPTH_BIT, "UI Depth Buffer");
 }
 
 /*
@@ -1764,8 +1953,21 @@ static void GL_CreateDepthBuffer (void)
 GL_CreateUIColorBuffer
 ===============
 */
-static void GL_CreateUIColorBuffer (void)
+static void GL_DestroyUIColorBuffer (void)
 {
+	if (ui_color_buffer_view) vkDestroyImageView (vulkan_globals.device, ui_color_buffer_view, NULL);
+	if (ui_color_buffer) vkDestroyImage (vulkan_globals.device, ui_color_buffer, NULL);
+	if (ui_color_buffer_memory.handle) R_FreeVulkanMemory (&ui_color_buffer_memory, &num_vulkan_misc_allocations);
+	ui_color_buffer_view = VK_NULL_HANDLE;
+	ui_color_buffer = VK_NULL_HANDLE;
+}
+
+/* Leave no partial image behind on failure. This allows a future optional
+ * render target to fall back without first terminating the process. */
+static VkResult GL_TryCreateUIColorBuffer (void)
+{
+	if (ui_color_buffer || ui_color_buffer_memory.handle || ui_color_buffer_view)
+		return VK_ERROR_INITIALIZATION_FAILED;
 	VkResult err;
 
 	Sys_Printf ("Creating native UI color buffer\n");
@@ -1785,9 +1987,11 @@ static void GL_CreateUIColorBuffer (void)
 	image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
 
 	assert (ui_color_buffer == VK_NULL_HANDLE);
-	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &ui_color_buffer);
+	VkImage created_image = VK_NULL_HANDLE;
+	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &created_image);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateImage failed with code %i", (int)err);
+		goto fail;
+	ui_color_buffer = created_image;
 
 	GL_SetObjectName ((uint64_t)ui_color_buffer, VK_OBJECT_TYPE_IMAGE, "UI Color Buffer");
 
@@ -1801,18 +2005,21 @@ static void GL_CreateUIColorBuffer (void)
 	ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
 	memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	memory_allocate_info.allocationSize = memory_requirements.size;
-	memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	int memory_type = GL_TryMemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+	if (memory_type < 0) { err = VK_ERROR_FEATURE_NOT_PRESENT; goto fail; }
+	memory_allocate_info.memoryTypeIndex = (uint32_t)memory_type;
 
 	if (vulkan_globals.dedicated_allocation)
 		memory_allocate_info.pNext = &dedicated_allocation_info;
 
 	assert (ui_color_buffer_memory.handle == VK_NULL_HANDLE);
-	R_AllocateVulkanMemory (&ui_color_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+	err = R_TryAllocateVulkanMemory (&ui_color_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+	if (err != VK_SUCCESS) goto fail;
 	GL_SetObjectName ((uint64_t)ui_color_buffer_memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, "UI Color Buffer");
 
 	err = vkBindImageMemory (vulkan_globals.device, ui_color_buffer, ui_color_buffer_memory.handle, 0);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
+		goto fail;
 
 	ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
 	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1827,15 +2034,43 @@ static void GL_CreateUIColorBuffer (void)
 	image_view_create_info.flags = 0;
 
 	assert (ui_color_buffer_view == VK_NULL_HANDLE);
-	err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &ui_color_buffer_view);
+	VkImageView created_view = VK_NULL_HANDLE;
+	err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &created_view);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateImageView failed with code %i", (int)err);
+		goto fail;
+	ui_color_buffer_view = created_view;
 
 	GL_SetObjectName ((uint64_t)ui_color_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "UI Color Buffer View");
+	return VK_SUCCESS;
+fail:
+	GL_DestroyUIColorBuffer ();
+	return err;
 }
 
-static void GL_CreateColorBuffer (void)
+static void GL_DestroyColorBuffers (void)
 {
+	if (msaa_color_buffer_view) vkDestroyImageView (vulkan_globals.device, msaa_color_buffer_view, NULL);
+	if (msaa_color_buffer) vkDestroyImage (vulkan_globals.device, msaa_color_buffer, NULL);
+	if (msaa_color_buffer_memory.handle) R_FreeVulkanMemory (&msaa_color_buffer_memory, &num_vulkan_misc_allocations);
+	msaa_color_buffer_view = VK_NULL_HANDLE;
+	msaa_color_buffer = VK_NULL_HANDLE;
+	for (int i = 0; i < NUM_COLOR_BUFFERS; ++i)
+	{
+		if (color_buffers_view[i]) vkDestroyImageView (vulkan_globals.device, color_buffers_view[i], NULL);
+		if (vulkan_globals.color_buffers[i]) vkDestroyImage (vulkan_globals.device, vulkan_globals.color_buffers[i], NULL);
+		if (color_buffers_memory[i].handle) R_FreeVulkanMemory (&color_buffers_memory[i], &num_vulkan_misc_allocations);
+		color_buffers_view[i] = VK_NULL_HANDLE;
+		vulkan_globals.color_buffers[i] = VK_NULL_HANDLE;
+	}
+}
+
+static VkResult GL_TryCreateColorBuffer (void)
+{
+	if (msaa_color_buffer || msaa_color_buffer_memory.handle || msaa_color_buffer_view)
+		return VK_ERROR_INITIALIZATION_FAILED;
+	for (int index = 0; index < NUM_COLOR_BUFFERS; ++index)
+		if (vulkan_globals.color_buffers[index] || color_buffers_memory[index].handle || color_buffers_view[index])
+			return VK_ERROR_INITIALIZATION_FAILED;
 	VkResult err;
 	int		 i;
 
@@ -1845,7 +2080,7 @@ static void GL_CreateColorBuffer (void)
 	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	image_create_info.pNext = NULL;
 	image_create_info.imageType = VK_IMAGE_TYPE_2D;
-	image_create_info.format = vulkan_globals.color_format;
+	image_create_info.format = vulkan_globals.scene_color_format;
 	image_create_info.extent.width = vid.render_width;
 	image_create_info.extent.height = vid.render_height;
 	image_create_info.extent.depth = 1;
@@ -1859,9 +2094,11 @@ static void GL_CreateColorBuffer (void)
 	for (i = 0; i < NUM_COLOR_BUFFERS; ++i)
 	{
 		assert (vulkan_globals.color_buffers[i] == VK_NULL_HANDLE);
-		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.color_buffers[i]);
+		VkImage created_image = VK_NULL_HANDLE;
+		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &created_image);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImage failed with code %i", (int)err);
+			goto fail;
+		vulkan_globals.color_buffers[i] = created_image;
 
 		GL_SetObjectName ((uint64_t)vulkan_globals.color_buffers[i], VK_OBJECT_TYPE_IMAGE, va ("Color Buffer %d", i));
 
@@ -1875,22 +2112,25 @@ static void GL_CreateColorBuffer (void)
 		ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
 		memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		memory_allocate_info.allocationSize = memory_requirements.size;
-		memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		int memory_type = GL_TryMemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		if (memory_type < 0) { err = VK_ERROR_FEATURE_NOT_PRESENT; goto fail; }
+		memory_allocate_info.memoryTypeIndex = (uint32_t)memory_type;
 
 		if (vulkan_globals.dedicated_allocation)
 			memory_allocate_info.pNext = &dedicated_allocation_info;
 
 		assert (color_buffers_memory[i].handle == VK_NULL_HANDLE);
-		R_AllocateVulkanMemory (&color_buffers_memory[i], &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+		err = R_TryAllocateVulkanMemory (&color_buffers_memory[i], &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+		if (err != VK_SUCCESS) goto fail;
 		GL_SetObjectName ((uint64_t)color_buffers_memory[i].handle, VK_OBJECT_TYPE_DEVICE_MEMORY, va ("Color Buffer %d", i));
 
 		err = vkBindImageMemory (vulkan_globals.device, vulkan_globals.color_buffers[i], color_buffers_memory[i].handle, 0);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
+			goto fail;
 
 		ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
 		image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		image_view_create_info.format = vulkan_globals.color_format;
+		image_view_create_info.format = vulkan_globals.scene_color_format;
 		image_view_create_info.image = vulkan_globals.color_buffers[i];
 		image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_view_create_info.subresourceRange.baseMipLevel = 0;
@@ -1901,9 +2141,11 @@ static void GL_CreateColorBuffer (void)
 		image_view_create_info.flags = 0;
 
 		assert (color_buffers_view[i] == VK_NULL_HANDLE);
-		err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &color_buffers_view[i]);
+		VkImageView created_view = VK_NULL_HANDLE;
+		err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &created_view);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImageView failed with code %i", (int)err);
+			goto fail;
+		color_buffers_view[i] = created_view;
 
 		GL_SetObjectName ((uint64_t)color_buffers_view[i], VK_OBJECT_TYPE_IMAGE_VIEW, va ("Color Buffer View %d", i));
 	}
@@ -1914,9 +2156,9 @@ static void GL_CreateColorBuffer (void)
 	{
 		const int fsaa = (int)vid_fsaa.value;
 
-		VkImageFormatProperties image_format_properties;
+		VkImageFormatProperties image_format_properties = {0};
 		vkGetPhysicalDeviceImageFormatProperties (
-			vulkan_physical_device, vulkan_globals.color_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, image_create_info.usage, 0,
+			vulkan_physical_device, vulkan_globals.scene_color_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, image_create_info.usage, 0,
 			&image_format_properties);
 
 		// Workaround: Intel advertises 16 samples but crashes when using it.
@@ -1959,9 +2201,11 @@ static void GL_CreateColorBuffer (void)
 		image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 		assert (msaa_color_buffer == VK_NULL_HANDLE);
-		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &msaa_color_buffer);
+		VkImage created_image = VK_NULL_HANDLE;
+		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &created_image);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImage failed with code %i", (int)err);
+			goto fail;
+		msaa_color_buffer = created_image;
 
 		GL_SetObjectName ((uint64_t)msaa_color_buffer, VK_OBJECT_TYPE_IMAGE, "MSAA Color Buffer");
 
@@ -1975,22 +2219,25 @@ static void GL_CreateColorBuffer (void)
 		ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
 		memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 		memory_allocate_info.allocationSize = memory_requirements.size;
-		memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		int memory_type = GL_TryMemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+		if (memory_type < 0) { err = VK_ERROR_FEATURE_NOT_PRESENT; goto fail; }
+		memory_allocate_info.memoryTypeIndex = (uint32_t)memory_type;
 
 		if (vulkan_globals.dedicated_allocation)
 			memory_allocate_info.pNext = &dedicated_allocation_info;
 
 		assert (msaa_color_buffer_memory.handle == VK_NULL_HANDLE);
-		R_AllocateVulkanMemory (&msaa_color_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+		err = R_TryAllocateVulkanMemory (&msaa_color_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+		if (err != VK_SUCCESS) goto fail;
 		GL_SetObjectName ((uint64_t)msaa_color_buffer_memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, "MSAA Color Buffer");
 
 		err = vkBindImageMemory (vulkan_globals.device, msaa_color_buffer, msaa_color_buffer_memory.handle, 0);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
+			goto fail;
 
 		ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
 		image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		image_view_create_info.format = vulkan_globals.color_format;
+		image_view_create_info.format = vulkan_globals.scene_color_format;
 		image_view_create_info.image = msaa_color_buffer;
 		image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_view_create_info.subresourceRange.baseMipLevel = 0;
@@ -2001,226 +2248,65 @@ static void GL_CreateColorBuffer (void)
 		image_view_create_info.flags = 0;
 
 		assert (msaa_color_buffer_view == VK_NULL_HANDLE);
-		err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &msaa_color_buffer_view);
+		VkImageView created_view = VK_NULL_HANDLE;
+		err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &created_view);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImageView failed with code %i", (int)err);
+			goto fail;
+		msaa_color_buffer_view = created_view;
 	}
 	else
 		Sys_Printf ("AA disabled\n");
 
-	if (R_UseOIT ())
-		GL_CreateOITBuffers ();
+	return VK_SUCCESS;
+fail:
+	GL_DestroyColorBuffers ();
+	vulkan_globals.sample_count = VK_SAMPLE_COUNT_1_BIT;
+	vulkan_globals.supersampling = false;
+	return err;
 }
 
-static void GL_CreateOITImage (VkImage *image, vulkan_memory_t *memory, VkImageView *view, VkFormat format, const char *name)
+static VkResult GL_TryCreateOITImage (VkImage *image, vulkan_memory_t *memory, VkImageView *view, VkFormat format, const char *name)
 {
-	VkResult err;
-
-	ZEROED_STRUCT (VkImageCreateInfo, image_create_info);
-	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	image_create_info.imageType = VK_IMAGE_TYPE_2D;
-	image_create_info.extent.width = vid.render_width;
-	image_create_info.extent.height = vid.render_height;
-	image_create_info.extent.depth = 1;
-	image_create_info.mipLevels = 1;
-	image_create_info.arrayLayers = 1;
-	image_create_info.samples = vulkan_globals.sample_count;
-	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-	image_create_info.format = format;
-
-	assert (*image == VK_NULL_HANDLE);
-	err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, image);
-	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateImage failed with code %i", (int)err);
-	GL_SetObjectName ((uint64_t)*image, VK_OBJECT_TYPE_IMAGE, name);
-
-	{
-		VkMemoryRequirements memory_requirements;
-		vkGetImageMemoryRequirements (vulkan_globals.device, *image, &memory_requirements);
-
-		ZEROED_STRUCT (VkMemoryDedicatedAllocateInfoKHR, dedicated_allocation_info);
-		dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
-		dedicated_allocation_info.image = *image;
-
-		ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
-		memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		memory_allocate_info.allocationSize = memory_requirements.size;
-		memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
-
-		if (vulkan_globals.dedicated_allocation)
-			memory_allocate_info.pNext = &dedicated_allocation_info;
-
-		assert (memory->handle == VK_NULL_HANDLE);
-		R_AllocateVulkanMemory (memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
-		GL_SetObjectName ((uint64_t)memory->handle, VK_OBJECT_TYPE_DEVICE_MEMORY, name);
-
-		err = vkBindImageMemory (vulkan_globals.device, *image, memory->handle, 0);
-		if (err != VK_SUCCESS)
-			Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
-	}
-
-	{
-		ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
-		image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		image_view_create_info.format = format;
-		image_view_create_info.image = *image;
-		image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		image_view_create_info.subresourceRange.baseMipLevel = 0;
-		image_view_create_info.subresourceRange.levelCount = 1;
-		image_view_create_info.subresourceRange.baseArrayLayer = 0;
-		image_view_create_info.subresourceRange.layerCount = 1;
-		image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-
-		assert (*view == VK_NULL_HANDLE);
-		err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, view);
-		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImageView failed with code %i", (int)err);
-		GL_SetObjectName ((uint64_t)*view, VK_OBJECT_TYPE_IMAGE_VIEW, va ("%s View", name));
-	}
+	const VkImageCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D,
+		.format = format, .extent = {vid.render_width, vid.render_height, 1},
+		.mipLevels = 1, .arrayLayers = 1, .samples = vulkan_globals.sample_count,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
+	};
+	return GL_TryCreateAttachment (image, memory, view, &info, VK_IMAGE_ASPECT_COLOR_BIT, name);
 }
 
-/*
-===============
-GL_CreateOITBuffers
-===============
-*/
-static void GL_CreateOITBuffers (void)
+static VkResult GL_TryCreateOITBuffers (void)
 {
-	VkResult err;
-
-	ZEROED_STRUCT (VkImageCreateInfo, image_create_info);
-	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	image_create_info.imageType = VK_IMAGE_TYPE_2D;
-	image_create_info.extent.width = vid.render_width;
-	image_create_info.extent.height = vid.render_height;
-	image_create_info.extent.depth = 1;
-	image_create_info.mipLevels = 1;
-	image_create_info.arrayLayers = 1;
-	image_create_info.samples = vulkan_globals.sample_count;
-	image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-
+	/* Refuse to overwrite any prior allocations, including a different mode. */
+	if (vulkan_globals.oit_accum_buffer || oit_accum_buffer_memory.handle || oit_accum_buffer_view ||
+		vulkan_globals.oit_reveal_buffer || oit_reveal_buffer_memory.handle || oit_reveal_buffer_view ||
+		vulkan_globals.mboit_b0_buffer || mboit_b0_buffer_memory.handle || mboit_b0_buffer_view ||
+		vulkan_globals.mboit_moments0_buffer || mboit_moments0_buffer_memory.handle || mboit_moments0_buffer_view ||
+		vulkan_globals.mboit_color_buffer || mboit_color_buffer_memory.handle || mboit_color_buffer_view)
+		return VK_ERROR_INITIALIZATION_FAILED;
+	VkResult err = VK_SUCCESS;
 	if (R_UseWBOIT ())
 	{
-		image_create_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-		assert (vulkan_globals.oit_accum_buffer == VK_NULL_HANDLE);
-		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.oit_accum_buffer);
-		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImage failed with code %i", (int)err);
-
-		GL_SetObjectName ((uint64_t)vulkan_globals.oit_accum_buffer, VK_OBJECT_TYPE_IMAGE, "OIT Accum Buffer");
-
-		{
-			VkMemoryRequirements memory_requirements;
-			vkGetImageMemoryRequirements (vulkan_globals.device, vulkan_globals.oit_accum_buffer, &memory_requirements);
-
-			ZEROED_STRUCT (VkMemoryDedicatedAllocateInfoKHR, dedicated_allocation_info);
-			dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
-			dedicated_allocation_info.image = vulkan_globals.oit_accum_buffer;
-
-			ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
-			memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			memory_allocate_info.allocationSize = memory_requirements.size;
-			memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
-
-			if (vulkan_globals.dedicated_allocation)
-				memory_allocate_info.pNext = &dedicated_allocation_info;
-
-			assert (oit_accum_buffer_memory.handle == VK_NULL_HANDLE);
-			R_AllocateVulkanMemory (&oit_accum_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
-			GL_SetObjectName ((uint64_t)oit_accum_buffer_memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, "OIT Accum Buffer");
-
-			err = vkBindImageMemory (vulkan_globals.device, vulkan_globals.oit_accum_buffer, oit_accum_buffer_memory.handle, 0);
-			if (err != VK_SUCCESS)
-				Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
-		}
-
-		{
-			ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
-			image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			image_view_create_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-			image_view_create_info.image = vulkan_globals.oit_accum_buffer;
-			image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			image_view_create_info.subresourceRange.baseMipLevel = 0;
-			image_view_create_info.subresourceRange.levelCount = 1;
-			image_view_create_info.subresourceRange.baseArrayLayer = 0;
-			image_view_create_info.subresourceRange.layerCount = 1;
-			image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			image_view_create_info.flags = 0;
-
-			assert (oit_accum_buffer_view == VK_NULL_HANDLE);
-			err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &oit_accum_buffer_view);
-			if (err != VK_SUCCESS)
-				Sys_Error ("vkCreateImageView failed with code %i", (int)err);
-
-			GL_SetObjectName ((uint64_t)oit_accum_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "OIT Accum Buffer View");
-		}
-
-		image_create_info.format = VK_FORMAT_R8_UNORM;
-		assert (vulkan_globals.oit_reveal_buffer == VK_NULL_HANDLE);
-		err = vkCreateImage (vulkan_globals.device, &image_create_info, NULL, &vulkan_globals.oit_reveal_buffer);
-		if (err != VK_SUCCESS)
-			Sys_Error ("vkCreateImage failed with code %i", (int)err);
-
-		GL_SetObjectName ((uint64_t)vulkan_globals.oit_reveal_buffer, VK_OBJECT_TYPE_IMAGE, "OIT Reveal Buffer");
-
-		{
-			VkMemoryRequirements memory_requirements;
-			vkGetImageMemoryRequirements (vulkan_globals.device, vulkan_globals.oit_reveal_buffer, &memory_requirements);
-
-			ZEROED_STRUCT (VkMemoryDedicatedAllocateInfoKHR, dedicated_allocation_info);
-			dedicated_allocation_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR;
-			dedicated_allocation_info.image = vulkan_globals.oit_reveal_buffer;
-
-			ZEROED_STRUCT (VkMemoryAllocateInfo, memory_allocate_info);
-			memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			memory_allocate_info.allocationSize = memory_requirements.size;
-			memory_allocate_info.memoryTypeIndex = GL_MemoryTypeFromProperties (memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
-
-			if (vulkan_globals.dedicated_allocation)
-				memory_allocate_info.pNext = &dedicated_allocation_info;
-
-			assert (oit_reveal_buffer_memory.handle == VK_NULL_HANDLE);
-			R_AllocateVulkanMemory (&oit_reveal_buffer_memory, &memory_allocate_info, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
-			GL_SetObjectName ((uint64_t)oit_reveal_buffer_memory.handle, VK_OBJECT_TYPE_DEVICE_MEMORY, "OIT Reveal Buffer");
-
-			err = vkBindImageMemory (vulkan_globals.device, vulkan_globals.oit_reveal_buffer, oit_reveal_buffer_memory.handle, 0);
-			if (err != VK_SUCCESS)
-				Sys_Error ("vkBindImageMemory failed with code %i", (int)err);
-		}
-
-		{
-			ZEROED_STRUCT (VkImageViewCreateInfo, image_view_create_info);
-			image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			image_view_create_info.format = VK_FORMAT_R8_UNORM;
-			image_view_create_info.image = vulkan_globals.oit_reveal_buffer;
-			image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			image_view_create_info.subresourceRange.baseMipLevel = 0;
-			image_view_create_info.subresourceRange.levelCount = 1;
-			image_view_create_info.subresourceRange.baseArrayLayer = 0;
-			image_view_create_info.subresourceRange.layerCount = 1;
-			image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			image_view_create_info.flags = 0;
-
-			assert (oit_reveal_buffer_view == VK_NULL_HANDLE);
-			err = vkCreateImageView (vulkan_globals.device, &image_view_create_info, NULL, &oit_reveal_buffer_view);
-			if (err != VK_SUCCESS)
-				Sys_Error ("vkCreateImageView failed with code %i", (int)err);
-
-			GL_SetObjectName ((uint64_t)oit_reveal_buffer_view, VK_OBJECT_TYPE_IMAGE_VIEW, "OIT Reveal Buffer View");
-		}
+		err = GL_TryCreateOITImage (&vulkan_globals.oit_accum_buffer, &oit_accum_buffer_memory, &oit_accum_buffer_view, VK_FORMAT_R16G16B16A16_SFLOAT, "OIT Accum Buffer");
+		if (err != VK_SUCCESS) goto fail;
+		err = GL_TryCreateOITImage (&vulkan_globals.oit_reveal_buffer, &oit_reveal_buffer_memory, &oit_reveal_buffer_view, VK_FORMAT_R8_UNORM, "OIT Reveal Buffer");
+		if (err != VK_SUCCESS) goto fail;
 	}
-
-	if (R_UseMBOIT ())
+	else if (R_UseMBOIT ())
 	{
-		GL_CreateOITImage (&vulkan_globals.mboit_b0_buffer, &mboit_b0_buffer_memory, &mboit_b0_buffer_view, VK_FORMAT_R32_SFLOAT, "MBOIT B0 Buffer");
-		GL_CreateOITImage (
-			&vulkan_globals.mboit_moments0_buffer, &mboit_moments0_buffer_memory, &mboit_moments0_buffer_view, VK_FORMAT_R32G32B32A32_SFLOAT,
-			"MBOIT Moments 0 Buffer");
-		GL_CreateOITImage (
-			&vulkan_globals.mboit_color_buffer, &mboit_color_buffer_memory, &mboit_color_buffer_view, VK_FORMAT_R16G16B16A16_SFLOAT, "MBOIT Color Buffer");
+		err = GL_TryCreateOITImage (&vulkan_globals.mboit_b0_buffer, &mboit_b0_buffer_memory, &mboit_b0_buffer_view, VK_FORMAT_R32_SFLOAT, "MBOIT B0 Buffer");
+		if (err != VK_SUCCESS) goto fail;
+		err = GL_TryCreateOITImage (&vulkan_globals.mboit_moments0_buffer, &mboit_moments0_buffer_memory, &mboit_moments0_buffer_view, VK_FORMAT_R32G32B32A32_SFLOAT, "MBOIT Moments 0 Buffer");
+		if (err != VK_SUCCESS) goto fail;
+		err = GL_TryCreateOITImage (&vulkan_globals.mboit_color_buffer, &mboit_color_buffer_memory, &mboit_color_buffer_view, VK_FORMAT_R16G16B16A16_SFLOAT, "MBOIT Color Buffer");
+		if (err != VK_SUCCESS) goto fail;
 	}
+	return VK_SUCCESS;
+fail:
+	GL_DestroyOITBuffers ();
+	return err;
 }
 
 /*
@@ -2301,35 +2387,37 @@ static void GL_DestroyOITBuffers (void)
 GL_UpdateDescriptorSets
 ===============
 */
-void GL_UpdateDescriptorSets (void)
+/* The caller must synchronize prior use before replacing scene descriptors. */
+static VkResult GL_TryUpdateDescriptorSets (void)
 {
-	if (!render_resources_created)
-		return;
-
-	GL_WaitForDeviceIdle ();
-
-	if (scene_upscale_descriptor_set != VK_NULL_HANDLE)
-	{
-		R_FreeDescriptorSet (scene_upscale_descriptor_set, &vulkan_globals.single_texture_set_layout);
-		scene_upscale_descriptor_set = VK_NULL_HANDLE;
-	}
+	if (!render_resources_created) return VK_SUCCESS;
+	VkDescriptorSet new_upscale = VK_NULL_HANDLE, new_postprocess = VK_NULL_HANDLE;
+	VkDescriptorSet new_wboit = VK_NULL_HANDLE, new_mboit = VK_NULL_HANDLE, new_effects = VK_NULL_HANDLE;
+#if defined(_DEBUG)
+	VkDescriptorSet new_ray_debug = VK_NULL_HANDLE;
+#endif
+	VkResult err;
+	if (ui_color_buffer && (err = R_TryAllocateDescriptorSet (&vulkan_globals.single_texture_set_layout, &new_upscale)) != VK_SUCCESS) goto fail;
+	if ((err = R_TryAllocateDescriptorSet (&vulkan_globals.input_attachment_set_layout, &new_postprocess)) != VK_SUCCESS) goto fail;
+	if (R_UseWBOIT () && (err = R_TryAllocateDescriptorSet (&vulkan_globals.oit_input_attachment_set_layout, &new_wboit)) != VK_SUCCESS) goto fail;
+	if (R_UseMBOIT () && (err = R_TryAllocateDescriptorSet (&vulkan_globals.mboit_input_attachment_set_layout, &new_mboit)) != VK_SUCCESS) goto fail;
+	if ((err = R_TryAllocateDescriptorSet (&vulkan_globals.screen_effects_set_layout, &new_effects)) != VK_SUCCESS) goto fail;
+#if defined(_DEBUG)
+	if (vulkan_globals.ray_query && (err = R_TryAllocateDescriptorSet (&vulkan_globals.ray_debug_set_layout, &new_ray_debug)) != VK_SUCCESS) goto fail;
+#endif
 	if (ui_color_buffer)
 	{
-		scene_upscale_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.single_texture_set_layout);
+
 		const VkDescriptorImageInfo scene_info = {vulkan_globals.gui_linear_sampler, color_buffers_view[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 		const VkWriteDescriptorSet	write = {
 			 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			 .dstSet = scene_upscale_descriptor_set,
+			 .dstSet = new_upscale,
 			 .dstBinding = 0,
 			 .descriptorCount = 1,
 			 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			 .pImageInfo = &scene_info};
 		vkUpdateDescriptorSets (vulkan_globals.device, 1, &write, 0, NULL);
 	}
-
-	if (postprocess_descriptor_set != VK_NULL_HANDLE)
-		R_FreeDescriptorSet (postprocess_descriptor_set, &vulkan_globals.input_attachment_set_layout);
-	postprocess_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.input_attachment_set_layout);
 
 	ZEROED_STRUCT (VkDescriptorImageInfo, image_info);
 	image_info.imageView = ui_color_buffer_view ? ui_color_buffer_view : color_buffers_view[0];
@@ -2341,23 +2429,13 @@ void GL_UpdateDescriptorSets (void)
 	input_attachment_write.dstArrayElement = 0;
 	input_attachment_write.descriptorCount = 1;
 	input_attachment_write.descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-	input_attachment_write.dstSet = postprocess_descriptor_set;
+	input_attachment_write.dstSet = new_postprocess;
 	input_attachment_write.pImageInfo = &image_info;
 	vkUpdateDescriptorSets (vulkan_globals.device, 1, &input_attachment_write, 0, NULL);
 
-	if (wboit_resolve_descriptor_set != VK_NULL_HANDLE)
-	{
-		R_FreeDescriptorSet (wboit_resolve_descriptor_set, &vulkan_globals.oit_input_attachment_set_layout);
-		wboit_resolve_descriptor_set = VK_NULL_HANDLE;
-	}
-	if (vulkan_globals.mboit_input_attachment_descriptor_set != VK_NULL_HANDLE)
-	{
-		R_FreeDescriptorSet (vulkan_globals.mboit_input_attachment_descriptor_set, &vulkan_globals.mboit_input_attachment_set_layout);
-		vulkan_globals.mboit_input_attachment_descriptor_set = VK_NULL_HANDLE;
-	}
 	if (R_UseWBOIT ())
 	{
-		wboit_resolve_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.oit_input_attachment_set_layout);
+
 
 		ZEROED_STRUCT_ARRAY (VkDescriptorImageInfo, oit_image_infos, 2);
 		oit_image_infos[0].imageView = oit_accum_buffer_view;
@@ -2373,14 +2451,14 @@ void GL_UpdateDescriptorSets (void)
 			oit_writes[i].dstArrayElement = 0;
 			oit_writes[i].descriptorCount = 1;
 			oit_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-			oit_writes[i].dstSet = wboit_resolve_descriptor_set;
+			oit_writes[i].dstSet = new_wboit;
 			oit_writes[i].pImageInfo = &oit_image_infos[i];
 		}
 		vkUpdateDescriptorSets (vulkan_globals.device, countof (oit_writes), oit_writes, 0, NULL);
 	}
 	else if (R_UseMBOIT ())
 	{
-		vulkan_globals.mboit_input_attachment_descriptor_set = R_AllocateDescriptorSet (&vulkan_globals.mboit_input_attachment_set_layout);
+
 
 		ZEROED_STRUCT_ARRAY (VkDescriptorImageInfo, mboit_image_infos, 3);
 		mboit_image_infos[0].imageView = mboit_b0_buffer_view;
@@ -2398,15 +2476,11 @@ void GL_UpdateDescriptorSets (void)
 			mboit_writes[i].dstArrayElement = 0;
 			mboit_writes[i].descriptorCount = 1;
 			mboit_writes[i].descriptorType = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-			mboit_writes[i].dstSet = vulkan_globals.mboit_input_attachment_descriptor_set;
+			mboit_writes[i].dstSet = new_mboit;
 			mboit_writes[i].pImageInfo = &mboit_image_infos[i];
 		}
 		vkUpdateDescriptorSets (vulkan_globals.device, countof (mboit_writes), mboit_writes, 0, NULL);
 	}
-
-	if (vulkan_globals.screen_effects_desc_set != VK_NULL_HANDLE)
-		R_FreeDescriptorSet (vulkan_globals.screen_effects_desc_set, &vulkan_globals.screen_effects_set_layout);
-	vulkan_globals.screen_effects_desc_set = R_AllocateDescriptorSet (&vulkan_globals.screen_effects_set_layout);
 
 	ZEROED_STRUCT (VkDescriptorImageInfo, input_image_info);
 	input_image_info.imageView = color_buffers_view[1];
@@ -2433,7 +2507,7 @@ void GL_UpdateDescriptorSets (void)
 	screen_effects_writes[0].dstArrayElement = 0;
 	screen_effects_writes[0].descriptorCount = 1;
 	screen_effects_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	screen_effects_writes[0].dstSet = vulkan_globals.screen_effects_desc_set;
+	screen_effects_writes[0].dstSet = new_effects;
 	screen_effects_writes[0].pImageInfo = &input_image_info;
 
 	screen_effects_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2441,7 +2515,7 @@ void GL_UpdateDescriptorSets (void)
 	screen_effects_writes[1].dstArrayElement = 0;
 	screen_effects_writes[1].descriptorCount = 1;
 	screen_effects_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	screen_effects_writes[1].dstSet = vulkan_globals.screen_effects_desc_set;
+	screen_effects_writes[1].dstSet = new_effects;
 	screen_effects_writes[1].pImageInfo = &blue_noise_image_info;
 
 	screen_effects_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2449,7 +2523,7 @@ void GL_UpdateDescriptorSets (void)
 	screen_effects_writes[2].dstArrayElement = 0;
 	screen_effects_writes[2].descriptorCount = 1;
 	screen_effects_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	screen_effects_writes[2].dstSet = vulkan_globals.screen_effects_desc_set;
+	screen_effects_writes[2].dstSet = new_effects;
 	screen_effects_writes[2].pImageInfo = &output_image_info;
 
 	screen_effects_writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2457,7 +2531,7 @@ void GL_UpdateDescriptorSets (void)
 	screen_effects_writes[3].dstArrayElement = 0;
 	screen_effects_writes[3].descriptorCount = 1;
 	screen_effects_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-	screen_effects_writes[3].dstSet = vulkan_globals.screen_effects_desc_set;
+	screen_effects_writes[3].dstSet = new_effects;
 	screen_effects_writes[3].pTexelBufferView = &palette_buffer_view;
 
 	screen_effects_writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2465,7 +2539,7 @@ void GL_UpdateDescriptorSets (void)
 	screen_effects_writes[4].dstArrayElement = 0;
 	screen_effects_writes[4].descriptorCount = 1;
 	screen_effects_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	screen_effects_writes[4].dstSet = vulkan_globals.screen_effects_desc_set;
+	screen_effects_writes[4].dstSet = new_effects;
 	screen_effects_writes[4].pBufferInfo = &palette_octree_info;
 
 	vkUpdateDescriptorSets (vulkan_globals.device, countof (screen_effects_writes), screen_effects_writes, 0, NULL);
@@ -2473,10 +2547,6 @@ void GL_UpdateDescriptorSets (void)
 #if defined(_DEBUG)
 	if (vulkan_globals.ray_query)
 	{
-		if (vulkan_globals.ray_debug_desc_set != VK_NULL_HANDLE)
-			R_FreeDescriptorSet (vulkan_globals.ray_debug_desc_set, &vulkan_globals.ray_debug_set_layout);
-		vulkan_globals.ray_debug_desc_set = R_AllocateDescriptorSet (&vulkan_globals.ray_debug_set_layout);
-
 		ZEROED_STRUCT_ARRAY (VkWriteDescriptorSet, ray_debug_writes, 1);
 
 		ray_debug_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2484,12 +2554,46 @@ void GL_UpdateDescriptorSets (void)
 		ray_debug_writes[0].dstArrayElement = 0;
 		ray_debug_writes[0].descriptorCount = 1;
 		ray_debug_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		ray_debug_writes[0].dstSet = vulkan_globals.ray_debug_desc_set;
+		ray_debug_writes[0].dstSet = new_ray_debug;
 		ray_debug_writes[0].pImageInfo = &output_image_info;
 
 		vkUpdateDescriptorSets (vulkan_globals.device, countof (ray_debug_writes), ray_debug_writes, 0, NULL);
 	}
 #endif
+
+	if (scene_upscale_descriptor_set) R_FreeDescriptorSet (scene_upscale_descriptor_set, &vulkan_globals.single_texture_set_layout);
+	if (postprocess_descriptor_set) R_FreeDescriptorSet (postprocess_descriptor_set, &vulkan_globals.input_attachment_set_layout);
+	if (wboit_resolve_descriptor_set) R_FreeDescriptorSet (wboit_resolve_descriptor_set, &vulkan_globals.oit_input_attachment_set_layout);
+	if (vulkan_globals.mboit_input_attachment_descriptor_set) R_FreeDescriptorSet (vulkan_globals.mboit_input_attachment_descriptor_set, &vulkan_globals.mboit_input_attachment_set_layout);
+	if (vulkan_globals.screen_effects_desc_set) R_FreeDescriptorSet (vulkan_globals.screen_effects_desc_set, &vulkan_globals.screen_effects_set_layout);
+	scene_upscale_descriptor_set = new_upscale;
+	postprocess_descriptor_set = new_postprocess;
+	wboit_resolve_descriptor_set = new_wboit;
+	vulkan_globals.mboit_input_attachment_descriptor_set = new_mboit;
+	vulkan_globals.screen_effects_desc_set = new_effects;
+#if defined(_DEBUG)
+	if (vulkan_globals.ray_debug_desc_set) R_FreeDescriptorSet (vulkan_globals.ray_debug_desc_set, &vulkan_globals.ray_debug_set_layout);
+	vulkan_globals.ray_debug_desc_set = new_ray_debug;
+#endif
+	return VK_SUCCESS;
+fail:
+	if (new_upscale) R_FreeDescriptorSet (new_upscale, &vulkan_globals.single_texture_set_layout);
+	if (new_postprocess) R_FreeDescriptorSet (new_postprocess, &vulkan_globals.input_attachment_set_layout);
+	if (new_wboit) R_FreeDescriptorSet (new_wboit, &vulkan_globals.oit_input_attachment_set_layout);
+	if (new_mboit) R_FreeDescriptorSet (new_mboit, &vulkan_globals.mboit_input_attachment_set_layout);
+	if (new_effects) R_FreeDescriptorSet (new_effects, &vulkan_globals.screen_effects_set_layout);
+#if defined(_DEBUG)
+	if (new_ray_debug) R_FreeDescriptorSet (new_ray_debug, &vulkan_globals.ray_debug_set_layout);
+#endif
+	return err;
+}
+
+void GL_UpdateDescriptorSets (void)
+{
+	if (!render_resources_created) return;
+	GL_WaitForDeviceIdle ();
+	VkResult err = GL_TryUpdateDescriptorSets ();
+	if (err != VK_SUCCESS) Sys_Error ("Couldn't update scene descriptor sets: %i", (int)err);
 }
 
 /*
@@ -2667,6 +2771,12 @@ static qboolean GL_CreateSwapChain (void)
 	swapchain_create_info.pNext = NULL;
 	swapchain_create_info.surface = vulkan_surface;
 	swapchain_create_info.minImageCount = q_max ((vid_vsync.value >= 2) ? 3 : 2, vulkan_surface_capabilities.minImageCount);
+	/* In vsync-off MAILBOX mode a third image lets the compositor retain one
+	 * while rendering and presentation continue with the others. Preserve
+	 * the existing modes and honor the surface's image-count limit. */
+	if (vid_vsync.value == 0 && present_mode == VK_PRESENT_MODE_MAILBOX_KHR && swapchain_create_info.minImageCount < 3 &&
+		(!vulkan_surface_capabilities.maxImageCount || vulkan_surface_capabilities.maxImageCount >= 3) && MAX_SWAP_CHAIN_IMAGES >= 3)
+		swapchain_create_info.minImageCount = 3;
 	swapchain_create_info.imageFormat = swap_chain_format;
 	swapchain_create_info.imageColorSpace = swap_chain_color_space;
 	swapchain_create_info.imageExtent.width = vid.width;
@@ -2792,7 +2902,7 @@ static qboolean GL_CreateSwapChain (void)
 GL_CreateMainFrameBuffers
 ===============
 */
-static void GL_CreateFrameBuffers (void)
+static VkResult GL_TryCreateFrameBuffers (void)
 {
 	const render_framebuffer_images_t images = {
 		.width = vid.width,
@@ -2800,6 +2910,7 @@ static void GL_CreateFrameBuffers (void)
 		.render_width = vid.render_width,
 		.render_height = vid.render_height,
 		.ui_color = ui_color_buffer_view ? ui_color_buffer_view : color_buffers_view[0],
+		.ui_depth = ui_depth_buffer_view,
 		.color = {color_buffers_view[0], color_buffers_view[1]},
 		.depth = depth_buffer_view,
 		.msaa_color = msaa_color_buffer_view,
@@ -2811,7 +2922,79 @@ static void GL_CreateFrameBuffers (void)
 		.swapchain_count = num_swap_chain_images,
 		.swapchain = swapchain_images_views,
 	};
-	R_CreateFrameBuffers (&images);
+	return R_TryCreateFrameBuffers (&images);
+}
+
+/* Own all format-dependent resources as one unpublished attempt. In
+ * particular, no SSAO upload is recorded until the entire attempt succeeds,
+ * so rollback never destroys an image referenced by pending GPU work. */
+static VkResult GL_TryCreateSceneResources (void)
+{
+	VkResult err;
+	bool passes = false, pipelines = false;
+	/* Do not let rollback consume resources belonging to another attempt. */
+	if (render_resources_created || msaa_color_buffer || msaa_color_buffer_view || msaa_color_buffer_memory.handle ||
+		ui_color_buffer || ui_color_buffer_view || ui_color_buffer_memory.handle ||
+		depth_buffer || depth_buffer_view || depth_buffer_memory.handle || ui_depth_buffer || ui_depth_buffer_view || ui_depth_buffer_memory.handle ||
+		vulkan_globals.particle_depth_descriptor_set || scene_upscale_descriptor_set || postprocess_descriptor_set ||
+		wboit_resolve_descriptor_set || vulkan_globals.mboit_input_attachment_descriptor_set || vulkan_globals.screen_effects_desc_set ||
+		vulkan_globals.oit_accum_buffer || oit_accum_buffer_view || oit_accum_buffer_memory.handle ||
+		vulkan_globals.oit_reveal_buffer || oit_reveal_buffer_view || oit_reveal_buffer_memory.handle ||
+		vulkan_globals.mboit_b0_buffer || mboit_b0_buffer_view || mboit_b0_buffer_memory.handle ||
+		vulkan_globals.mboit_moments0_buffer || mboit_moments0_buffer_view || mboit_moments0_buffer_memory.handle ||
+		vulkan_globals.mboit_color_buffer || mboit_color_buffer_view || mboit_color_buffer_memory.handle)
+	{
+		Sys_Printf ("Scene resource slots still occupied: render %d msaa %d ui %d depth %d ui-depth %d descriptors %d OIT %d\n",
+			(int)render_resources_created, !!(msaa_color_buffer || msaa_color_buffer_view || msaa_color_buffer_memory.handle),
+			!!(ui_color_buffer || ui_color_buffer_view || ui_color_buffer_memory.handle), !!(depth_buffer || depth_buffer_view || depth_buffer_memory.handle),
+			!!(ui_depth_buffer || ui_depth_buffer_view || ui_depth_buffer_memory.handle),
+			!!(vulkan_globals.particle_depth_descriptor_set || scene_upscale_descriptor_set || postprocess_descriptor_set ||
+			wboit_resolve_descriptor_set || vulkan_globals.mboit_input_attachment_descriptor_set || vulkan_globals.screen_effects_desc_set),
+			!!(vulkan_globals.oit_accum_buffer || vulkan_globals.oit_reveal_buffer || vulkan_globals.mboit_b0_buffer || vulkan_globals.mboit_moments0_buffer || vulkan_globals.mboit_color_buffer));
+		return VK_ERROR_INITIALIZATION_FAILED;
+	}
+#if defined(_DEBUG)
+	if (vulkan_globals.ray_debug_desc_set) { Sys_Printf ("Scene ray-debug descriptor still occupied\n"); return VK_ERROR_INITIALIZATION_FAILED; }
+#endif
+	for (int i = 0; i < NUM_COLOR_BUFFERS; ++i)
+		if (vulkan_globals.color_buffers[i] || color_buffers_view[i] || color_buffers_memory[i].handle)
+		{ Sys_Printf ("Scene color buffer %d still occupied\n", i); return VK_ERROR_INITIALIZATION_FAILED; }
+	err = GL_TryCreateColorBuffer ();
+	if (err != VK_SUCCESS) goto fail;
+	if (R_UseOIT ()) { err = GL_TryCreateOITBuffers (); if (err != VK_SUCCESS) goto fail; }
+	if (vulkan_globals.scene_hdr_active || vid.render_width != vid.width || vid.render_height != vid.height)
+	{ err = GL_TryCreateUIColorBuffer (); if (err != VK_SUCCESS) goto fail; }
+	Sys_Printf ("Creating depth buffer\n");
+	err = GL_TryCreateDepthBuffer (); if (err != VK_SUCCESS) goto fail;
+	err = GL_TryCreateUIDepthBuffer (); if (err != VK_SUCCESS) goto fail;
+	err = R_TryCreateSSAO (depth_buffer); if (err != VK_SUCCESS) goto fail;
+	err = R_TryCreateRenderPasses (); if (err != VK_SUCCESS) goto fail;
+	passes = true;
+	err = GL_TryCreateFrameBuffers (); if (err != VK_SUCCESS) goto fail;
+	if (!R_TryCreatePipelines ()) { err = VK_ERROR_INITIALIZATION_FAILED; goto fail; }
+	pipelines = true;
+	render_resources_created = true;
+	err = GL_TryUpdateDescriptorSets ();
+	if (err != VK_SUCCESS) goto fail;
+	R_FinalizeSSAO ();
+	return VK_SUCCESS;
+fail:
+	render_resources_created = false;
+	if (pipelines) R_DestroyPipelines ();
+	R_DestroyFrameBuffers ();
+	if (passes) R_DestroyRenderPasses ();
+	R_DestroySSAO ();
+	if (vulkan_globals.particle_depth_descriptor_set)
+	{
+		R_FreeDescriptorSet (vulkan_globals.particle_depth_descriptor_set, &vulkan_globals.input_attachment_set_layout);
+		vulkan_globals.particle_depth_descriptor_set = VK_NULL_HANDLE;
+	}
+	GL_DestroyAttachment (&ui_depth_buffer, &ui_depth_buffer_memory, &ui_depth_buffer_view);
+	GL_DestroyAttachment (&depth_buffer, &depth_buffer_memory, &depth_buffer_view);
+	GL_DestroyUIColorBuffer ();
+	GL_DestroyOITBuffers ();
+	GL_DestroyColorBuffers ();
+	return err;
 }
 
 /*
@@ -2830,6 +3013,25 @@ static void VID_GetRenderSize (int *width, int *height)
 	}
 }
 
+/* A failed optional HDR attempt must not be retried every frame. Toggling the
+ * preference off clears the latch, allowing the user to try again. */
+static VkResult GL_TryCreatePreferredSceneResources (bool hdr_requested)
+{
+	if (!hdr_requested) radiance_hdr_failed = false;
+	vulkan_globals.scene_hdr_active = hdr_requested && vulkan_globals.scene_hdr_supported && !radiance_hdr_failed;
+	vulkan_globals.scene_color_format = vulkan_globals.scene_hdr_active ? VK_FORMAT_R16G16B16A16_SFLOAT : vulkan_globals.color_format;
+	VkResult err = GL_TryCreateSceneResources ();
+	if (err != VK_SUCCESS && vulkan_globals.scene_hdr_active)
+	{
+		Con_Printf ("Radiance HDR resources unavailable (%d); using the classic scene target\n", (int)err);
+		radiance_hdr_failed = true;
+		vulkan_globals.scene_hdr_active = false;
+		vulkan_globals.scene_color_format = vulkan_globals.color_format;
+		err = GL_TryCreateSceneResources ();
+	}
+	return err;
+}
+
 static void GL_CreateRenderResources (void)
 {
 	if (sv.active && cls.signon < 1) // server has loaded the map but client hasn't called R_NewMap yet - wait until next frame
@@ -2842,18 +3044,9 @@ static void GL_CreateRenderResources (void)
 	}
 
 	VID_GetRenderSize (&vid.render_width, &vid.render_height);
-	GL_CreateColorBuffer ();
-	if (vid.render_width != vid.width || vid.render_height != vid.height)
-		GL_CreateUIColorBuffer ();
-	GL_CreateDepthBuffer ();
-	R_CreateSSAO (depth_buffer);
-	R_CreateRenderPasses ();
-	GL_CreateFrameBuffers ();
-	R_CreatePipelines ();
-
-	render_resources_created = true;
-
-	GL_UpdateDescriptorSets ();
+	VkResult err = GL_TryCreatePreferredSceneResources (r_radiance.value > 0 && r_radiance_hdr.value > 0);
+	if (err != VK_SUCCESS) Sys_Error ("Couldn't create renderer resources: %i", (int)err);
+	Sys_Printf ("Scene target format: %s\n", vulkan_globals.scene_hdr_active ? "RGBA16F" : "classic UNORM");
 }
 
 /*
@@ -2873,6 +3066,9 @@ static void GL_DestroyRenderResources (void)
 
 	GL_WaitForDeviceIdle ();
 
+	if (!RCReceiverLive_Shutdown ()) Sys_Error ("Receiver slots still in use during renderer shutdown");
+	R_ReceiverExperimentalShutdown ();
+	R_RadianceFrameShutdown ();
 	R_DestroyPipelines ();
 
 	if (postprocess_descriptor_set != VK_NULL_HANDLE)
@@ -2896,57 +3092,34 @@ static void GL_DestroyRenderResources (void)
 		R_FreeDescriptorSet (vulkan_globals.screen_effects_desc_set, &vulkan_globals.screen_effects_set_layout);
 		vulkan_globals.screen_effects_desc_set = VK_NULL_HANDLE;
 	}
+#if defined(_DEBUG)
+	if (vulkan_globals.ray_debug_desc_set != VK_NULL_HANDLE)
+	{
+		R_FreeDescriptorSet (vulkan_globals.ray_debug_desc_set, &vulkan_globals.ray_debug_set_layout);
+		vulkan_globals.ray_debug_desc_set = VK_NULL_HANDLE;
+	}
+#endif
 
 	R_DestroyFrameBuffers ();
+	GL_DestroyAttachment (&ui_depth_buffer, &ui_depth_buffer_memory, &ui_depth_buffer_view);
 
 	if (scene_upscale_descriptor_set != VK_NULL_HANDLE)
 	{
 		R_FreeDescriptorSet (scene_upscale_descriptor_set, &vulkan_globals.single_texture_set_layout);
 		scene_upscale_descriptor_set = VK_NULL_HANDLE;
 	}
-	if (ui_color_buffer)
-	{
-		vkDestroyImageView (vulkan_globals.device, ui_color_buffer_view, NULL);
-		vkDestroyImage (vulkan_globals.device, ui_color_buffer, NULL);
-		R_FreeVulkanMemory (&ui_color_buffer_memory, &num_vulkan_misc_allocations);
-		ui_color_buffer_view = VK_NULL_HANDLE;
-		ui_color_buffer = VK_NULL_HANDLE;
-	}
-
-	if (msaa_color_buffer)
-	{
-		vkDestroyImageView (vulkan_globals.device, msaa_color_buffer_view, NULL);
-		vkDestroyImage (vulkan_globals.device, msaa_color_buffer, NULL);
-		R_FreeVulkanMemory (&msaa_color_buffer_memory, &num_vulkan_misc_allocations);
-
-		msaa_color_buffer_view = VK_NULL_HANDLE;
-		msaa_color_buffer = VK_NULL_HANDLE;
-	}
+	GL_DestroyUIColorBuffer ();
 
 	GL_DestroyOITBuffers ();
-
-	for (int i = 0; i < NUM_COLOR_BUFFERS; ++i)
-	{
-		vkDestroyImageView (vulkan_globals.device, color_buffers_view[i], NULL);
-		vkDestroyImage (vulkan_globals.device, vulkan_globals.color_buffers[i], NULL);
-		R_FreeVulkanMemory (&color_buffers_memory[i], &num_vulkan_misc_allocations);
-
-		color_buffers_view[i] = VK_NULL_HANDLE;
-		vulkan_globals.color_buffers[i] = VK_NULL_HANDLE;
-	}
+	GL_DestroyColorBuffers ();
 
 	if (vulkan_globals.particle_depth_descriptor_set != VK_NULL_HANDLE)
 	{
 		R_FreeDescriptorSet (vulkan_globals.particle_depth_descriptor_set, &vulkan_globals.input_attachment_set_layout);
 		vulkan_globals.particle_depth_descriptor_set = VK_NULL_HANDLE;
 	}
-	vkDestroyImageView (vulkan_globals.device, depth_buffer_view, NULL);
 	R_DestroySSAO ();
-	vkDestroyImage (vulkan_globals.device, depth_buffer, NULL);
-	R_FreeVulkanMemory (&depth_buffer_memory, &num_vulkan_misc_allocations);
-
-	depth_buffer_view = VK_NULL_HANDLE;
-	depth_buffer = VK_NULL_HANDLE;
+	GL_DestroyAttachment (&depth_buffer, &depth_buffer_memory, &depth_buffer_view);
 
 	for (uint32_t i = 0; i < num_swap_chain_images; ++i)
 	{
@@ -2975,6 +3148,27 @@ static void GL_DestroyRenderResources (void)
 	R_DestroyRenderPasses ();
 }
 
+uint32_t GL_RenderFrameSlot (void)
+{
+	return current_cb_index;
+}
+
+VkQueryPool GL_GPUStageWorldQueries (uint32_t *first_query)
+{
+	if (!gpu_stage_frame_enabled || !timestamp_query_pool)
+		return VK_NULL_HANDLE;
+	*first_query = current_cb_index * GPU_QUERY_STRIDE + 2;
+	return timestamp_query_pool;
+}
+
+VkQueryPool GL_GPUReceiverStageQueries (uint32_t *first_query)
+{
+	if (!gpu_stage_frame_enabled || !timestamp_query_pool)
+		return VK_NULL_HANDLE;
+	*first_query = current_cb_index * GPU_QUERY_STRIDE + 6;
+	return timestamp_query_pool;
+}
+
 /*
 =================
 GL_BeginRenderingTask
@@ -2985,7 +3179,8 @@ void GL_BeginRenderingTask (void *unused)
 	VkResult err;
 
 	// Keep the profiling decision stable until this frame has been submitted.
-	frame_timing_enabled = scr_speeds.value != 0;
+	frame_timing_enabled = scr_speeds.value != 0 || gpu_measure_active || gpu_stage_active;
+	gpu_stage_frame_enabled = gpu_stage_active;
 
 	// Wait for this slot's previous GPU submission to finish before reusing
 	// its command buffers and frame allocations.
@@ -2999,18 +3194,21 @@ void GL_BeginRenderingTask (void *unused)
 			rs_gpuwaitaccum_us += (uint32_t)((Sys_DoubleTime () - wait_start) * 1000000.0);
 	}
 
-	err = vkResetFences (vulkan_globals.device, 1, &command_buffer_fences[current_cb_index]);
-	if (err != VK_SUCCESS)
-		Sys_Error ("vkResetFences failed with code %i", (int)err);
+	/* Keep the completed fence signaled while fallible per-frame preparation
+	 * checks slot ownership. Reset immediately before the next submission. */
+	R_ReceiverExperimentalDiagnosticsCollect (current_cb_index);
+	radiance_commands_ready[current_cb_index] = false;
+	RCReceiverLive_Begin (current_cb_index);
 
-	// Allocate GPU profiling resources only when scr_speeds is first enabled.
-	if (frame_timing_enabled && (timestamp_query_pool == VK_NULL_HANDLE) && vulkan_globals.device_properties.limits.timestampComputeAndGraphics &&
+	// Optional measurement uses the same fence-completed queries as scr_speeds
+	// without scr_speeds' change of world rendering path.
+	if (frame_timing_enabled && !timestamp_query_pool && timestamp_mask && vulkan_globals.device_properties.limits.timestampComputeAndGraphics &&
 		(vulkan_globals.device_properties.limits.timestampPeriod > 0.0f))
 	{
 		ZEROED_STRUCT (VkQueryPoolCreateInfo, query_pool_create_info);
 		query_pool_create_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 		query_pool_create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-		query_pool_create_info.queryCount = 2 * DOUBLE_BUFFERED;
+		query_pool_create_info.queryCount = GPU_QUERY_STRIDE * DOUBLE_BUFFERED;
 		err = vkCreateQueryPool (vulkan_globals.device, &query_pool_create_info, NULL, &timestamp_query_pool);
 		if (err != VK_SUCCESS)
 			Sys_Error ("vkCreateQueryPool failed with code %i", (int)err);
@@ -3022,11 +3220,53 @@ void GL_BeginRenderingTask (void *unused)
 	{
 		uint64_t timestamps[2];
 		if (vkGetQueryPoolResults (
-				vulkan_globals.device, timestamp_query_pool, current_cb_index * 2, 2, sizeof (timestamps), timestamps, sizeof (uint64_t),
+				vulkan_globals.device, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE, 2, sizeof (timestamps), timestamps, sizeof (uint64_t),
 				VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
-			rs_gputime_us = (uint32_t)((double)(timestamps[1] - timestamps[0]) * (double)vulkan_globals.device_properties.limits.timestampPeriod / 1000.0);
+		{
+			double ns = (double)((timestamps[1] - timestamps[0]) & timestamp_mask) * vulkan_globals.device_properties.limits.timestampPeriod;
+			rs_gputime_us = (uint32_t)(ns / 1000.0);
+			if (gpu_measure_active && gpu_measure_written[current_cb_index])
+			{
+				gpu_measure_ms += ns / 1000000.0;
+				if (gpu_measure_samples < GPU_MEASURE_HISTORY_CAPACITY)
+					gpu_measure_history[gpu_measure_samples] = (float)(ns / 1000000.0);
+				++gpu_measure_samples;
+			}
+		}
+		if (gpu_stage_active && gpu_stage_written[current_cb_index])
+		{
+			uint64_t stage[4];
+			if (vkGetQueryPoolResults (vulkan_globals.device, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE + 2, 4,
+				sizeof (stage), stage, sizeof (uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+			{
+				for (unsigned i = 0; i < 2; ++i)
+				{
+					double ms = (double)((stage[2 * i + 1] - stage[2 * i]) & timestamp_mask) *
+						vulkan_globals.device_properties.limits.timestampPeriod / 1000000.0;
+					gpu_stage_ms[i] += ms;
+					if (gpu_stage_samples < GPU_MEASURE_HISTORY_CAPACITY) gpu_stage_history[i][gpu_stage_samples] = (float)ms;
+				}
+				++gpu_stage_samples;
+			}
+			uint64_t receiver[6];
+			/* Unsupported/full-resolution frames leave these queries unwritten.
+			 * Fence completion permits a nonblocking read of submitted receivers. */
+			if (vkGetQueryPoolResults (vulkan_globals.device, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE + 6, 6,
+				sizeof (receiver), receiver, sizeof (uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+			{
+				for (unsigned i = 0; i < 3; ++i)
+				{
+					double ms = (double)((receiver[2 * i + 1] - receiver[2 * i]) & timestamp_mask) *
+						vulkan_globals.device_properties.limits.timestampPeriod / 1000000.0;
+					gpu_receiver_ms[i] += ms;
+					if (gpu_receiver_samples < GPU_MEASURE_HISTORY_CAPACITY) gpu_receiver_history[i][gpu_receiver_samples] = (float)ms;
+				}
+				++gpu_receiver_samples;
+			}
+		}
 	}
 	timestamps_written[current_cb_index] = false;
+	gpu_stage_written[current_cb_index] = false;
 
 	R_CollectDynamicBufferGarbage ();
 	R_CollectMeshBufferGarbage ();
@@ -3054,8 +3294,8 @@ void GL_BeginRenderingTask (void *unused)
 	if (frame_timing_enabled && (timestamp_query_pool != VK_NULL_HANDLE))
 	{
 		VkCommandBuffer first_cb = vulkan_globals.primary_cb_contexts[0].cb;
-		vkCmdResetQueryPool (first_cb, timestamp_query_pool, current_cb_index * 2, 2);
-		vkCmdWriteTimestamp (first_cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_query_pool, current_cb_index * 2);
+		vkCmdResetQueryPool (first_cb, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE, GPU_QUERY_STRIDE);
+		vkCmdWriteTimestamp (first_cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE);
 	}
 
 	for (int scbx_index = 0; scbx_index < SCBX_NUM; ++scbx_index)
@@ -3090,6 +3330,9 @@ void GL_BeginRenderingTask (void *unused)
 				Sys_Error ("vkBeginCommandBuffer failed with code %i", (int)err);
 
 			R_BeginDebugUtilsLabel (cbx, va ("CBX %d", scbx_index));
+			if (gpu_stage_frame_enabled && timestamp_query_pool && i == 0 && (scbx_index == SCBX_WORLD || scbx_index == SCBX_ENTITIES))
+				vkCmdWriteTimestamp (cbx->cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_query_pool,
+					current_cb_index * GPU_QUERY_STRIDE + (scbx_index == SCBX_WORLD ? 2 : 4));
 
 			const qboolean ui = cbx->subpass_type == SUBPASS_UI || cbx->subpass_type == SUBPASS_POST_PROCESS;
 			VkRect2D	   render_area;
@@ -3117,6 +3360,53 @@ void GL_BeginRenderingTask (void *unused)
 	}
 
 	R_SwapDynamicBuffers ();
+	/* Clear the reused slot even on frames without ECS visuals. */
+	R_DisableECSVisualGPU ();
+	R_ECSGPUReset ();
+	/* Clear any prior radiance publication without scheduling an extra task
+	 * on the normal, classic-lighting path. */
+	if (r_radiance.value <= 0)
+		GL_RadiancePrepareTask (NULL);
+}
+
+VkPhysicalDevice GL_RadiancePhysicalDevice (void)
+{
+	return vulkan_physical_device;
+}
+
+bool GL_RadianceCommandsReady (void)
+{
+	return radiance_commands_ready[current_cb_index];
+}
+
+/* Runs after the slot fence, view, visible entities and dynamic lights are
+ * ready, before the draw workers. The independent CB can be abandoned on any
+ * resource/scene failure without discarding other recorded frame work. */
+void GL_RadiancePrepareTask (void *unused)
+{
+	(void)unused;
+	const uint32_t slot = current_cb_index;
+	cb_context_t *cbx = &vulkan_globals.primary_cb_contexts[PCBX_RADIANCE];
+	const bool requested = r_radiance.value > 0;
+	if (R_RadianceFramePrepare (slot, command_buffer_fences[slot], cbx->cb))
+	{
+		R_SetMeshletRadianceFrame (true);
+		radiance_commands_ready[slot] = true;
+		return;
+	}
+	if (!requested)
+	{
+		R_RadianceFrameDiscard (slot, cbx->cb);
+		return;
+	}
+	VkResult err = vkResetCommandBuffer (cbx->cb, 0);
+	if (err != VK_SUCCESS) Sys_Error ("vkResetCommandBuffer failed with code %i", (int)err);
+	R_RadianceFrameDiscard (slot, cbx->cb);
+	VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+	err = vkBeginCommandBuffer (cbx->cb, &begin);
+	if (err != VK_SUCCESS) Sys_Error ("vkBeginCommandBuffer failed with code %i", (int)err);
+	R_BeginDebugUtilsLabel (cbx, "Primary CB");
 }
 
 /*
@@ -3178,17 +3468,23 @@ qboolean GL_BeginRendering (qboolean use_tasks, task_handle_t *begin_rendering_t
 	const oit_mode_t requested_oit_mode = GL_FrameOITModeForCvarValue (requested_oit_value);
 	const qboolean	 oit_mode_changed = (requested_oit_mode != frame_oit_mode);
 	frame_oit_mode = requested_oit_mode;
+	const bool hdr_requested = r_radiance.value > 0 && r_radiance_hdr.value > 0;
+	if (!hdr_requested) radiance_hdr_failed = false;
+	const bool hdr_mode_changed = vulkan_globals.scene_hdr_active != (hdr_requested && vulkan_globals.scene_hdr_supported && !radiance_hdr_failed);
 	const qboolean render_pass_setup_changed = R_SetupRenderPasses ();
 
 	int render_width, render_height;
 	VID_GetRenderSize (&render_width, &render_height);
 	const qboolean render_size_changed = render_width != vid.render_width || render_height != vid.render_height;
-	if (vid.restart_next_frame || (render_resources_created && (oit_mode_changed || render_pass_setup_changed || render_size_changed)))
+	if (vid.restart_next_frame || (render_resources_created && (oit_mode_changed || hdr_mode_changed || render_pass_setup_changed || render_size_changed)))
 	{
 		VID_Restart (false);
 		vid.restart_next_frame = false;
 		frame_oit_mode = GL_FrameOITModeForCvarValue (requested_oit_value);
 	}
+	/* Probe spacing changes only the sparse mapping, not video resources.
+	 * Its rare replacement drains in-flight readers before tasks are created. */
+	(void)R_RadianceFrameApplySpacing ();
 
 	if (!render_resources_created)
 	{
@@ -3335,7 +3631,9 @@ void WriteScreenshot (VkBuffer buffer, vulkan_memory_t memory)
 	vulkan_globals.device_idle = true;
 
 	void *buffer_ptr;
-	vkMapMemory (vulkan_globals.device, memory.handle, 0, glwidth * glheight * 4, 0, &buffer_ptr);
+	VkResult map_result = vkMapMemory (vulkan_globals.device, memory.handle, 0, VK_WHOLE_SIZE, 0, &buffer_ptr);
+	if (map_result != VK_SUCCESS)
+		Sys_Error ("vkMapMemory for screenshot failed with code %i", (int)map_result);
 
 	ZEROED_STRUCT (VkMappedMemoryRange, range);
 	range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
@@ -3490,6 +3788,10 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		for (int i = 0; i < SECONDARY_CB_MULTIPLICITY[scbx_index]; ++i)
 		{
 			cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[scbx_index][i];
+			if (gpu_stage_frame_enabled && timestamp_query_pool && i == SECONDARY_CB_MULTIPLICITY[scbx_index] - 1 &&
+				(scbx_index == SCBX_WORLD || scbx_index == SCBX_MODELS))
+				vkCmdWriteTimestamp (cbx->cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_query_pool,
+					cb_index * GPU_QUERY_STRIDE + (scbx_index == SCBX_WORLD ? 3 : 5));
 			R_EndDebugUtilsLabel (cbx);
 			err = vkEndCommandBuffer (cbx->cb);
 			if (err != VK_SUCCESS)
@@ -3506,8 +3808,10 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 
 	if (frame_timing_enabled && (timestamp_query_pool != VK_NULL_HANDLE))
 	{
-		vkCmdWriteTimestamp (render_passes_cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_query_pool, (cb_index * 2) + 1);
+		vkCmdWriteTimestamp (render_passes_cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_query_pool, cb_index * GPU_QUERY_STRIDE + 1);
 		timestamps_written[cb_index] = true;
+		gpu_measure_written[cb_index] = gpu_measure_active;
+		gpu_stage_written[cb_index] = gpu_stage_frame_enabled;
 	}
 
 	{
@@ -3530,11 +3834,24 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		submit_info.pWaitDstStageMask = &wait_dst_stage_mask;
 
+		if (!RCReceiverLive_BeforeSubmit (cb_index, command_buffer_fences[cb_index]))
+			Sys_Error ("Receiver slot could not track its submitted fence");
+		if (!R_ReceiverExperimentalDiagnosticsSubmitted (cb_index, command_buffer_fences[cb_index]))
+			Sys_Error ("Receiver diagnostics could not track its submitted fence");
 		SDL_LockMutex (vulkan_globals.queue_mutex);
+		err = vkResetFences (vulkan_globals.device, 1, &command_buffer_fences[cb_index]);
+		if (err != VK_SUCCESS)
+			Sys_Error ("vkResetFences failed with code %i", (int)err);
 		err = vkQueueSubmit (vulkan_globals.queue, 1, &submit_info, command_buffer_fences[cb_index]);
 		SDL_UnlockMutex (vulkan_globals.queue_mutex);
 		if (err != VK_SUCCESS)
+		{
+			if (radiance_commands_ready[cb_index])
+				R_RadianceFrameDiscard (cb_index, vulkan_globals.primary_cb_contexts[PCBX_RADIANCE].cb);
 			Sys_Error ("vkQueueSubmit failed with code %i", (int)err);
+		}
+		if (radiance_commands_ready[cb_index])
+			R_RadianceFrameSubmitted (cb_index, vulkan_globals.primary_cb_contexts[PCBX_RADIANCE].cb);
 	}
 
 	vulkan_globals.device_idle = false;
@@ -3542,8 +3859,8 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 	if (take_screenshot && (readback.buffer != VK_NULL_HANDLE))
 	{
 		WriteScreenshot (readback.buffer, readback.memory);
+		take_screenshot = false;
 	}
-	take_screenshot = false;
 
 	if (swapchain_acquired == true)
 	{
@@ -3567,6 +3884,9 @@ static void GL_EndRenderingTask (end_rendering_parms_t *parms)
 		SDL_LockMutex (vulkan_globals.queue_mutex);
 		err = fpQueuePresentKHR (vulkan_globals.queue, &present_info);
 		SDL_UnlockMutex (vulkan_globals.queue_mutex);
+		/* A screenshot can wait for the preceding submit and mark the device
+		 * idle. Presentation queues more work and uses the wait semaphore. */
+		vulkan_globals.device_idle = false;
 #if defined(VK_KHR_present_wait2)
 		if (swapchain_present_wait)
 			current_present_id = next_present_id;
@@ -3609,6 +3929,9 @@ task_handle_t GL_EndRendering (qboolean use_tasks, qboolean swapchain)
 		.polyblend = gl_polyblend.value != 0,
 		.menu = key_dest == key_menu,
 		.menu_alpha = 1.0f - M_MenuPreviewFraction (),
+		.hdr_tonemap = vulkan_globals.scene_hdr_active && R_RadianceActive () && r_radiance_highlight.value > 0 &&
+			!r_fullbright_cheatsafe && !r_lightmap_cheatsafe,
+		.hdr_contrast = isfinite (vid_contrast.value) ? CLAMP (1.0f, vid_contrast.value, 2.0f) : 1.0f,
 #if defined(_DEBUG)
 		.ray_debug = r_raydebug.value && (bmodel_tlas != VK_NULL_HANDLE),
 #endif
@@ -3748,6 +4071,32 @@ void VID_Shutdown (void)
 	if (vid_initialized)
 	{
 		assert (draw_context != NULL);
+		/* Meshlet/Hi-Z teardown requires an idle device, even when no meshlet
+		 * world buffer was allocated. Startup can fail before staging is ready. */
+		if (vulkan_globals.device != VK_NULL_HANDLE && vulkan_globals.queue_mutex != NULL)
+		{
+			if (vid_staging_ready)
+				GL_WaitForDeviceIdle ();
+			else
+			{
+				GL_SynchronizeEndRenderingTask ();
+				SDL_LockMutex (vulkan_globals.queue_mutex);
+				vkDeviceWaitIdle (vulkan_globals.device);
+				SDL_UnlockMutex (vulkan_globals.queue_mutex);
+				vulkan_globals.device_idle = true;
+			}
+		}
+		R_PipelineCacheShutdown ();
+		R_ShutdownMeshlets ();
+		/* Destroy the swapchain and surface before SDL closes its window and
+		 * display. Initialization can fail before either one exists. */
+		if (vulkan_globals.device != VK_NULL_HANDLE && vulkan_swapchain != VK_NULL_HANDLE)
+			GL_DestroyRenderResources ();
+		if (vulkan_instance != VK_NULL_HANDLE && vulkan_surface != VK_NULL_HANDLE && fpDestroySurfaceKHR)
+		{
+			fpDestroySurfaceKHR (vulkan_instance, vulkan_surface, NULL);
+			vulkan_surface = VK_NULL_HANDLE;
+		}
 		VID_DestroyCursors ();
 		SDL_DestroyWindow (draw_context);
 		draw_context = NULL;
@@ -3944,6 +4293,104 @@ static void R_CreatePaletteOctreeBuffers (uint32_t *colors, int num_colors, pale
 	}
 }
 
+// Report completed whole-frame GPU samples. Starting/stopping synchronizes
+// CPU bookkeeping only; never drain the GPU just to read the tail of a run.
+static int VID_CompareGPUFrameTimes (const void *left, const void *right)
+{
+	const float a = *(const float *)left, b = *(const float *)right;
+	return (a > b) - (a < b);
+}
+
+static void VID_GPUFrameTime_f (void)
+{
+	if (Cmd_Argc () != 2 || (strcmp (Cmd_Argv (1), "start") && strcmp (Cmd_Argv (1), "stop")))
+	{
+		Con_Printf ("usage: gpu_frame_time start|stop\n");
+		return;
+	}
+	GL_SynchronizeEndRenderingTask ();
+	if (!strcmp (Cmd_Argv (1), "start"))
+	{
+		gpu_measure_active = true;
+		gpu_measure_samples = 0;
+		gpu_measure_ms = 0;
+		memset (gpu_measure_written, 0, sizeof (gpu_measure_written));
+	}
+	else
+	{
+		gpu_measure_active = false;
+		if (gpu_measure_samples)
+		{
+			Con_Printf ("GPU frame time: %u samples, %.4f ms mean\n", gpu_measure_samples, gpu_measure_ms / gpu_measure_samples);
+			const unsigned count = q_min (gpu_measure_samples, GPU_MEASURE_HISTORY_CAPACITY);
+			qsort (gpu_measure_history, count, sizeof (*gpu_measure_history), VID_CompareGPUFrameTimes);
+			const double median = (count & 1u) ? gpu_measure_history[count / 2] :
+				((double)gpu_measure_history[count / 2 - 1] + gpu_measure_history[count / 2]) * 0.5;
+			Con_Printf ("GPU frame median: %.4f ms (%u/%u samples)\n", median, count, gpu_measure_samples);
+			const unsigned p95_index = (count * 95u + 99u) / 100u - 1u;
+			Con_Printf ("GPU frame p95: %.4f ms (%u/%u samples)\n", gpu_measure_history[p95_index], count, gpu_measure_samples);
+		}
+		else
+			Con_Printf ("GPU frame time: no completed samples\n");
+	}
+}
+
+/* Timings bracket the world and opaque-entity secondary-command groups.
+ * They include all work in those groups, not just Radiance shading. The GPU
+ * may overlap execution across stages, so these ranges are diagnostic rather
+ * than an additive breakdown of whole-frame time. */
+static void VID_GPUStageTime_f (void)
+{
+	if (Cmd_Argc () != 2 || (strcmp (Cmd_Argv (1), "start") && strcmp (Cmd_Argv (1), "stop")))
+	{
+		Con_Printf ("usage: gpu_stage_time start|stop\n");
+		return;
+	}
+	GL_SynchronizeEndRenderingTask ();
+	if (!strcmp (Cmd_Argv (1), "start"))
+	{
+		gpu_stage_active = true;
+		gpu_stage_samples = 0;
+		memset (gpu_stage_ms, 0, sizeof (gpu_stage_ms));
+		memset (gpu_stage_written, 0, sizeof (gpu_stage_written));
+		gpu_receiver_samples = 0;
+		memset (gpu_receiver_ms, 0, sizeof (gpu_receiver_ms));
+	}
+	else
+	{
+		gpu_stage_active = false;
+		if (!gpu_stage_samples)
+		{
+			Con_Printf ("GPU stage time: no completed samples\n");
+			return;
+		}
+		const unsigned count = q_min (gpu_stage_samples, GPU_MEASURE_HISTORY_CAPACITY);
+		static const char *names[] = {"world", "entities"};
+		for (unsigned i = 0; i < countof (names); ++i)
+		{
+			qsort (gpu_stage_history[i], count, sizeof (gpu_stage_history[i][0]), VID_CompareGPUFrameTimes);
+			double median = (count & 1u) ? gpu_stage_history[i][count / 2] :
+				((double)gpu_stage_history[i][count / 2 - 1] + gpu_stage_history[i][count / 2]) * 0.5;
+			const unsigned p95_index = (count * 95u + 99u) / 100u - 1u;
+			Con_Printf ("GPU %s stage: %u samples, %.4f ms mean, %.4f ms median, %.4f ms p95 (%u/%u samples)\n",
+				names[i], gpu_stage_samples, gpu_stage_ms[i] / gpu_stage_samples, median,
+				gpu_stage_history[i][p95_index], count, gpu_stage_samples);
+		}
+		const unsigned receiver_count = q_min (gpu_receiver_samples, GPU_MEASURE_HISTORY_CAPACITY);
+		static const char *receiver_names[] = {"receiver_classify", "receiver_shade", "receiver_filter"};
+		for (unsigned i = 0; receiver_count && i < countof (receiver_names); ++i)
+		{
+			qsort (gpu_receiver_history[i], receiver_count, sizeof (gpu_receiver_history[i][0]), VID_CompareGPUFrameTimes);
+			double median = (receiver_count & 1u) ? gpu_receiver_history[i][receiver_count / 2] :
+				((double)gpu_receiver_history[i][receiver_count / 2 - 1] + gpu_receiver_history[i][receiver_count / 2]) * 0.5;
+			const unsigned p95_index = (receiver_count * 95u + 99u) / 100u - 1u;
+			Con_Printf ("GPU %s stage: %u samples, %.4f ms mean, %.4f ms median, %.4f ms p95 (%u/%u samples)\n",
+				receiver_names[i], gpu_receiver_samples, gpu_receiver_ms[i] / gpu_receiver_samples, median,
+				gpu_receiver_history[i][p95_index], receiver_count, gpu_receiver_samples);
+		}
+	}
+}
+
 /*
 ===================
 VID_Init
@@ -3962,9 +4409,12 @@ void VID_Init (void)
 #define num_readvars countof (read_vars)
 
 	Cvar_RegisterVariable (&vid_fullscreen); // johnfitz
+	Cmd_AddCommand ("gpu_frame_time", VID_GPUFrameTime_f);
+	Cmd_AddCommand ("gpu_stage_time", VID_GPUStageTime_f);
 	Cvar_RegisterVariable (&r_width);
 	Cvar_RegisterVariable (&r_height);
 	Cvar_RegisterVariable (&r_upscalefilter);
+	Cvar_RegisterVariable (&r_radiance_hdr);
 	Cvar_RegisterVariable (&vid_width);		  // johnfitz
 	Cvar_RegisterVariable (&vid_height);	  // johnfitz
 	Cvar_RegisterVariable (&vid_refreshrate); // johnfitz
@@ -4105,6 +4555,7 @@ void VID_Init (void)
 	GL_InitCommandBuffers ();
 	vulkan_globals.staging_buffer_size = INITIAL_STAGING_BUFFER_SIZE_KB * 1024;
 	R_InitStagingBuffers ();
+	vid_staging_ready = true;
 	R_CreateDescriptorSetLayouts ();
 	R_CreateDescriptorPool ();
 	R_InitGPUBuffers ();
@@ -4975,6 +5426,9 @@ SCR_ScreenShot_f -- johnfitz
 */
 void SCR_ScreenShot_f (void)
 {
+	/* The previous end-render task consumes this request and its filename.
+	 * Finish it before replacing either from the main thread. */
+	GL_SynchronizeEndRenderingTask ();
 	if ((vulkan_globals.swap_chain_format != VK_FORMAT_B8G8R8A8_UNORM) && (vulkan_globals.swap_chain_format != VK_FORMAT_B8G8R8A8_SRGB) &&
 		(vulkan_globals.swap_chain_format != VK_FORMAT_R8G8B8A8_UNORM) && (vulkan_globals.swap_chain_format != VK_FORMAT_R8G8B8A8_SRGB))
 	{

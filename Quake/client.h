@@ -352,6 +352,12 @@ dlight_t *CL_AllocDlight (int key);
 void	  CL_DecayLights (void);
 
 void CL_RelinkEntities (void);
+/* Bind a newly initialized protocol slot to the client render ECS world. */
+void CL_ECSBindNetworkEntity (int index);
+size_t CL_ECSBytesAllocated (void);
+unsigned int CL_ECSBindingCount (void);
+/* Full frame-stable local visual array when the batch renderer owns it. */
+uint32_t CL_ECSVisualBatch (entity_t **entities);
 
 void CL_Init (void);
 
@@ -393,6 +399,8 @@ void	 CL_FinishMove (usercmd_t *cmd);
 void CL_UpdateBeam (struct qmodel_s *m, const char *trailname, const char *impactname, int ent, float *start, float *end);
 void CL_ParseTEnt (void);
 void CL_UpdateTEnts (void);
+/* Reset temporary entities while preserving cache identity across reuse. */
+void CL_ClearTempEntities (void);
 
 void CL_FreeState (void);
 void CL_ClearState (void);

@@ -1,0 +1,13 @@
+schema_version = "1.0.0"
+id = "quiver_md5_exporter"
+version = "0.4.0"
+name = "Quiver / vkQuake MD5 Exporter"
+tagline = "Export Quake MD5 meshes, bind skeletons, and PNG skins"
+maintainer = "Quiver contributors"
+type = "add-on"
+tags = ["Import-Export"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-2.0-or-later"]
+
+[permissions]
+files = "Export MD5 models, companion animations, and PNG skins to disk"

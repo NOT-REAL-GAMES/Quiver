@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
+#include "editor_tools.h"
 #include <stdio.h>
 
 #ifdef USE_SDL3
@@ -77,6 +78,9 @@ static quakeparms_t parms;
 
 int main (int argc, char *argv[])
 {
+	int tool_result;
+	if (EditorTools_Dispatch (argc, argv, &tool_result))
+		return tool_result;
 	double time, oldtime, newtime;
 
 	host_parms = &parms;

@@ -30,6 +30,8 @@ void  Fog_GetColor (float *c);
 
 extern atomic_uint32_t rs_skypolys; // for scr_speeds readout
 static float		   skyflatcolor[3];
+static float sky_texture_radiance[3];
+static qboolean sky_texture_radiance_valid;
 static float		   skymins[2][6], skymaxs[2][6];
 
 static gltexture_t *solidskytexture, *alphaskytexture;
@@ -79,10 +81,91 @@ typedef struct skybox_s
 	float		 wind_yaw;
 	float		 wind_pitch;
 	float		 wind_period;
+	float radiance[3];
+	qboolean radiance_valid;
 } skybox_t;
 
 static skybox_t	 skybox;
 static skybox_t *skybox_cache; // skyboxes loaded for the current map, to avoid reloading when a map switches between them
+
+/* Approximate the visible sky in linear RGB. This is a small diffuse fallback,
+ * never an inferred sun direction or a substitute for authored sky lighting. */
+static const float sky_radiance_linear[256] = {
+	0.000000000f, 0.000303527f, 0.000607054f, 0.000910581f, 0.001214108f, 0.001517635f, 0.001821162f, 0.002124689f,
+	0.002428216f, 0.002731743f, 0.003035270f, 0.003346536f, 0.003676507f, 0.004024717f, 0.004391442f, 0.004776953f,
+	0.005181517f, 0.005605392f, 0.006048833f, 0.006512091f, 0.006995410f, 0.007499032f, 0.008023193f, 0.008568126f,
+	0.009134059f, 0.009721217f, 0.010329823f, 0.010960094f, 0.011612245f, 0.012286488f, 0.012983032f, 0.013702083f,
+	0.014443844f, 0.015208514f, 0.015996293f, 0.016807376f, 0.017641954f, 0.018500220f, 0.019382361f, 0.020288563f,
+	0.021219010f, 0.022173885f, 0.023153366f, 0.024157632f, 0.025186860f, 0.026241222f, 0.027320892f, 0.028426040f,
+	0.029556834f, 0.030713444f, 0.031896033f, 0.033104767f, 0.034339807f, 0.035601315f, 0.036889450f, 0.038204372f,
+	0.039546235f, 0.040915197f, 0.042311411f, 0.043735029f, 0.045186204f, 0.046665086f, 0.048171824f, 0.049706566f,
+	0.051269458f, 0.052860647f, 0.054480276f, 0.056128490f, 0.057805430f, 0.059511238f, 0.061246054f, 0.063010018f,
+	0.064803267f, 0.066625939f, 0.068478170f, 0.070360096f, 0.072271851f, 0.074213568f, 0.076185381f, 0.078187422f,
+	0.080219820f, 0.082282707f, 0.084376212f, 0.086500462f, 0.088655586f, 0.090841711f, 0.093058963f, 0.095307467f,
+	0.097587347f, 0.099898728f, 0.102241733f, 0.104616484f, 0.107023103f, 0.109461711f, 0.111932428f, 0.114435374f,
+	0.116970668f, 0.119538428f, 0.122138772f, 0.124771818f, 0.127437680f, 0.130136477f, 0.132868322f, 0.135633330f,
+	0.138431615f, 0.141263291f, 0.144128471f, 0.147027266f, 0.149959790f, 0.152926152f, 0.155926464f, 0.158960835f,
+	0.162029376f, 0.165132195f, 0.168269400f, 0.171441101f, 0.174647404f, 0.177888416f, 0.181164244f, 0.184474995f,
+	0.187820772f, 0.191201683f, 0.194617830f, 0.198069320f, 0.201556254f, 0.205078736f, 0.208636870f, 0.212230757f,
+	0.215860500f, 0.219526200f, 0.223227957f, 0.226965874f, 0.230740049f, 0.234550582f, 0.238397574f, 0.242281122f,
+	0.246201327f, 0.250158285f, 0.254152094f, 0.258182853f, 0.262250658f, 0.266355605f, 0.270497791f, 0.274677312f,
+	0.278894263f, 0.283148740f, 0.287440838f, 0.291770650f, 0.296138271f, 0.300543794f, 0.304987314f, 0.309468923f,
+	0.313988713f, 0.318546778f, 0.323143209f, 0.327778098f, 0.332451536f, 0.337163615f, 0.341914425f, 0.346704056f,
+	0.351532600f, 0.356400144f, 0.361306780f, 0.366252596f, 0.371237680f, 0.376262123f, 0.381326011f, 0.386429434f,
+	0.391572478f, 0.396755231f, 0.401977780f, 0.407240212f, 0.412542613f, 0.417885071f, 0.423267670f, 0.428690497f,
+	0.434153636f, 0.439657174f, 0.445201195f, 0.450785783f, 0.456411023f, 0.462077000f, 0.467783796f, 0.473531496f,
+	0.479320183f, 0.485149940f, 0.491020850f, 0.496932995f, 0.502886458f, 0.508881321f, 0.514917665f, 0.520995573f,
+	0.527115126f, 0.533276404f, 0.539479489f, 0.545724461f, 0.552011402f, 0.558340390f, 0.564711506f, 0.571124829f,
+	0.577580440f, 0.584078418f, 0.590618841f, 0.597201788f, 0.603827339f, 0.610495571f, 0.617206562f, 0.623960392f,
+	0.630757136f, 0.637596874f, 0.644479682f, 0.651405637f, 0.658374817f, 0.665387298f, 0.672443157f, 0.679542470f,
+	0.686685312f, 0.693871761f, 0.701101892f, 0.708375780f, 0.715693501f, 0.723055129f, 0.730460740f, 0.737910409f,
+	0.745404210f, 0.752942217f, 0.760524505f, 0.768151147f, 0.775822218f, 0.783537792f, 0.791297940f, 0.799102738f,
+	0.806952258f, 0.814846572f, 0.822785754f, 0.830769877f, 0.838799012f, 0.846873232f, 0.854992608f, 0.863157213f,
+	0.871367119f, 0.879622397f, 0.887923118f, 0.896269353f, 0.904661174f, 0.913098652f, 0.921581856f, 0.930110858f,
+	0.938685728f, 0.947306537f, 0.955973353f, 0.964686248f, 0.973445290f, 0.982250550f, 0.991102097f, 1.000000000f
+};
+
+static float Sky_RadianceChannel (byte value)
+{
+	return sky_radiance_linear[value];
+}
+
+static void Sky_AverageClassicRadiance (const texture_t *texture, qboolean q64)
+{
+    const byte *pixels = (const byte *)(texture + 1);
+    unsigned width = q64 ? texture->width : texture->width / 2;
+    unsigned height = q64 ? texture->height / 2 : texture->height;
+    if (!width || !height) { sky_texture_radiance_valid = false; return; }
+    double sum[3] = {0};
+    for (unsigned y = 0; y < height; ++y)
+    for (unsigned x = 0; x < width; ++x)
+    {
+        unsigned front = pixels[(size_t)y * texture->width + x];
+        unsigned back = q64 ? pixels[(size_t)(y + height) * texture->width + x] :
+            pixels[(size_t)y * texture->width + x + width];
+        const byte *f = (const byte *)&d_8to24table[front], *b = (const byte *)&d_8to24table[back];
+        float alpha = q64 ? 0.5f : front ? 1.0f : 0.0f;
+        for (int channel = 0; channel < 3; ++channel)
+            sum[channel] += Sky_RadianceChannel (f[channel]) * alpha + Sky_RadianceChannel (b[channel]) * (1.0f - alpha);
+    }
+    for (int channel = 0; channel < 3; ++channel)
+        sky_texture_radiance[channel] = (float)(sum[channel] / ((double)width * height));
+    sky_texture_radiance_valid = true;
+}
+
+qboolean Sky_GetRadianceColor (float color[3])
+{
+    if (!color) return false;
+    if (skybox.name[0])
+    {
+        if (!skybox.radiance_valid) return false;
+        memcpy (color, skybox.radiance, sizeof (skybox.radiance));
+        return true;
+    }
+    if (!sky_texture_radiance_valid) return false;
+    memcpy (color, sky_texture_radiance, sizeof (sky_texture_radiance));
+    return true;
+}
 
 //==============================================================================
 //
@@ -151,6 +234,7 @@ void Sky_LoadTexture (qmodel_t *mod, texture_t *mt, int tex_index)
 	if (tex_index > max_skytexture_index)
 	{
 		max_skytexture_index = tex_index;
+		Sky_AverageClassicRadiance (mt, false);
 		alphaskytexture = TexMgr_LoadImage (mod, texturename, halfwidth, mt->height, SRC_INDEXED, front_data, "", (src_offset_t)front_data, TEXPREF_ALPHA);
 
 		// calculate r_fastsky color based on average of all opaque foreground colors
@@ -220,6 +304,7 @@ void Sky_LoadTextureQ64 (qmodel_t *mod, texture_t *mt, int tex_index)
 	if (tex_index > max_skytexture_index)
 	{
 		max_skytexture_index = tex_index;
+		Sky_AverageClassicRadiance (mt, true);
 		if (alphaskytexture)
 			TexMgr_FreeTexture (alphaskytexture);
 
@@ -480,6 +565,7 @@ void Sky_LoadSkyBox (const char *name)
 	for (i = 0; i < 6; i++)
 		skybox.textures[i] = NULL;
 	skybox.cubemap = NULL;
+	skybox.radiance_valid = false;
 	Skywind_Clear ();
 
 	// turn off skybox if sky is set to ""
@@ -497,6 +583,8 @@ void Sky_LoadSkyBox (const char *name)
 			q_strlcpy (skybox.name, name, sizeof (skybox.name));
 			memcpy (skybox.textures, skybox_cache[i].textures, sizeof (skybox.textures));
 			skybox.cubemap = skybox_cache[i].cubemap;
+			memcpy (skybox.radiance, skybox_cache[i].radiance, sizeof (skybox.radiance));
+			skybox.radiance_valid = skybox_cache[i].radiance_valid;
 			skybox.wind_dist = skybox_cache[i].wind_dist;
 			skybox.wind_yaw = skybox_cache[i].wind_yaw;
 			skybox.wind_pitch = skybox_cache[i].wind_pitch;
@@ -513,6 +601,31 @@ void Sky_LoadSkyBox (const char *name)
 			nonefound = false;
 		if (!data[i] || (width[i] != height[i]) || (width[i] != width[0]) || (fmt[i] != SRC_RGBA))
 			cubemap = false;
+	}
+
+	/* Average the four side faces and upper face, each equally weighted.
+	 * The lower face is intentionally excluded from upper-sky illumination. */
+	double sky_sum[3] = {0};
+	unsigned sky_faces = 0;
+	for (i = 0; i < 5; ++i)
+	{
+		if (!data[i] || width[i] <= 0 || height[i] <= 0 ||
+			(fmt[i] != SRC_RGBA && fmt[i] != SRC_INDEXED)) continue;
+		size_t count = (size_t)width[i] * height[i];
+		double face[3] = {0};
+		for (size_t pixel = 0; pixel < count; ++pixel)
+		{
+			const byte *rgba = fmt[i] == SRC_RGBA ? data[i] + pixel * 4 : (const byte *)&d_8to24table[data[i][pixel]];
+			float alpha = fmt[i] == SRC_RGBA ? rgba[3] / 255.0f : 1.0f;
+			for (int c = 0; c < 3; ++c) face[c] += Sky_RadianceChannel (rgba[c]) * alpha;
+		}
+		for (int c = 0; c < 3; ++c) sky_sum[c] += face[c] / count;
+		++sky_faces;
+	}
+	if (sky_faces)
+	{
+		for (int c = 0; c < 3; ++c) skybox.radiance[c] = (float)(sky_sum[c] / sky_faces);
+		skybox.radiance_valid = true;
 	}
 
 	if (cubemap)
@@ -615,6 +728,7 @@ void Sky_ClearAll (void)
 	solidskytexture = NULL;
 	alphaskytexture = NULL;
 	max_skytexture_index = -1;
+	sky_texture_radiance_valid = false;
 	Cvar_SetQuick (&r_skyfog, r_skyfog.default_string);
 }
 

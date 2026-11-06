@@ -126,6 +126,10 @@ float MBOITTransmittanceAtDepth (float z, float b0, vec4 moments0)
 
 void WriteMBOITComposite (vec4 frag_color, float b0, vec4 moments0, out vec4 out_color)
 {
+#if RADIANCE_LIGHTING
+	if (rcLighting.bounce_parameters.w >= 1.5) { frag_color.rgb = max (frag_color.rgb, vec3 (0.0)); frag_color.a = clamp (frag_color.a, 0.0, 1.0); }
+	else
+#endif
 	frag_color = clamp (frag_color, 0.0f, 1.0f);
 	float transmittance = MBOITTransmittanceAtDepth (MBOITDepth (), b0, moments0);
 	out_color = vec4 (frag_color.rgb * frag_color.a * transmittance, frag_color.a * transmittance);

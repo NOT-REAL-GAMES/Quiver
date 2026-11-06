@@ -69,7 +69,8 @@ typedef struct
 {
 	task_type_t		task_type;
 	int				num_dependents;
-	int				indexed_limit;
+	/* Only nonempty index ranges need a counter or a queued worker. */
+	uint32_t		indexed_partitions;
 	atomic_uint32_t remaining_workers;
 	atomic_uint32_t remaining_dependencies;
 	uint64_t		epoch;
@@ -112,11 +113,9 @@ static task_t				 tasks[MAX_PENDING_TASKS];
 static task_queue_t			*free_task_queue;
 static task_queue_t			*executable_task_queue;
 static task_counter_t		*indexed_task_counters;
-static uint8_t				 steal_worker_indices[TASKS_MAX_WORKERS * 2];
 static THREAD_LOCAL qboolean is_worker = false;
 static THREAD_LOCAL int		 tl_worker_index;
 
-COMPILE_TIME_ASSERT (steal_worker_indices, TASKS_MAX_WORKERS * 2 < UINT8_MAX);
 
 static int pinned_workers_core_ids[TASKS_MAX_WORKERS];
 static int num_pinned_workers = 0;
@@ -275,16 +274,22 @@ Task_ExecuteIndexed
 */
 static inline void Task_ExecuteIndexed (int worker_index, task_t *task, uint32_t task_index)
 {
-	for (int i = 0; i < num_workers; ++i)
+	const uint32_t partitions = task->indexed_partitions;
+	if (!partitions)
+		return;
+	/* A queue item can be consumed by any physical worker. Start at a
+	 * different partition per worker, then steal every remaining range. */
+	uint32_t counter_worker = (uint32_t)worker_index % partitions;
+	for (uint32_t i = 0; i < partitions; ++i)
 	{
-		const int		steal_worker_index = steal_worker_indices[worker_index + i];
-		int				counter_index = IndexedTaskCounterIndex (task_index, steal_worker_index);
+		int				counter_index = IndexedTaskCounterIndex (task_index, (int)counter_worker);
 		task_counter_t *counter = &indexed_task_counters[counter_index];
 		uint32_t		index = 0;
 		while ((index = Atomic_IncrementUInt32 (&counter->index)) < counter->limit)
 		{
 			((task_indexed_func_t)task->func) (index, task->payload);
 		}
+		if (++counter_worker == partitions) counter_worker = 0;
 	}
 }
 
@@ -437,16 +442,6 @@ void Tasks_Init (void)
 	// num_workers is overriden by -pinnedworkers number of fields
 	parse_pinned_workers ();
 
-	// Fill lookup table to avoid modulo in Task_ExecuteIndexed
-	for (int i = 0; i < num_workers; ++i)
-	{
-		steal_worker_indices[i] = i;
-
-		// Workaround for "error: writing 16 bytes into a region of size 0 [-Werror=stringop-overflow=]"
-		size_t steal_index = CLAMP (0, (size_t)(i + num_workers), countof (steal_worker_indices) - 1);
-		steal_worker_indices[steal_index] = i;
-	}
-
 	indexed_task_counters = Mem_Alloc (sizeof (task_counter_t) * num_workers * MAX_PENDING_TASKS);
 	for (int i = 0; i < num_workers; ++i)
 	{
@@ -495,7 +490,7 @@ task_handle_t Task_Allocate (void)
 	Atomic_StoreUInt32 (&task->remaining_dependencies, 1);
 	task->task_type = TASK_TYPE_NONE;
 	task->num_dependents = 0;
-	task->indexed_limit = 0;
+	task->indexed_partitions = 0;
 	task->func = NULL;
 	return CreateTaskHandle (task_index, task->epoch);
 }
@@ -527,16 +522,20 @@ void Task_AssignIndexedFunc (task_handle_t handle, task_indexed_func_t func, uin
 	task_t	*task = &tasks[task_index];
 	task->task_type = TASK_TYPE_INDEXED;
 	task->func = (void *)func;
-	task->indexed_limit = limit;
 	uint32_t index = 0;
-	uint32_t count_per_worker = (limit + num_workers - 1) / num_workers;
-	for (int worker_index = 0; worker_index < num_workers; ++worker_index)
+	/* Divide without overflowing limit + workers - 1. The last range can be
+	 * partial, and some nominal workers have no range at all. */
+	const uint32_t workers = q_min (limit, (uint32_t)num_workers);
+	const uint32_t count_per_worker = workers ? limit / workers + (limit % workers != 0) : 0;
+	const uint32_t partitions = count_per_worker ? limit / count_per_worker + (limit % count_per_worker != 0) : 0;
+	task->indexed_partitions = partitions;
+	for (uint32_t worker_index = 0; worker_index < partitions; ++worker_index)
 	{
 		const int		task_counter_index = IndexedTaskCounterIndex (task_index, worker_index);
 		task_counter_t *counter = &indexed_task_counters[task_counter_index];
 		Atomic_StoreUInt32 (&counter->index, index);
-		counter->limit = q_min (index + count_per_worker, limit);
-		index += count_per_worker;
+		counter->limit = (uint32_t)q_min ((uint64_t)index + count_per_worker, (uint64_t)limit);
+		index = counter->limit;
 	}
 	if (payload)
 		memcpy (&task->payload, payload, payload_size);
@@ -555,7 +554,8 @@ void Task_Submit (task_handle_t handle)
 	ANNOTATE_HAPPENS_BEFORE (task);
 	if (Atomic_DecrementUInt32 (&task->remaining_dependencies) == 1)
 	{
-		const int num_task_workers = (task->task_type == TASK_TYPE_INDEXED) ? q_min (task->indexed_limit, num_workers) : 1;
+		/* Even an empty indexed task must finish and release dependencies. */
+		const int num_task_workers = (task->task_type == TASK_TYPE_INDEXED) ? q_max (1, (int)task->indexed_partitions) : 1;
 		Atomic_StoreUInt32 (&task->remaining_workers, num_task_workers);
 		for (int i = 0; i < num_task_workers; ++i)
 		{
@@ -689,6 +689,72 @@ static void IndexedTasks ()
 	TEMP_FREE (counters);
 }
 
+typedef struct
+{
+	atomic_uint32_t *visits;
+	task_handle_t *children;
+} indexed_partition_test_t;
+
+static void IndexedPartitionTestTask (int index, void *payload)
+{
+	indexed_partition_test_t *test = payload;
+	Atomic_IncrementUInt32 (&test->visits[index]);
+}
+
+static void IndexedPartitionTestChild (void *payload)
+{
+	atomic_uint32_t *counter = *(atomic_uint32_t **)payload;
+	Atomic_IncrementUInt32 (counter);
+}
+
+static void IndexedPartitionTestParent (int index, void *payload)
+{
+	indexed_partition_test_t *test = payload;
+	atomic_uint32_t *counter = &test->visits[index];
+	test->children[index] = Task_AllocateAssignFuncAndSubmit (IndexedPartitionTestChild, &counter, sizeof (counter));
+}
+
+static void IndexedPartitionTests (void)
+{
+	static const uint32_t limits[] = {0, 1, 2, 6, 23, 24, 25, 31, 32, 33, 63, 64, 65, 97, 100, 1024};
+	atomic_uint32_t visits[1024];
+	task_handle_t children[64];
+	indexed_partition_test_t test = {visits, children};
+
+	// Exercise empty tasks, small partitions, uneven chunks, and reused task slots.
+	for (int round = 0; round < 64; ++round)
+	{
+		for (size_t i = 0; i < countof (limits); ++i)
+		{
+			for (uint32_t j = 0; j < limits[i]; ++j)
+				Atomic_StoreUInt32 (&visits[j], 0);
+			task_handle_t task = Task_AllocateAndAssignIndexedFunc (IndexedPartitionTestTask, limits[i], &test, sizeof (test));
+			atomic_uint32_t dependent_count;
+			Atomic_StoreUInt32 (&dependent_count, 0);
+			atomic_uint32_t *dependent_ptr = &dependent_count;
+			task_handle_t dependent = Task_AllocateAndAssignFunc (IndexedPartitionTestChild, &dependent_ptr, sizeof (dependent_ptr));
+			Task_AddDependency (task, dependent);
+			Task_Submit (dependent);
+			Task_Submit (task);
+			TASKS_TEST_ASSERT (Task_Join (dependent, 10000), "Indexed task dependency timed out");
+			TASKS_TEST_ASSERT (Atomic_LoadUInt32 (&dependent_count) == 1, "Indexed task dependency did not run exactly once");
+			for (uint32_t j = 0; j < limits[i]; ++j)
+				TASKS_TEST_ASSERT (Atomic_LoadUInt32 (&visits[j]) == 1, "Indexed task item did not run exactly once");
+		}
+	}
+
+	// Tasks may be submitted by any worker, not just the worker matching a partition.
+	for (uint32_t i = 0; i < countof (children); ++i)
+		Atomic_StoreUInt32 (&visits[i], 0);
+	task_handle_t parent = Task_AllocateAssignIndexedFuncAndSubmit (IndexedPartitionTestParent, countof (children), &test, sizeof (test));
+	TASKS_TEST_ASSERT (Task_Join (parent, 10000), "Nested indexed parent timed out");
+	for (uint32_t i = 0; i < countof (children); ++i)
+	{
+		TASKS_TEST_ASSERT (Task_Join (children[i], 10000), "Nested indexed child timed out");
+		TASKS_TEST_ASSERT (Atomic_LoadUInt32 (&visits[i]) == 1, "Nested indexed child did not run exactly once");
+	}
+}
+
 /*
 =================
 TestTasks_f
@@ -698,5 +764,6 @@ void TestTasks_f (void)
 {
 	LotsOfTasks ();
 	IndexedTasks ();
+	IndexedPartitionTests ();
 }
 #endif

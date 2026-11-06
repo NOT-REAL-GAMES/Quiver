@@ -315,9 +315,22 @@ void CL_ParseTEnt (void)
 
 /*
 =================
-CL_NewTempEntity
+CL_ClearTempEntities
 =================
 */
+void CL_ClearTempEntities (void)
+{
+	/* Slots are reused after demo seeks and client resets too. */
+	for (int i = 0; i < MAX_TEMP_ENTITIES; ++i)
+	{
+		uint32_t generation = cl_temp_entities[i].render_generation + 1u;
+		memset (&cl_temp_entities[i], 0, sizeof (cl_temp_entities[i]));
+		cl_temp_entities[i].render_generation = generation;
+	}
+	num_temp_entities = 0;
+}
+
+/* Allocate a temporary entity for the current frame. */
 entity_t *CL_NewTempEntity (void)
 {
 	entity_t *ent;
@@ -327,7 +340,11 @@ entity_t *CL_NewTempEntity (void)
 	if (num_temp_entities == MAX_TEMP_ENTITIES)
 		return NULL;
 	ent = &cl_temp_entities[num_temp_entities];
+	/* Temporary render slots are recycled every frame. Preserve and advance
+	 * their cache identity even though all other fields are reset. */
+	uint32_t render_generation = ent->render_generation + 1u;
 	memset (ent, 0, sizeof (*ent));
+	ent->render_generation = render_generation;
 	num_temp_entities++;
 	cl_visedicts[cl_numvisedicts] = ent;
 	cl_numvisedicts++;

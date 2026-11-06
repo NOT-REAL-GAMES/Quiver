@@ -160,6 +160,30 @@
     <ClCompile Include="..\..\Quake\r_passes.c">
       <Filter>Renderer</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Quake\r_ecs_gpu.c">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_cascades.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_emissive.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_sparse.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_lights.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_gpu_inputs.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_material_atlas.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_materials_quake.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_coordinator.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_matrix.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_receiver_vulkan.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_alias.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_alias.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_bsp.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_runtime.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_vulkan.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_rt.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_scene_collect.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_vulkan.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_runtime.c"><Filter>Renderer</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_engine.c"><Filter>Renderer</Filter></ClCompile>
     <ClCompile Include="..\..\Quake\r_ssao.c">
       <Filter>Renderer</Filter>
     </ClCompile>
@@ -189,6 +213,50 @@
     </ClCompile>
     <ClCompile Include="..\..\Quake\r_brush.c">
       <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\meshlet_hiz.c">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\bsp_meshlet.c">
+      <Filter>Renderer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_map.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_sector.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_sector_portal.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_process.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\ThirdParty\ericw-qbsp\embedded\wrappers\*.cc;..\..\ThirdParty\ericw-qbsp\embedded\bridge.cc">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_tools.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_ui.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\editor_model_preview.c"><Filter>Main</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_receiver_model.c"><Filter>Main</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\ecs.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\ui_control.c">
+      <Filter>Main</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Quake\static_models.c"><Filter>Main</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\static_models_collision.c"><Filter>Main</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\static_models_engine.c"><Filter>Main</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\editor_controls.c">
+      <Filter>Main</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Quake\r_part.c">
       <Filter>Renderer</Filter>
@@ -346,6 +414,15 @@
     <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_oit.frag.c">
       <Filter>Shaders\Debug\Alias</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_instanced.vert.c">
+      <Filter>Shaders\Debug\Alias</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_ecs_cull.comp.c">
+      <Filter>Shaders\Debug\Alias</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_trace_sw.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_trace_rt.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_merge.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\alias.vert.c">
       <Filter>Shaders\Debug\Alias</Filter>
     </ClCompile>
@@ -398,6 +475,27 @@
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\indirect_clear.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\meshlet_cull.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_mesh.mesh.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_task.task.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_task_mesh.mesh.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\meshlet_hiz.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\meshlet_hiz_raster.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\meshlet_hiz_reduce.comp.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\postprocess.frag.c">
@@ -463,6 +561,9 @@
     <ClCompile Include="..\..\Shaders\Compiled\Debug\screen_effects_10bit.comp.c">
       <Filter>Shaders\Debug\Screen Effects</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\screen_effects_hdr.comp.c">
+      <Filter>Shaders\Debug\Screen Effects</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\showtris.frag.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
@@ -499,6 +600,15 @@
     <ClCompile Include="..\..\Shaders\Compiled\Release\alias_oit.frag.c">
       <Filter>Shaders\Release\Alias</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_instanced.vert.c">
+      <Filter>Shaders\Release\Alias</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_ecs_cull.comp.c">
+      <Filter>Shaders\Release\Alias</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_trace_sw.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_trace_rt.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_merge.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\alias.vert.c">
       <Filter>Shaders\Release\Alias</Filter>
     </ClCompile>
@@ -551,6 +661,27 @@
       <Filter>Shaders\Release</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\indirect_clear.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\meshlet_cull.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_mesh.mesh.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_task.task.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_task_mesh.mesh.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\meshlet_hiz.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\meshlet_hiz_raster.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\meshlet_hiz_reduce.comp.c">
       <Filter>Shaders\Release</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\postprocess.frag.c">
@@ -614,6 +745,9 @@
       <Filter>Shaders\Release\Screen Effects</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\screen_effects_10bit.comp.c">
+      <Filter>Shaders\Release\Screen Effects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\screen_effects_hdr.comp.c">
       <Filter>Shaders\Release\Screen Effects</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\showtris.frag.c">
@@ -685,7 +819,13 @@
     <ClCompile Include="..\..\Shaders\Compiled\Release\ray_debug.comp.c">
       <Filter>Shaders\Release</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\ray_debug_hdr.comp.c">
+      <Filter>Shaders\Release</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Debug\ray_debug.comp.c">
+      <Filter>Shaders\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\ray_debug_hdr.comp.c">
       <Filter>Shaders\Debug</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Shaders\Compiled\Release\mesh_interpolate.comp.c">
@@ -918,6 +1058,55 @@
     <ClInclude Include="..\..\Quake\bspfile.h">
       <Filter>Main</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Quake\editor.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_map.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_sector.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_sector_clip.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_sector_prop.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_sector_portal.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_process.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_tools.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\editor_ui.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\ecs.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\ui_control.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\static_models.h"><Filter>Main</Filter></ClInclude>
+    <ClInclude Include="..\..\Quake\editor_model_preview.h"><Filter>Main</Filter></ClInclude>
+    <ClInclude Include="..\..\Quake\radiance_receiver_model.h"><Filter>Main</Filter></ClInclude>
+    <ClInclude Include="..\..\Quake\static_models_engine.h"><Filter>Main</Filter></ClInclude>
+    <ClInclude Include="..\..\Quake\editor_controls.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\bsp_meshlet.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\bsp_vertex_weld.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\meshlet_hiz.h">
+      <Filter>Main</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Quake\cdaudio.h">
       <Filter>Main</Filter>
     </ClInclude>
@@ -1082,5 +1271,130 @@
     <ResourceCompile Include="..\vkQuake.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance.vert.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance.vert.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_instanced_radiance.vert.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance.vert.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_8_radiance.vert.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_sw.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_sw_oit.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_moment.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_oit.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_oit.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_moment.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_moment.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_rt.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_rt_oit.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_moment.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_oit.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_oit.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_moment.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_moment.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_mesh_radiance.mesh.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_task_mesh_radiance.mesh.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance.vert.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance.vert.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance.vert.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_8_radiance.vert.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_sw.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_rt.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_half_fast.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_filter.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_sw.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_soft_sw.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_soft_rt.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_rt.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_model.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_model_alphatest.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw_alphatest.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt_alphatest.frag.c"><Filter>Shaders\Debug\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_sw.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_rt.frag.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_half_fast.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_filter.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_sw.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_rt.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.c"><Filter>Shaders\Release\Alias</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_receiver_forward_fast_sw.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\world_receiver_forward_fast_rt.frag.c"><Filter>Shaders\Release\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Quake\radiance_receiver_diagnostics.c"><Filter>Renderer</Filter></ClCompile>
+    <ClInclude Include="..\..\Quake\radiance_receiver_diagnostics.h"><Filter>Renderer</Filter></ClInclude>
+    <ClInclude Include="..\..\Quake\radiance_receiver_scale.h"><Filter>Renderer</Filter></ClInclude>
+    <ClCompile Include="..\..\Shaders\Compiled\Debug\radiance_receiver_diagnostics.comp.c"><Filter>Shaders\Debug\World</Filter></ClCompile>
+    <ClCompile Include="..\..\Shaders\Compiled\Release\radiance_receiver_diagnostics.comp.c"><Filter>Shaders\Release\World</Filter></ClCompile>
   </ItemGroup>
 </Project>

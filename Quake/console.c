@@ -2420,6 +2420,13 @@ void LOG_Init (quakeparms_t *parms)
 {
 	time_t inittime;
 	char   session[24];
+	/* The editor's isolated playtest has its output captured by its parent.
+	 * Sharing qconsole.log would truncate the editor's active log. */
+	if (COM_CheckParm ("-quiver-editor-playtest"))
+	{
+		setvbuf (stdout, NULL, _IONBF, 0);
+		return;
+	}
 
 	// always activate the console log in Debug mode
 #if !defined(DEBUG) && !defined(_DEBUG)

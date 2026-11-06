@@ -1,0 +1,60 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+#include "radiance_receiver_classify.glsl"
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+uvec2 ids[400];
+bool checker;
+uvec2 RC_ResolveID(ivec2 p) { return ids[p.y*20+p.x]; }
+uint RC_ResolveStatus(ivec2 p) { return 1u; }
+vec3 RC_ResolvePosition(ivec2 p) { return vec3(0); }
+vec3 RC_ResolveNormal(ivec2 p) { return vec3(0,0,1); }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+ bool sampled=!checker || uint((p.x+p.y)&1)==(field&1u);
+ return vec4(vec3(p.x+10*p.y),sampled?1:0);
+}
+bool RC_ReceiverVisibilityCompatible(vec3 p,vec3 q,float s) { return true; }
+#define RC_RECEIVER_RESOLVE_TEST 1
+#include "radiance_receiver_resolve.glsl"
+void main() {
+ result[15]=1u;
+ for(int d=2;d<=4;d++) {
+  int slot=d-2, count=d*d;
+  RCReceiverSample points[16];
+  for(int i=0;i<16;i++) {
+   points[i].id=uvec2(1); points[i].valid=true;
+   points[i].position=vec3(i%d,i/d,0); points[i].normal=vec3(0,0,1);
+  }
+  vec3 p,n;
+  bool classified=RC_ClassifyReceivers(points,uint(count),.01,.99,p,n)==1u;
+  points[count-1].id=uvec2(2);
+  classified=classified && RC_ClassifyReceivers(points,uint(count),.01,.99,p,n)==2u;
+  points[count-1].valid=false;
+  classified=classified && RC_ClassifyReceivers(points,uint(count-1),.01,.99,p,n)==1u;
+  result[slot]=uint(classified);
+  result[15]&=uint(RC_ClassifyReceivers(points,uint(count),.01,.99,p,n)==2u);
+  for(int i=0;i<400;i++) ids[i]=uvec2(1);
+  rcReceiver.viewport=ivec4(1,2,2*d+1,2*d+1);
+  rcReceiver.normalThreshold=vec4(.99,.01,d,0); rcLighting.receiver_filter=vec4(0);
+  checker=false;
+  vec3 indirect,direct,minimum;
+  ivec2 pixel=rcReceiver.viewport.xy+ivec2(1);
+  bool a=RC_ReceiverIndirect(pixel,uvec2(1),vec3(0),vec3(0,0,1),indirect);
+  bool b=RC_ReceiverDirect(pixel,uvec2(1),vec3(0),vec3(0,0,1),direct,minimum);
+  result[3+slot]=uint(a && b && abs(indirect.x-11.0/d)<.0001 &&
+   abs(direct.x-11.0/d)<.0001 && abs(minimum.x-direct.x)<.0001);
+  pixel=rcReceiver.viewport.xy+ivec2(2*d);
+  result[6+slot]=uint(RC_ReceiverIndirect(pixel,uvec2(1),vec3(0),vec3(0,0,1),indirect) && indirect.x==22);
+  ivec2 representative=rcReceiver.viewport.xy+ivec2(d,d);
+  ids[representative.y*20+representative.x]=uvec2(2);
+  pixel=rcReceiver.viewport.xy+ivec2(1);
+  result[9+slot]=uint(!RC_ReceiverDirect(pixel,uvec2(1),vec3(0),vec3(0,0,1),direct,minimum));
+  ids[representative.y*20+representative.x]=uvec2(1);
+  checker=true;
+  a=RC_CheckerReconstruct(ivec2(1,0),ivec2(3),0u,direct);
+  b=RC_CheckerReconstruct(ivec2(1,0),ivec2(3),1u,indirect);
+  result[12+slot]=uint(a && b && abs(direct.x-13.0/3)<.0001 && indirect.x==1);
+ }
+}

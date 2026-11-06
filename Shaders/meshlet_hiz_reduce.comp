@@ -1,0 +1,39 @@
+#version 460
+layout (local_size_x = 64) in;
+layout (set = 0, binding = 0, std430) buffer Hierarchy { uint words[]; };
+layout (push_constant) uniform PC { uint upper; } pc;
+shared uint local_mips[341]; // upper levels, 16² + 8² + 4² + 2² + 1²
+
+void main ()
+{
+	uint i = gl_GlobalInvocationID.x;
+	if (pc.upper == 0u)
+	{
+		uint a = (i / 32u) * 128u + (i % 32u) * 2u;
+		words[4096u+i] = min (min (words[a], words[a+1]), min (words[a+64], words[a+65]));
+		return;
+	}
+	// The small levels fit in one workgroup. A zero child keeps its
+	// parent uncovered. Unique offsets avoid races across reductions.
+	for (uint offset = 0u, size = 16u; size > 0u; offset += size*size, size >>= 1)
+	{
+		for (uint j = i; j < size*size; j += 64u)
+		{
+			uint a = (j / size) * 4u * size + (j % size) * 2u;
+			uint v;
+			if (size == 16u)
+			{
+				a += 4096u;
+				v = min (min (words[a],words[a+1]), min (words[a+32],words[a+33]));
+			}
+			else
+			{
+				a += offset - 4u*size*size;
+				v = min (min (local_mips[a],local_mips[a+1]), min (local_mips[a+2*size],local_mips[a+2*size+1]));
+			}
+			local_mips[offset+j] = v;
+			words[5120u+offset+j] = v;
+		}
+		barrier ();
+	}
+}

@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sv_edict.c -- entity dictionary
 
 #include "quakedef.h"
+#include <limits.h>
 
 const int type_size[NUM_TYPE_SIZES] = {
 	1, // ev_void
@@ -52,6 +53,70 @@ cvar_t saved4 = {"saved4", "0", CVAR_ARCHIVE_GAME};
 // The one and only Hook instance : no need to either lock or multiple instances,
 // because ED_* functions are only called from the main thread.
 static ED_AllocHook_func ED_ALLOC_HOOK = NULL;
+
+/* QuakeC encodes entity addresses as signed 32-bit byte offsets. Check the
+ * whole allocation so every field address remains representable as well. */
+size_t ED_EdictAllocSize (const qcvm_t *vm)
+{
+	if (vm->max_edicts <= 0 || vm->edict_size <= 0 ||
+		(size_t) vm->max_edicts > SIZE_MAX / (size_t) vm->edict_size ||
+		(size_t) vm->max_edicts > (size_t) INT_MAX / (size_t) vm->edict_size)
+		Host_Error ("max_edicts %i and edict size %i exceed QuakeC's entity address space", vm->max_edicts, vm->edict_size);
+	return (size_t) vm->max_edicts * (size_t) vm->edict_size;
+}
+
+/* The ECS owns identity and the binding, not the edict or its timing data.
+ * Edict addresses and QuakeC fields must remain stable across callbacks. */
+static void ED_ECSBind (edict_t *ed)
+{
+	if (!qcvm->ecs_world)
+		return;
+	const uint32_t slot = (uint32_t) NUM_FOR_EDICT (ed);
+	ecs_entity_t entity = ECS_Spawn (qcvm->ecs_world, slot);
+	edict_ecs_binding_t *binding = ECS_Get (qcvm->ecs_world, entity, qcvm->ecs_edict_component);
+	if (!binding)
+		binding = ECS_Add (qcvm->ecs_world, entity, qcvm->ecs_edict_component);
+	if (!binding)
+		Sys_Error ("ED_ECSBind: unable to bind edict %u", slot);
+	binding->edict = ed;
+	binding->timing = &ed->timing;
+}
+
+/* Load and fastload can bypass ED_Alloc and change the edict count directly. */
+void ED_ECSReconcile (void)
+{
+	if (!qcvm || !qcvm->edicts || qcvm->max_edicts <= 0)
+		return;
+	if (!qcvm->ecs_world)
+	{
+		qcvm->ecs_world = ECS_CreateWorld ((uint32_t) qcvm->max_edicts);
+		if (!qcvm->ecs_world)
+			Sys_Error ("ED_ECSReconcile: unable to allocate world");
+		qcvm->ecs_edict_component = ECS_Register (qcvm->ecs_world, sizeof (edict_ecs_binding_t));
+		if (qcvm->ecs_edict_component == ECS_INVALID_COMPONENT)
+			Sys_Error ("ED_ECSReconcile: unable to register edict binding");
+	}
+	for (int i = 0; i < qcvm->max_edicts; ++i)
+	{
+		ecs_entity_t entity = ECS_At (qcvm->ecs_world, (uint32_t) i);
+		if (i >= qcvm->num_edicts || EDICT_NUM_NO_CHECK (i)->free)
+		{
+			if (ECS_Alive (qcvm->ecs_world, entity))
+				ECS_Despawn (qcvm->ecs_world, entity);
+		}
+		else
+			ED_ECSBind (EDICT_NUM_NO_CHECK (i));
+	}
+}
+
+
+/* Restored slots may name different entities even where both are live. */
+void ED_ECSReset (void)
+{
+	ECS_DestroyWorld (qcvm->ecs_world);
+	qcvm->ecs_world = NULL;
+	ED_ECSReconcile ();
+}
 
 ED_AllocHook_func ED_AllocSetHook (ED_AllocHook_func alloc_hook)
 {
@@ -84,9 +149,10 @@ edict_t *ED_Alloc (void)
 		e->free = false;
 
 		// pop HEAD
-		qcvm->free_list.head_index = (qcvm->free_list.head_index + 1) % MAX_EDICTS;
+		qcvm->free_list.head_index = (qcvm->free_list.head_index + 1) % qcvm->free_list.capacity;
 		qcvm->free_list.size -= 1;
 
+		ED_ECSBind (e);
 		if (ED_ALLOC_HOOK)
 			ED_ALLOC_HOOK (e);
 
@@ -113,6 +179,7 @@ edict_t *ED_Alloc (void)
 	e->edict_num = qcvm->num_edicts - 1;
 #endif
 
+	ED_ECSBind (e);
 	if (ED_ALLOC_HOOK)
 		ED_ALLOC_HOOK (e);
 
@@ -127,14 +194,22 @@ ED_AddToFreeList
 static void ED_AddToFreeList (edict_t *ed)
 {
 	assert (ed->free && !ed->retain_count);
-
-#if defined(DEBUG) || defined(_DEBUG)
-	if (qcvm->free_list.size >= MAX_EDICTS)
+	if (!qcvm->free_list.circular_buffer)
+	{
+		if (qcvm->max_edicts <= 0 || (size_t)qcvm->max_edicts > SIZE_MAX / sizeof (*qcvm->free_list.circular_buffer))
+			Host_Error ("ED_AddToFreeList: invalid capacity %i", qcvm->max_edicts);
+		qcvm->free_list.capacity = (size_t) qcvm->max_edicts;
+		qcvm->free_list.circular_buffer = Mem_Alloc (qcvm->free_list.capacity * sizeof (*qcvm->free_list.circular_buffer));
+		if (!qcvm->free_list.circular_buffer)
+			Host_Error ("ED_AddToFreeList: failed to allocate %zu entries", qcvm->free_list.capacity);
+	}
+	if (qcvm->free_list.size >= qcvm->free_list.capacity)
 		Host_Error ("ED_AddToFreeList : is full (qcvm 0x%p)", qcvm);
+#if defined(DEBUG) || defined(_DEBUG)
 	if (qcvm->free_list.size >= qcvm->max_edicts)
 		Host_Error ("ED_AddToFreeList : has more than max_edicts >= %i (qcvm 0x%p)", qcvm->max_edicts, qcvm);
 #endif
-	size_t add_index = (qcvm->free_list.head_index + qcvm->free_list.size) % MAX_EDICTS;
+	size_t add_index = (qcvm->free_list.head_index + qcvm->free_list.size) % qcvm->free_list.capacity;
 	qcvm->free_list.circular_buffer[add_index] = NUM_FOR_EDICT (ed);
 	qcvm->free_list.size += 1;
 }
@@ -159,6 +234,8 @@ void ED_Free (edict_t *ed)
 	SV_UnlinkEdict (ed); // unlink from world bsp
 
 	ed->free = true;
+	if (qcvm->ecs_world)
+		ECS_Despawn (qcvm->ecs_world, ECS_At (qcvm->ecs_world, (uint32_t) NUM_FOR_EDICT (ed)));
 	ed->v.model = 0;
 	ed->v.takedamage = 0;
 	ed->v.modelindex = 0;
@@ -204,13 +281,13 @@ void ED_RemoveFromFreeList (edict_t *ed)
 	// find the index where ed is...
 	for (size_t i = 0; i < qcvm->free_list.size; i++)
 	{
-		const size_t found_index = (head_index + i) % MAX_EDICTS;
+		const size_t found_index = (head_index + i) % qcvm->free_list.capacity;
 
 		if (qcvm->free_list.circular_buffer[found_index] == num_edict_found)
 		{
 			// overwrite found_index with head data, advance head.
 			qcvm->free_list.circular_buffer[found_index] = qcvm->free_list.circular_buffer[head_index];
-			qcvm->free_list.head_index = (head_index + 1) % MAX_EDICTS;
+			qcvm->free_list.head_index = (head_index + 1) % qcvm->free_list.capacity;
 			qcvm->free_list.size -= 1;
 			break;
 		}
@@ -236,7 +313,7 @@ void ED_CheckFreeList (void)
 	bool  has_errors = false;
 	// 1. for each free edict i of the free list : check is it effectively free
 	//  and mark it at free_list_edicts[i] = 1 (0 = default = not free)
-	byte *free_list_edicts = (byte *)Mem_Alloc (MAX_EDICTS * sizeof (byte));
+	byte *free_list_edicts = (byte *)Mem_Alloc ((size_t) qcvm->max_edicts * sizeof (byte));
 
 	size_t current_index = qcvm->free_list.head_index;
 
@@ -255,7 +332,7 @@ void ED_CheckFreeList (void)
 
 		free_list_edicts[edict_num] = 1;
 
-		current_index = (current_index + 1) % MAX_EDICTS;
+		current_index = (current_index + 1) % qcvm->free_list.capacity;
 	}
 
 	// 2. inverted check: Enumerate edicts in qcvm, they should have the same state as free_list_edicts
@@ -323,7 +400,8 @@ void ED_RebuildFreeList (bool force_free_reuse)
 	}
 
 	// 3. Reset freelist and insert by free_edicts_table order
-	memset (&(qcvm->free_list), 0x0, sizeof (freelist_t));
+	qcvm->free_list.size = 0;
+	qcvm->free_list.head_index = 0;
 
 	for (int j = 0; j < nb_free_edicts; j++)
 	{
@@ -1131,7 +1209,7 @@ void ED_PrintEdicts (void)
 		ED_Print (e);
 		free_list_count++;
 
-		current_index = (current_index + 1) % MAX_EDICTS;
+		current_index = (current_index + 1) % qcvm->free_list.capacity;
 	}
 
 	assert (free_list_count == free_edicts_count);
@@ -1532,6 +1610,7 @@ qboolean ED_ParseEpair (void *base, ddef_t *key, const char *s, qboolean zoned)
 			found_edict->free = false;
 		}
 
+		ED_ECSBind (found_edict);
 		*(int *)d = EDICT_TO_PROG (found_edict);
 	}
 	break;
@@ -1836,7 +1915,7 @@ void ED_LoadFromFile (const char *data)
 		{
 			if (!strcmp (classname, "misc_model"))
 				PR_spawnfunc_misc_model (ent);
-			else
+			else if (!PR_spawnfunc_sector_prop (ent))
 			{
 				Con_SafePrintf ("No spawn function for:\n"); // johnfitz -- was Con_Printf
 				ED_Print (ent);
@@ -1886,6 +1965,8 @@ void PR_ClearProgs (qcvm_t *vm)
 		Mem_Free ((void *)qcvm->knownstrings);
 		Mem_Free (qcvm->knownstringsowned);
 	}
+	ECS_DestroyWorld (qcvm->ecs_world);
+	Mem_Free (qcvm->free_list.circular_buffer);
 	Mem_Free (qcvm->edicts); // ericw -- sv.edicts switched to use malloc()
 	if (qcvm->fielddefs != (ddef_t *)((byte *)qcvm->progs + qcvm->progs->ofs_fielddefs))
 		Mem_Free (qcvm->fielddefs);
@@ -2344,20 +2425,17 @@ int NUM_FOR_EDICT (edict_t *e)
 		Host_Error ("NUM_FOR_EDICT inconsistent pointer");
 #endif
 
-	int b;
-
-	b = (byte *)e - (byte *)qcvm->edicts;
-	b = b / qcvm->edict_size;
+	ptrdiff_t b = ((byte *)e - (byte *)qcvm->edicts) / qcvm->edict_size;
 
 	if (b < 0 || b >= qcvm->num_edicts)
 		Host_Error ("NUM_FOR_EDICT: bad pointer");
 
 #if defined(DEBUG) || defined(_DEBUG)
 	if (e->edict_num != b)
-		Host_Error ("NUM_FOR_EDICT: inconsistent number %i vs. e.edict_num %i", b, (int)e->edict_num);
+		Host_Error ("NUM_FOR_EDICT: inconsistent number %i vs. e.edict_num %i", (int)b, (int)e->edict_num);
 #endif
 
-	return b;
+	return (int)b;
 }
 
 #if defined(DEBUG) || defined(_DEBUG)

@@ -5,7 +5,9 @@
 
 // USE_10BIT selects the output image format.
 
-#ifdef USE_10BIT
+#ifdef USE_HDR
+layout (set = 0, binding = 2, rgba16f) uniform writeonly image2D output_image;
+#elif defined(USE_10BIT)
 layout (set = 0, binding = 2, rgb10_a2) uniform writeonly image2D output_image;
 #else
 layout (set = 0, binding = 2, rgba8) uniform writeonly image2D output_image;

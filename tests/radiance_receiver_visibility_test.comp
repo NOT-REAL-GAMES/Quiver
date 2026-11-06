@@ -1,0 +1,100 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Exercise the actual compatibility function using a controlled probe. */
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) buffer Results { uint result[16]; };
+const uint RC_ABSENT = 0xffffffffu;
+struct RCCascade { uvec4 meta; vec4 origin_spacing; vec4 interval; };
+RCCascade rcLevels[1];
+uint rcMergedValid[256], rcRawValid[256];
+float rcMergedDistance[256], rcRawDistance[256];
+bool testGrid;
+uint RC_RecordIndex(RCCascade c, uvec3 cell, uvec2 unused)
+{
+    return testGrid ? ((cell.z * 4u + cell.y) * 4u + cell.x) * 4u : 0u;
+}
+uint RC_ReceiverProbeBase(RCCascade c, uvec3 cell) { return RC_RecordIndex(c, cell, uvec2(0)); }
+vec3 testProbe;
+vec3 RC_ProbePosition(RCCascade c, uvec3 cell)
+{
+    return testGrid ? c.origin_spacing.xyz + (vec3(cell) + 0.5) * c.origin_spacing.w : testProbe;
+}
+uvec2 RC_DirectionBin(vec3 dir, uint side) { return uvec2(dir.y < 0.0 ? 1u : 0u, dir.z < 0.0 ? 1u : 0u); }
+/* This test uses a synthetic directional partition; the production fast
+ * path is checked separately against the real directional-bin function. */
+uvec2 RC_DirectionBinFromOffset(vec3 offset, float distance, uint side) { return RC_DirectionBin(offset / distance, side); }
+#ifndef RC_INDIRECT_BOUNCE
+#define RC_INDIRECT_BOUNCE 1
+#endif
+#include "radiance_receiver_visibility.glsl"
+void main()
+{
+	testGrid=false;
+	testProbe=vec3(0); rcLevels[0].meta=uvec4(1,2,0,0); rcLevels[0].origin_spacing=vec4(0,0,0,1);
+	for (int i=0;i<4;i++) { rcMergedValid[i]=1u; rcMergedDistance[i]=100.0; rcRawValid[i]=0u; rcRawDistance[i]=0; }
+	vec3 p=vec3(.2,.2,.5), q=vec3(.21,.2,.5);
+	result[0]=uint(RC_ReceiverVisibilityCompatible(p,q,0.0));
+	result[1]=uint(RC_ReceiverVisibilityCompatible(p,q,1.0));
+	result[2]=uint(RC_ReceiverVisibilityCompatible(p,q,2.0));
+	result[3]=uint(RC_ReceiverVisibilityCompatible(p,vec3(.49,-.01,.5),0.0)); /* outside support */
+	result[4]=uint(RC_ReceiverVisibilityCompatible(p,vec3(.6,.2,.5),0.0)); /* support cell */
+	rcMergedDistance[0]=0.0;
+	result[5]=uint(RC_ReceiverVisibilityCompatible(p,vec3(.38,.2,.5),0.0)); /* transition */
+	rcMergedValid[0]=0u;
+	result[6]=uint(RC_ReceiverVisibilityCompatible(p,q,0.0)); /* unknown */
+	rcLevels[0].meta.x=0u;
+	result[7]=uint(RC_ReceiverVisibilityCompatible(p,q,0.0)); /* uninitialized */
+	for(int i=8;i<16;i++) result[i]=0u;
+    /* Compare grouped evaluation against the four original independent tests,
+     * including boundaries, absent data, short distances and partial visibility. */
+    rcLevels[0].meta.x=1u;
+    testProbe=vec3(.5);
+    rcLevels[0].interval.y=0.8;
+    for (int t=0;t<1200;++t) {
+        vec3 a=vec3(float((t*17)%101)/100.0,float((t*31)%101)/100.0,float((t*43)%101)/100.0);
+        vec3 neighbors[4];
+        for(int j=0;j<4;++j) neighbors[j]=a+vec3(float(((t*11+j*7)%19)-9),float(((t*13+j*5)%19)-9),float(((t*7+j*3)%19)-9))*0.015;
+        for(int i=0;i<4;++i) {
+            rcMergedValid[i]=uint(t%3==0 || (t+i)%7!=0);
+            rcMergedDistance[i]=t%3==0 ? 100.0 : float((t*7+i*11)%100)/70.0;
+            rcRawValid[i]=uint((t+i)%5!=0);
+            rcRawDistance[i]=float((t*13+i*3)%100)/70.0;
+        }
+        float strength=float(t%3); int count=1+t%4;
+        bool reference=true;
+        for(int j=0;j<count;++j) reference=reference && RC_ReceiverVisibilityCompatible(a,neighbors[j],strength);
+        bool batched=RC_ReceiverVisibilityCompatibleAll(a,neighbors,count,strength);
+        if(reference!=batched) result[8]++;
+    }
+    /* Give every cell a distinct address and physical position. Remove the
+     * evidence from one cell at a time so a wrong tap decoder cannot pass by
+     * repeatedly visiting the same synthetic probe. The wide window reaches
+     * the boundary and must include the clamped duplicate taps as well. */
+    testGrid=true;
+    rcLevels[0].meta=uvec4(4,2,0,4);
+    for(int i=0;i<256;++i) {
+        rcMergedValid[i]=1u; rcMergedDistance[i]=100.0;
+        rcRawValid[i]=0u; rcRawDistance[i]=0.0;
+    }
+    p=vec3(1.35,1.25,1.15);
+    vec3 gridNeighbors[4];
+    for(int j=0;j<4;++j) gridNeighbors[j]=p+vec3(.01*float(j+1),.005,.007);
+    for(int mode=0;mode<3;++mode) {
+        float strength=float(mode);
+        if(!RC_ReceiverVisibilityCompatibleAll(p,gridNeighbors,4,strength)) result[10]++;
+        for(uint hole=0u;hole<64u;++hole) {
+            for(uint bin=0u;bin<4u;++bin) rcMergedValid[hole*4u+bin]=0u;
+            uvec3 cell=uvec3(hole%4u,(hole/4u)%4u,hole/16u);
+            bool expected=!all(lessThanEqual(cell,uvec3(uint(mode+1))));
+            for(int count=1;count<=4;++count) {
+                bool reference=true;
+                for(int j=0;j<count;++j)
+                    reference=reference && RC_ReceiverVisibilityCompatible(p,gridNeighbors[j],strength);
+                bool batched=RC_ReceiverVisibilityCompatibleAll(p,gridNeighbors,count,strength);
+                if(reference!=batched) result[9]++;
+                if(reference!=expected) result[10]++;
+            }
+            for(uint bin=0u;bin<4u;++bin) rcMergedValid[hole*4u+bin]=1u;
+        }
+    }
+}

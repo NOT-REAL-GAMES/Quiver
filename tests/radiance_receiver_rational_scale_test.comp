@@ -1,0 +1,168 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+#include "radiance_receiver_scale.glsl"
+#include "radiance_receiver_classify.glsl"
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+struct Cascade { vec4 origin_spacing; } rcLevels[1];
+uvec2 ids[1024]; uint statuses[400]; vec3 positions[400],normals[400]; vec4 fields[1200];
+uint badFetch;
+ivec2 activeExtent() { return RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z); }
+int indexOf(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,activeExtent()))) { ++badFetch; return 0; }
+ return p.y*20+p.x;
+}
+uvec2 RC_ResolveID(ivec2 p) {
+ if(any(lessThan(p,rcReceiver.viewport.xy)) || any(greaterThanEqual(p,rcReceiver.viewport.xy+rcReceiver.viewport.zw))) { ++badFetch; return uvec2(0); }
+ return ids[p.y*32+p.x];
+}
+uint RC_ResolveStatus(ivec2 p) { return statuses[indexOf(p)]&3u; }
+vec3 RC_ResolvePosition(ivec2 p) { return positions[indexOf(p)]; }
+vec3 RC_ResolveNormal(ivec2 p) { return normals[indexOf(p)]; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+ vec4 value=fields[int(field)*400+indexOf(p)];
+ if(rcLighting.receiver_filter.y>.5 && ((p.x+p.y)&1)!=int(field&1u)) value.a=0;
+ return value;
+}
+bool RC_ReceiverVisibilityCompatible(vec3 p,vec3 q,float strength) { return true; }
+#define RC_RECEIVER_RESOLVE_TEST 1
+#include "radiance_receiver_resolve.glsl"
+void reset(ivec2 size) {
+ rcReceiver.viewport=ivec4(3,1,size); rcReceiver.normalThreshold=vec4(.99,.01,1.5,0);
+ rcLighting.receiver_filter=vec4(0); rcLevels[0].origin_spacing=vec4(0,0,0,32);
+ badFetch=0u;
+ for(int i=0;i<1024;++i) ids[i]=uvec2(1);
+ for(int y=0;y<20;++y) for(int x=0;x<20;++x) {
+  int i=y*20+x; ivec2 first=RC_ReceiverFirstPixel(ivec2(x,y),1.5);
+  statuses[i]=5u; positions[i]=vec3(first,0); normals[i]=vec3(0,0,1);
+  float value=float(first.x+10*first.y);
+  fields[i]=vec4(vec3(value),1); fields[400+i]=vec4(vec3(value),1); fields[800+i]=vec4(vec3(value*.5),1);
+ }
+}
+void store(int i,bool ok) { result[i]=uint(ok && badFetch==0u); }
+bool near(vec3 a,float b) { return all(lessThan(abs(a-vec3(b)),vec3(.0003))); }
+void main() {
+ bool ok=true; vec3 value,direct,minimum;
+ reset(ivec2(23,25));
+ for(int n=1;n<=4096;++n) ok=ok && RC_ReceiverExtent(ivec2(n),1.5)==ivec2((2*n+2)/3);
+ store(0,ok);
+ ok=true;
+ for(int n=1;n<=127;++n) {
+  int extent=RC_ReceiverExtent(ivec2(n),1.5).x,covered=0;
+  for(int block=0;block<extent;++block) {
+   int first=RC_ReceiverFirstPixel(ivec2(block),1.5).x;
+   int end=min(RC_ReceiverFirstPixel(ivec2(block+1),1.5).x,n);
+   ok=ok && first==covered && end>first && end-first<=2;
+   for(int pixel=first;pixel<end;++pixel) ok=ok && RC_ReceiverPixelBlock(ivec2(pixel),1.5)==ivec2(block);
+   covered=end;
+  }
+  ok=ok && covered==n;
+ }
+ store(1,ok);
+ ok=true;
+ for(int p=0;p<127;++p) {
+  vec2 coord=RC_ReceiverSourceCoord(ivec2(p),1.5);
+  ivec2 base=ivec2(floor(coord)); vec2 f=fract(coord);
+  vec2 recovered=mix(vec2(RC_ReceiverFirstPixel(base,1.5)),vec2(RC_ReceiverFirstPixel(base+1,1.5)),f);
+  ok=ok && all(lessThan(abs(recovered-vec2(p)),vec2(.00001)));
+ }
+ store(2,ok);
+ ok=true;
+ for(int d=1;d<=4;++d) for(int n=1;n<=4096;++n) {
+  ok=ok && RC_ReceiverExtent(ivec2(n),float(d))==ivec2((n+d-1)/d);
+  ok=ok && RC_ReceiverFirstPixel(ivec2(n),float(d))==ivec2(n*d);
+  ok=ok && RC_ReceiverPixelBlock(ivec2(n),float(d))==ivec2(n/d);
+  ok=ok && RC_ReceiverSourceCoord(ivec2(n),float(d))==vec2(n)/float(d);
+ }
+ store(3,ok);
+ ok=true;
+ for(int w=1;w<=23;++w) for(int h=1;h<=25;++h) {
+  int blocks=0;
+  for(int y=0;y<h;++y) for(int x=0;x<w;++x) {
+   ivec2 p=ivec2(x,y),block=RC_ReceiverPixelBlock(p,1.5);
+   if(all(equal(p,RC_ReceiverFirstPixel(block,1.5)))) ++blocks;
+  }
+  ivec2 extent=RC_ReceiverExtent(ivec2(w,h),1.5); ok=ok && blocks==extent.x*extent.y;
+ }
+ store(4,ok);
+ ok=true;
+ RCReceiverSample samples[16]; vec3 position,normal;
+ for(int width=1;width<=2;++width) for(int height=1;height<=2;++height) {
+  int count=width*height;
+  for(int i=0;i<count;++i) { samples[i].position=vec3(i%width,i/width,0); samples[i].normal=vec3(0,0,1); samples[i].id=uvec2(1); samples[i].valid=true; }
+  ok=ok && RC_ClassifyReceivers(samples,uint(count),.01,.99,position,normal)==1u;
+  samples[count-1].id=uvec2(0);
+  ok=ok && RC_ClassifyReceivers(samples,uint(count),.01,.99,position,normal)==(count==1?0u:2u);
+  samples[count-1].id=uvec2(2);
+  uint expected=count==1?1u:
+#if RC_RECEIVER_TEXTURE_FILTER
+   1u;
+#else
+   2u;
+#endif
+  ok=ok && RC_ClassifyReceivers(samples,uint(count),.01,.99,position,normal)==expected;
+ }
+ store(5,ok);
+ reset(ivec2(23,25)); ok=true;
+ for(int y=0;y<24;++y) for(int x=0;x<22;++x) {
+  ivec2 p=ivec2(x,y),pixel=rcReceiver.viewport.xy+p;
+  ok=ok && RC_ReceiverIndirect(pixel,uvec2(1),vec3(p,0),vec3(0,0,1),value) && near(value,float(x+10*y));
+ }
+ store(6,ok);
+ ok=true;
+ for(int y=0;y<24;++y) for(int x=0;x<22;++x) {
+  ivec2 p=ivec2(x,y),pixel=rcReceiver.viewport.xy+p;
+  ok=ok && RC_ReceiverDirect(pixel,uvec2(1),vec3(p,0),vec3(0,0,1),direct,minimum) && near(direct,float(x+10*y)) && near(minimum,float(x+10*y)*.5);
+ }
+ store(7,ok);
+ reset(ivec2(23,25)); ivec2 pixel=rcReceiver.viewport.xy+ivec2(1,0);
+ store(8,!RC_ReceiverIndirect(pixel,uvec2(2),vec3(1,0,0),vec3(0,0,1),value));
+ reset(ivec2(23,25)); rcLighting.receiver_filter.y=1;
+ ok=RC_CheckerReconstruct(ivec2(1,0),activeExtent(),0u,direct) && near(direct,14.0/3.0);
+ ok=ok && RC_CheckerReconstruct(ivec2(0),activeExtent(),1u,value) && near(value,5.5);
+ store(9,ok);
+ ok=true;
+ for(int w=1;w<=15;++w) for(int h=1;h<=15;++h) {
+  reset(ivec2(w,h));
+  for(int i=0;i<400;++i) fields[400+i]=vec4(7,7,7,1);
+  ivec2 p=ivec2(w-1,h-1); vec2 coord=RC_ReceiverSourceCoord(p,1.5);
+  ivec2 required=ivec2(floor(coord))+ivec2(greaterThan(fract(coord),vec2(.000001)));
+  bool expected=
+#if RC_RECEIVER_TEXTURE_FILTER
+   true;
+#else
+   all(lessThan(required,activeExtent()));
+#endif
+  bool accepted=RC_ReceiverIndirect(rcReceiver.viewport.xy+p,uvec2(1),vec3(p,0),vec3(0,0,1),value);
+  ok=ok && accepted==expected && (!accepted || near(value,7)) && badFetch==0u;
+ }
+ store(10,ok);
+ reset(ivec2(23,25)); statuses[1]=2u; pixel=rcReceiver.viewport.xy+ivec2(1,0);
+ store(11,!RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value));
+ reset(ivec2(23,25)); fields[401]=vec4(0,0,0,1); pixel=rcReceiver.viewport.xy+ivec2(1,0);
+ ok=RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value) && value==vec3(0);
+ fields[401].a=0;
+ store(12,ok && !RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value));
+ reset(ivec2(23,25)); normals[2]=vec3(1,0,0); pixel=rcReceiver.viewport.xy+ivec2(2,0);
+ bool accepted=RC_ReceiverIndirect(pixel,uvec2(1),vec3(2,0,0),vec3(0,0,1),value);
+#if RC_RECEIVER_TEXTURE_FILTER
+ store(13,accepted && near(value,1));
+#else
+ store(13,!accepted);
+#endif
+ reset(ivec2(23,25));
+ ok=RC_ReceiverPixelBlock(ivec2(1,0),1.5)==ivec2(1,0) && RC_ReceiverPixelBlock(ivec2(2,0),1.5)==ivec2(1,0);
+ ok=ok && RC_CheckerHasSample(ivec2(1,0),1u) && !RC_CheckerHasSample(ivec2(0),1u);
+ store(14,ok);
+ ok=true;
+ for(int d=2;d<=4;++d) {
+  rcReceiver.normalThreshold.z=float(d); rcReceiver.viewport=ivec4(3,1,13,13);
+  for(int y=0;y<13;++y) for(int x=0;x<13;++x) {
+   ivec2 local=ivec2(x,y),b=RC_ReceiverPixelBlock(local,float(d));
+   ok=ok && b==local/d && RC_ReceiverFirstPixel(b,float(d))==b*d;
+  }
+ }
+ store(15,ok);
+}

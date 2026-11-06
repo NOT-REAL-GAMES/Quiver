@@ -1,0 +1,96 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifndef TEST_RECEIVER
+#define RC_TRACE_WRITEONLY 1
+#define RC_INDIRECT_BOUNCE 1
+#endif
+#include "radiance_cascades.glsl"
+#include "radiance_scene_trace.glsl"
+#include "radiance_lookup.glsl"
+#ifndef RC_INDIRECT_BOUNCE
+#define RC_INDIRECT_BOUNCE 1
+#endif
+#include "radiance_lighting.glsl"
+layout(local_size_x = 1) in;
+void main ()
+{
+	RCCascade c = rcLevels[0];
+	uvec3 cell = rcActiveBricks[0].xyz * c.meta.w;
+	uint record = RC_RecordIndex(c, cell, uvec2(0));
+	RCSceneHit hit;
+	hit.position = RC_ProbePosition(c, cell);
+	hit.uv = vec2(0);
+	hit.material = 0u;
+	hit.flags = 0u;
+	const vec3 normals[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0),
+		vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
+	for (uint i = 0u; i < 6u; ++i)
+	{
+		hit.normal = normals[i];
+		/* Avoid overwriting the source probe while testing partial raw data. */
+		rcRaw[record + 64u + i] = vec4(RC_ShadeHit(hit, -normals[i]), RC_BounceGain());
+	}
+#ifdef TEST_RECEIVER
+	const float distances[6] = float[6](0, 4, 6, 8, 10, 12);
+	for (uint i = 0u; i < 6u; ++i)
+	{
+		vec3 irradiance;
+		bool found = RC_SampleDiffuse(hit.position + vec3(distances[i],0,0), vec3(0,0,1), irradiance);
+		rcRaw[record + 80u + i] = vec4(irradiance, float(found));
+	}
+	if ((rcLighting.counts.w & 32u) != 0u && c.meta.w >= 3u)
+	{
+		uvec3 middle = cell + uvec3(1);
+		vec3 origin = RC_ProbePosition(c, middle);
+		uint dirs = c.meta.y * c.meta.y;
+		for (uint z = 0u; z < 3u; ++z) for (uint y = 0u; y < 3u; ++y) for (uint x = 0u; x < 3u; ++x)
+		{
+			uint base = RC_RecordIndex(c, cell + uvec3(x,y,z), uvec2(0));
+			if (base == RC_ABSENT) continue;
+			for (uint i = 0u; i < dirs; ++i) { rcMerged[base+i] = vec4(1); rcMergedValid[base+i] = 1u; rcMergedDistance[base+i] = 10000.0; }
+		}
+		memoryBarrierBuffer();
+		vec3 uniformLight, a, b, broad, narrow;
+		RC_SampleDiffuseMode(origin, vec3(0,0,1), 1.0, uniformLight);
+		for (uint z = 0u; z < c.meta.w; ++z) for (uint y = 0u; y < c.meta.w; ++y) for (uint x = 0u; x < c.meta.w; ++x)
+		{
+			uint base = RC_RecordIndex(c, cell + uvec3(x,y,z), uvec2(0));
+			if (base == RC_ABSENT) continue;
+			for (uint i = 0u; i < dirs; ++i) rcMerged[base+i] = vec4((x == 1u && y == 1u && z == 1u) ? 1.0 : 0.0);
+		}
+		memoryBarrierBuffer();
+		RC_SampleDiffuseMode(origin + vec3(.4999*c.origin_spacing.w,0,0), vec3(0,0,1), 1.0, a);
+		RC_SampleDiffuseMode(origin + vec3(.5001*c.origin_spacing.w,0,0), vec3(0,0,1), 1.0, b);
+		RC_SampleDiffuseMode(origin + vec3(1.25*c.origin_spacing.w,0,0), vec3(0,0,1), 1.0, broad);
+		RC_SampleDiffuseMode(origin + vec3(1.25*c.origin_spacing.w,0,0), vec3(0,0,1), 0.0, narrow);
+		vec3 complete, absent, blocked;
+		RC_SampleDiffuseMode(origin, vec3(0,0,1), 1.0, complete);
+		for (uint z = 0u; z < 3u; ++z) for (uint y = 0u; y < 3u; ++y) for (uint x = 0u; x < 3u; ++x)
+		{
+			if (x == 1u && y == 1u && z == 1u) continue;
+			uint base = RC_RecordIndex(c, cell + uvec3(x,y,z), uvec2(0));
+			if (base == RC_ABSENT) continue;
+			for (uint i = 0u; i < dirs; ++i) rcMergedValid[base+i] = 0u;
+		}
+		memoryBarrierBuffer();
+		RC_SampleDiffuseMode(origin, vec3(0,0,1), 1.0, absent);
+		for (uint z = 0u; z < 3u; ++z) for (uint y = 0u; y < 3u; ++y) for (uint x = 0u; x < 3u; ++x)
+		{
+			if (x == 1u && y == 1u && z == 1u) continue;
+			uint base = RC_RecordIndex(c, cell + uvec3(x,y,z), uvec2(0));
+			if (base == RC_ABSENT) continue;
+			for (uint i = 0u; i < dirs; ++i) { rcMergedValid[base+i] = 1u; rcMergedDistance[base+i] = 0.0; }
+		}
+		memoryBarrierBuffer();
+		RC_SampleDiffuseMode(origin, vec3(0,0,1), 1.0, blocked);
+		rcRaw[record+86u] = vec4(uniformLight.x, a.x, b.x, broad.x);
+		rcRaw[record+87u] = vec4(narrow.x, complete.x, absent.x, blocked.x);
+		vec3 camera = rcLighting.gi_camera_fade.xyz;
+		float endDistance = rcLighting.gi_camera_fade.w;
+		rcRaw[record+88u] = vec4(RC_IndirectDistanceWeight(camera),
+			RC_IndirectDistanceWeight(camera + vec3(endDistance * .75, 0, 0)),
+			RC_IndirectDistanceWeight(camera + vec3(endDistance * .875, 0, 0)),
+			RC_IndirectDistanceWeight(camera + vec3(endDistance, 0, 0)));
+	}
+#endif
+}

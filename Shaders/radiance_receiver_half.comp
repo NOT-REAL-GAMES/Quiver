@@ -1,0 +1,108 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "radiance_receiver_classify.glsl"
+#include "radiance_receiver_scale.glsl"
+
+/* Experimental receiver classification for reduced-resolution direct lighting.
+ * The producer writes world normals and a nonzero, per-primitive receiver ID
+ * with the same depth/coverage rules as the opaque scene. This shader is
+ * evaluated at divisor1,1.5,2,3 or4 with exact viewport-local partitions. 0 = empty, 1 = reusable,
+ * 2 = full-resolution fallback. The producer must ensure IDs cannot alias between draws. */
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#if RECEIVER_MSAA
+layout(set = 0, binding = 0) uniform sampler2DMS receiverDepth;
+layout(set = 0, binding = 1) uniform sampler2DMS receiverNormal;
+layout(set = 0, binding = 2) uniform usampler2DMS receiverID;
+#else
+layout(set = 0, binding = 0) uniform sampler2D receiverDepth;
+layout(set = 0, binding = 1) uniform sampler2D receiverNormal;
+layout(set = 0, binding = 2) uniform usampler2D receiverID;
+#endif
+layout(rgba32f, set = 0, binding = 3) uniform writeonly image2D halfPosition;
+layout(rgba16f, set = 0, binding = 4) uniform writeonly image2D halfNormal;
+layout(r32ui, set = 0, binding = 5) uniform writeonly uimage2D halfStatus;
+
+layout(push_constant) uniform Params
+{
+	mat4 inverseViewProjection;
+	ivec4 viewport; /* x/y origin, width/height */
+	vec4 ndcTransform; /* multiply pixel coordinates by xy, then add zw */
+	uint samples;
+	float planeTolerance; /* world units */
+	float normalCosine;
+	float divisor;
+} params;
+
+float depthAt(ivec2 p, int s)
+{
+#if RECEIVER_MSAA
+	return texelFetch(receiverDepth, p, s).r;
+#else
+	return texelFetch(receiverDepth, p, 0).r;
+#endif
+}
+
+vec3 normalAt(ivec2 p, int s)
+{
+#if RECEIVER_MSAA
+	return texelFetch(receiverNormal, p, s).xyz;
+#else
+	return texelFetch(receiverNormal, p, 0).xyz;
+#endif
+}
+
+uvec2 idAt(ivec2 p, int s)
+{
+#if RECEIVER_MSAA
+	return texelFetch(receiverID, p, s).rg;
+#else
+	return texelFetch(receiverID, p, 0).rg;
+#endif
+}
+
+void main()
+{
+	ivec2 block = ivec2(gl_GlobalInvocationID.xy);
+	ivec2 extent = RC_ReceiverExtent(params.viewport.zw,params.divisor);
+	if (any(greaterThanEqual(block, extent))) return;
+	uint status = 0u, count = 0u;
+	vec3 firstPosition = vec3(0), firstNormal = vec3(0);
+	RCReceiverSample points[16];
+	/* Until actual sample positions are available, MSAA must fall back. A
+	 * depth sample cannot safely be reconstructed at the pixel center. */
+	if (params.samples != 1u) status = 2u;
+	else {
+	ivec2 first=RC_ReceiverFirstPixel(block,params.divisor);
+	ivec2 end=min(RC_ReceiverFirstPixel(block+1,params.divisor),params.viewport.zw);
+	for (int y = first.y; y < end.y; ++y) for (int x = first.x; x < end.x; ++x)
+	{
+		ivec2 localPixel = ivec2(x,y);
+		ivec2 pixel = params.viewport.xy + localPixel;
+		uvec2 id = idAt(pixel, 0);
+		uint index = count++;
+		points[index].id = id;
+		points[index].valid = true;
+		points[index].position = vec3(0);
+		points[index].normal = vec3(0);
+		if (all(equal(id, uvec2(0)))) continue;
+		float depth = depthAt(pixel, 0);
+		vec3 normal = normalAt(pixel, 0);
+		vec2 ndc = (vec2(pixel) + 0.5) * params.ndcTransform.xy + params.ndcTransform.zw;
+		vec4 world = params.inverseViewProjection * vec4(ndc, depth, 1.0);
+		if (isnan(depth) || isinf(depth) || any(isnan(world)) || any(isinf(world)) ||
+			abs(world.w) < 1e-8 || any(isnan(normal)) || any(isinf(normal)) || length(normal) < 1e-8)
+		{ points[index].valid = false; continue; }
+		vec3 position = world.xyz / world.w;
+		normal = normalize(normal);
+		points[index].position = position;
+		points[index].normal = normal;
+		if (any(isnan(position)) || any(isinf(position))) points[index].valid = false;
+	}
+	}
+	if (params.samples == 1u)
+		status = RC_ClassifyReceivers(points, count, params.planeTolerance, params.normalCosine, firstPosition, firstNormal);
+	imageStore(halfStatus, block, uvec4(status));
+	imageStore(halfPosition, block, vec4(firstPosition, status == 1u ? 1.0 : 0.0));
+	imageStore(halfNormal, block, vec4(firstNormal, 0.0));
+}

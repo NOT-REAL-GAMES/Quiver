@@ -6595,6 +6595,15 @@ static void PScript_UpdateParticle (particle_t *p, part_type_t *type, float pfra
 
 #define PARTICLE_UPDATE_CHUNK_SIZE 1024
 
+/* Each indexed task keeps its original worker-count stride. Indices beyond
+ * the last populated chunk cannot process any particles. */
+unsigned int PScript_ParticleTaskCount (void)
+{
+	unsigned int chunks = (unsigned int)num_particle_updates / PARTICLE_UPDATE_CHUNK_SIZE +
+		((unsigned int)num_particle_updates % PARTICLE_UPDATE_CHUNK_SIZE != 0);
+	return q_min (chunks, (unsigned int)Tasks_NumWorkers ());
+}
+
 static float	   p_frametime;
 static qboolean	   p_doflurry;
 static particle_t *p_kill_list, *p_kill_first; // the kill list is to stop particles from being freed and reused whilst still in this frame

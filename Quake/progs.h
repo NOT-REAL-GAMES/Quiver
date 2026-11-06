@@ -50,7 +50,27 @@ typedef union eval_s
 
 #define MAX_ENT_LEAFS 32
 
+#include "ecs.h"
+
+/* Kept in the edict so save snapshots, fastload and slot reuse preserve the
+ * existing private timing state. ECS bindings expose this component without
+ * copying QuakeC-owned data. */
+typedef struct edict_timing_s
+{
+	qboolean sendinterval;
+	qboolean sendinterval_default;
+	float oldframe;
+	float oldthinktime;
+	vec3_t predthinkpos;
+	float lastthink;
+} edict_timing_t;
+
 typedef struct edict_s edict_t;
+typedef struct edict_ecs_binding_s
+{
+	edict_t *edict;
+	edict_timing_t *timing;
+} edict_ecs_binding_t;
 
 typedef struct qcvm_s qcvm_t;
 
@@ -73,12 +93,7 @@ typedef struct edict_s
 	unsigned char	alpha;				  /* johnfitz -- hack to support alpha since it's not part of entvars_t */
 	qboolean		forcewater;			  /* mod overrides waterlevel */
 	qboolean		sendforcewater;		  /* waterlevel override has changed and needs to be sent over to the client */
-	qboolean		sendinterval;		  /* johnfitz -- send time until nextthink to client for better lerp timing */
-	qboolean		sendinterval_default; /* interval is the 0.1 the client assumes anyway; only sent where datagram size is unconstrained */
-	float			oldframe;
-	float			oldthinktime;
-	vec3_t			predthinkpos;  /* expected edict origin once its nextthink arrives (sv_smoothplatformlerps) */
-	float			lastthink;	   /* time when predthinkpos was updated, or 0 if not valid (sv_smoothplatformlerps) */
+	edict_timing_t timing; /* engine-owned timing component; stored with the edict */
 	int				showbboxframe; /* last render frame this entity was highlighted by r_showbboxes */
 	showbboxflags_t showbboxflags;
 
@@ -118,6 +133,7 @@ int	   PF_SV_ForceParticlePrecache (const char *s);
 int	   SV_Precache_Model (const char *s);
 int	   SV_Precache_Sound (const char *s);
 void   PR_spawnfunc_misc_model (edict_t *self);
+qboolean PR_spawnfunc_sector_prop (edict_t *self);
 
 // from pr_edict, for pr_ext. reflection is messy.
 qboolean	 ED_ParseEpair (void *base, ddef_t *key, const char *s, qboolean zoned);
@@ -138,6 +154,8 @@ void PR_Profile_f (void);
 
 edict_t *ED_Alloc (void);
 void	 ED_Free (edict_t *ed);
+void ED_ECSReconcile (void);
+void ED_ECSReset (void);
 void	 ED_Retain (edict_t *ed);
 void	 ED_Release (edict_t *ed);
 void	 ED_RemoveFromFreeList (edict_t *ed);
@@ -180,11 +198,12 @@ const char *ED_ParseGlobals (const char *data);
 
 void ED_LoadFromFile (const char *data);
 
-#define EDICT_NUM_NO_CHECK(n)	  ((edict_t *)((byte *)qcvm->edicts + (n) * qcvm->edict_size))
+#define EDICT_NUM_NO_CHECK(n)	  ((edict_t *)((byte *)qcvm->edicts + (size_t)(n) * (size_t)qcvm->edict_size))
 #define NUM_FOR_EDICT_NO_CHECK(e) ((int)(((byte *)e - (byte *)qcvm->edicts) / qcvm->edict_size))
 
 edict_t *EDICT_NUM (int n);
 int		 NUM_FOR_EDICT (edict_t *e);
+size_t ED_EdictAllocSize (const qcvm_t *vm);
 
 #if defined(DEBUG) || defined(_DEBUG)
 edict_t *NEXT_EDICT (edict_t *e);
@@ -393,9 +412,9 @@ typedef struct freelist_s
 {
 	size_t size;	   // current nb of edicts
 	size_t head_index; // index of the first valid element (head of FIFO)
-	// store the edicts nums only
-	COMPILE_TIME_ASSERT ("MAX_EDICTS > uint16_t max", MAX_EDICTS <= UINT16_MAX);
-	uint16_t circular_buffer[MAX_EDICTS];
+	// Allocated lazily for this VM's configured capacity; indices can exceed 65535.
+	uint32_t *circular_buffer;
+	size_t capacity;
 } freelist_t;
 
 struct qcvm_s
@@ -460,6 +479,8 @@ struct qcvm_s
 	int				 reserved_edicts;
 	int				 max_edicts;
 	edict_t			*edicts; // can NOT be array indexed, because edict_t is variable sized, but can be used to reference the world ent
+	ecs_world_t *ecs_world;
+	ecs_component_t ecs_edict_component;
 	freelist_t		 free_list;
 	struct qmodel_s *worldmodel;
 	struct qmodel_s *(*GetModel) (int modelindex); // returns the model for the given index, or null.

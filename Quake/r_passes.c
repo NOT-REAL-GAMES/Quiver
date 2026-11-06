@@ -15,6 +15,11 @@ See the GNU General Public License for more details.
 
 #include "quakedef.h"
 #include "r_ssao.h"
+#include "radiance_receiver_frame.h"
+#include "radiance_receiver_select.h"
+#include "radiance_receiver_live.h"
+#include "radiance_runtime.h"
+#include "radiance_receiver_experimental.h"
 
 #define MAX_FRAME_STEPS		 64
 #define MAX_PASS_ATTACHMENTS 8
@@ -46,6 +51,7 @@ typedef enum
 {
 	DRAW_WORLD,
 	DRAW_ENTITIES,
+	DRAW_MODELS,
 	DRAW_ENTITY_SSAO,
 	DRAW_POST_ENTITIES,
 	DRAW_TRANSPARENCY,
@@ -85,6 +91,7 @@ typedef struct
 typedef struct
 {
 	VkFormat			  color_format;
+	VkFormat              scene_color_format;
 	VkFormat			  depth_format;
 	VkFormat			  swapchain_format;
 	VkSampleCountFlagBits samples;
@@ -102,6 +109,7 @@ typedef struct
 {
 	VkRenderPass		  handles[MAIN_RENDER_PASS_STENCIL_COUNT];
 	uint32_t			  attachment_count;
+	bool                  unanchored_layout_transition;
 	VkFramebuffer		 *framebuffers;
 	uint32_t			  framebuffer_count;
 	render_pass_binding_t bindings[MAX_PASS_SUBPASSES];
@@ -194,6 +202,42 @@ static void R_AddPreparedCommands (frame_builder_t *builder, int context)
 	R_AddFrameStep (builder, FRAME_PREPARED_COMMANDS)->first_context = context;
 }
 
+static void R_RecordECSCullWork (cb_context_t *cbx)
+{
+	R_RecordECSVisualCull (cbx->cb);
+}
+
+extern void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass,
+	VkRenderPass model_pass, VkFramebuffer model_framebuffer, uint32_t model_subpass);
+extern bool RCExperimentalSubmitModels (VkCommandBuffer primary, uint64_t serial,
+	VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass);
+static VkRenderPass rc_experimental_pass;
+static VkFramebuffer rc_experimental_framebuffer;
+static VkRenderPass rc_experimental_model_pass;
+static VkFramebuffer rc_experimental_model_framebuffer;
+static uint32_t rc_experimental_model_subpass;
+static void R_RecordReceiverWork (cb_context_t *cbx)
+{
+	/* An unstaged, stale or unsupported frame records nothing and leaves the
+	 * existing full-resolution lighting pipeline active. */
+	RCExperimentalCaptureFinish (cbx->cb,rc_experimental_pass,rc_experimental_framebuffer,0,
+		rc_experimental_model_pass,rc_experimental_model_framebuffer,rc_experimental_model_subpass);
+	uint64_t serial = RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount);
+	uint32_t slot = GL_RenderFrameSlot ();
+	if (!RCReceiverLive_CanUse (slot, RCReceiverFrame_PendingTargets (serial)))
+	{
+		RCReceiverFrame_Stage (NULL);
+		return;
+	}
+	if (RCReceiverFrame_Record (cbx->cb, serial))
+	{
+		/* No slot state changes between preflight and publication. */
+		if (!RCReceiverLive_MarkUsed (slot, RCReceiverFrame_ActiveTargets (serial)))
+			Sys_Error ("Receiver slot ownership changed during recording");
+		R_ReceiverExperimentalDiagnosticsRecord (slot, cbx->cb, serial);
+	}
+}
+
 // This is the sole declaration of frame order and graphics grouping.
 // Resource creation and command execution both consume its result.
 static void R_DescribeFrame (frame_desc_t *desc, main_render_pass_variant_t variant)
@@ -204,6 +248,10 @@ static void R_DescribeFrame (frame_desc_t *desc, main_render_pass_variant_t vari
 	R_AddPreparedCommands (&builder, PCBX_BUILD_ACCELERATION_STRUCTURES);
 	R_AddPreparedCommands (&builder, PCBX_UPDATE_LIGHTMAPS);
 	R_AddPreparedCommands (&builder, PCBX_UPDATE_WARP);
+	R_AddPreparedCommands (&builder, PCBX_RADIANCE);
+	/* Compute must run outside the graphics pass, before instance fetch. */
+	R_AddRecordWork (&builder, R_RecordECSCullWork);
+	R_AddRecordWork (&builder, R_RecordReceiverWork);
 
 	R_BeginGraphicsPass (&builder, FRAME_TARGET_SCENE, SUBPASS_MAIN);
 	R_AddGraphicsWork (&builder, DRAW_WORLD, SCBX_WORLD, SCBX_WORLD);
@@ -214,6 +262,7 @@ static void R_DescribeFrame (frame_desc_t *desc, main_render_pass_variant_t vari
 		R_BeginGraphicsPass (&builder, FRAME_TARGET_SCENE, SUBPASS_MAIN);
 	}
 	R_AddGraphicsWork (&builder, DRAW_ENTITIES, SCBX_ENTITIES, SCBX_ENTITIES);
+	R_AddGraphicsWork (&builder, DRAW_MODELS, SCBX_MODELS, SCBX_MODELS);
 	if (r_ssao.value > 0)
 	{
 		R_EndGraphicsPass (&builder);
@@ -272,10 +321,11 @@ bool R_SetupRenderPasses (void)
 	}
 	memset (&pending_layout, 0, sizeof (pending_layout));
 	pending_layout.color_format = vulkan_globals.color_format;
+	pending_layout.scene_color_format = vulkan_globals.scene_color_format;
 	pending_layout.depth_format = vulkan_globals.depth_format;
 	pending_layout.swapchain_format = vulkan_globals.swap_chain_format;
 	pending_layout.samples = vulkan_globals.sample_count;
-	pending_layout.upscale = vid.render_width != vid.width || vid.render_height != vid.height;
+	pending_layout.upscale = vulkan_globals.scene_hdr_active || vid.render_width != vid.width || vid.render_height != vid.height;
 	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
 		R_DescribeFrame (&pending_layout.variants[variant], variant);
 
@@ -301,7 +351,7 @@ static void R_MarkAttachments (const VkSubpassDescription *subpass, bool *used)
 }
 
 // Subpass types describe attachment use, not draw-stage identity or grouping.
-static void R_CreateGraphicsPasses (
+static VkResult R_CreateGraphicsPasses (
 	main_render_pass_variant_t variant, frame_target_t target, const VkAttachmentDescription *attachments, uint32_t attachment_count,
 	const VkSubpassDescription *stage_definitions)
 {
@@ -356,6 +406,13 @@ static void R_CreateGraphicsPasses (
 		if (depth && depth->attachment != VK_ATTACHMENT_UNUSED && used_before[depth->attachment])
 			pass_attachments[depth->attachment].initialLayout = depth->layout;
 
+		/* Preserve-only references do not anchor automatic layout transitions.
+		 * Derive this after the split-pass initial layouts have been adjusted. */
+		physical->unanchored_layout_transition = false;
+		for (uint32_t i = 0; i < attachment_count; ++i)
+			if (!used_here[i] && pass_attachments[i].initialLayout != pass_attachments[i].finalLayout)
+				physical->unanchored_layout_transition = true;
+
 		// External dependencies cover preceding graphics/compute/transfer work.
 		// ALL_COMMANDS means ALL_GRAPHICS here, so name compute and transfer explicitly.
 		// Internal dependencies cover every earlier subpass, including writers
@@ -403,9 +460,11 @@ static void R_CreateGraphicsPasses (
 				.dependencyCount = dependency_count,
 				.pDependencies = dependencies,
 			};
-			const VkResult result = vkCreateRenderPass (vulkan_globals.device, &info, NULL, &physical->handles[stencil]);
+			VkRenderPass created = VK_NULL_HANDLE;
+			const VkResult result = vkCreateRenderPass (vulkan_globals.device, &info, NULL, &created);
 			if (result != VK_SUCCESS)
-				Sys_Error ("Couldn't create render pass: %d", result);
+				return result;
+			physical->handles[stencil] = created;
 			GL_SetObjectName ((uint64_t)physical->handles[stencil], VK_OBJECT_TYPE_RENDER_PASS, target == FRAME_TARGET_UI ? "ui" : "scene");
 			for (uint32_t subpass = 0; subpass < desc->subpass_count; ++subpass)
 			{
@@ -418,20 +477,26 @@ static void R_CreateGraphicsPasses (
 		for (uint32_t i = 0; i < attachment_count; ++i)
 			used_before[i] |= used_here[i];
 	}
+	return VK_SUCCESS;
+}
+
+static void R_DestroyFrameBufferVariant (main_render_pass_variant_t variant)
+{
+	for (uint32_t pass = 0; pass < MAX_FRAME_PASSES; ++pass)
+	{
+		physical_pass_t *physical = &physical_passes[variant][pass];
+		for (uint32_t i = 0; i < physical->framebuffer_count; ++i)
+			if (physical->framebuffers[i]) vkDestroyFramebuffer (vulkan_globals.device, physical->framebuffers[i], NULL);
+		free (physical->framebuffers);
+		physical->framebuffers = NULL;
+		physical->framebuffer_count = 0;
+	}
 }
 
 void R_DestroyFrameBuffers (void)
 {
 	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
-		for (uint32_t pass = 0; pass < MAX_FRAME_PASSES; ++pass)
-		{
-			physical_pass_t *physical = &physical_passes[variant][pass];
-			for (uint32_t i = 0; i < physical->framebuffer_count; ++i)
-				vkDestroyFramebuffer (vulkan_globals.device, physical->framebuffers[i], NULL);
-			free (physical->framebuffers);
-			physical->framebuffers = NULL;
-			physical->framebuffer_count = 0;
-		}
+		R_DestroyFrameBufferVariant ((main_render_pass_variant_t)variant);
 }
 
 void R_DestroyRenderPasses (void)
@@ -450,20 +515,28 @@ void R_DestroyRenderPasses (void)
 			vulkan_globals.secondary_cb_contexts[context][i].render_pass = VK_NULL_HANDLE;
 }
 
-void R_CreateFrameBuffers (const render_framebuffer_images_t *images)
+VkResult R_TryCreateFrameBuffers (const render_framebuffer_images_t *images)
 {
+	if (!images) return VK_ERROR_INITIALIZATION_FAILED;
 	const main_render_pass_variant_t variant = R_UseMBOIT () ? MAIN_RENDER_PASS_MBOIT : R_UseWBOIT () ? MAIN_RENDER_PASS_OIT : MAIN_RENDER_PASS_STANDARD;
 	const frame_desc_t				*frame = &current_layout.variants[variant];
 	const bool						 msaa = current_layout.samples != VK_SAMPLE_COUNT_1_BIT;
+	/* Never overwrite previous resources: rollback must only destroy objects
+	 * created by this invocation. */
+	for (uint32_t pass = 0; pass < MAX_FRAME_PASSES; ++pass)
+		if (physical_passes[variant][pass].framebuffers) return VK_ERROR_INITIALIZATION_FAILED;
+	VkResult result = VK_SUCCESS;
 	for (uint32_t pass = 0; pass < frame->pass_count; ++pass)
 	{
 		const bool		 ui = frame->passes[pass].target == FRAME_TARGET_UI;
 		physical_pass_t *physical = &physical_passes[variant][pass];
 		assert (!physical->framebuffers);
-		physical->framebuffer_count = ui ? images->swapchain_count : NUM_COLOR_BUFFERS;
-		physical->framebuffers = calloc (physical->framebuffer_count, sizeof (*physical->framebuffers));
+		const uint32_t count = ui ? images->swapchain_count : NUM_COLOR_BUFFERS;
+		if (!count || (ui && !images->swapchain)) { result = VK_ERROR_INITIALIZATION_FAILED; goto fail; }
+		physical->framebuffers = calloc (count, sizeof (*physical->framebuffers));
 		if (!physical->framebuffers)
-			Sys_Error ("Couldn't allocate framebuffers");
+		{ result = VK_ERROR_OUT_OF_HOST_MEMORY; goto fail; }
+		physical->framebuffer_count = count;
 		for (uint32_t i = 0; i < physical->framebuffer_count; ++i)
 		{
 			VkImageView attachments[MAX_PASS_ATTACHMENTS] = {0};
@@ -471,6 +544,7 @@ void R_CreateFrameBuffers (const render_framebuffer_images_t *images)
 			{
 				attachments[0] = images->ui_color;
 				attachments[1] = images->swapchain[i];
+				attachments[2] = images->ui_depth;
 			}
 			else
 			{
@@ -500,11 +574,23 @@ void R_CreateFrameBuffers (const render_framebuffer_images_t *images)
 				.height = ui ? images->height : images->render_height,
 				.layers = 1,
 			};
-			const VkResult result = vkCreateFramebuffer (vulkan_globals.device, &info, NULL, &physical->framebuffers[i]);
+			VkFramebuffer created = VK_NULL_HANDLE;
+			result = vkCreateFramebuffer (vulkan_globals.device, &info, NULL, &created);
 			if (result != VK_SUCCESS)
-				Sys_Error ("Couldn't create framebuffer: %d", result);
+				goto fail;
+			physical->framebuffers[i] = created;
 		}
 	}
+	return VK_SUCCESS;
+fail:
+	R_DestroyFrameBufferVariant (variant);
+	return result;
+}
+
+void R_CreateFrameBuffers (const render_framebuffer_images_t *images)
+{
+	VkResult result = R_TryCreateFrameBuffers (images);
+	if (result != VK_SUCCESS) Sys_Error ("Couldn't create framebuffers: %d", result);
 }
 
 typedef struct screen_effect_constants_s
@@ -521,6 +607,7 @@ typedef struct screen_effect_constants_s
 	float	 poly_blend_b;
 	float	 poly_blend_a;
 	float	 menu_alpha;
+	float    hdr_contrast;
 } screen_effect_constants_t;
 
 typedef struct ray_debug_constants_s
@@ -545,6 +632,7 @@ typedef struct ray_debug_constants_s
 #define SCREEN_EFFECT_FLAG_WATER_WARP 0x4
 #define SCREEN_EFFECT_FLAG_PALETTIZE  0x8
 #define SCREEN_EFFECT_FLAG_MENU		  0x10
+#define SCREEN_EFFECT_FLAG_HDR         0x20
 
 /*
 ===============
@@ -618,6 +706,8 @@ static void R_ScreenEffects (cb_context_t *cbx, qboolean enabled, end_rendering_
 				screen_effect_flags |= SCREEN_EFFECT_FLAG_PALETTIZE;
 			if (parms->menu)
 				screen_effect_flags |= SCREEN_EFFECT_FLAG_MENU;
+			if (parms->hdr_tonemap)
+				screen_effect_flags |= SCREEN_EFFECT_FLAG_HDR;
 
 			const screen_effect_constants_t push_constants = {
 				parms->render_width - 1,
@@ -630,8 +720,9 @@ static void R_ScreenEffects (cb_context_t *cbx, qboolean enabled, end_rendering_
 				(float)parms->v_blend[0] / 255.0f,
 				(float)parms->v_blend[1] / 255.0f,
 				(float)parms->v_blend[2] / 255.0f,
-				(float)parms->v_blend[3] / 255.0f,
+				parms->polyblend ? (float)parms->v_blend[3] / 255.0f : 0.0f,
 				parms->menu_alpha,
+				parms->hdr_contrast,
 			};
 			R_PushConstants (cbx, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof (push_constants), &push_constants);
 		}
@@ -766,8 +857,21 @@ uint32_t R_RecordFrame (
 	const main_render_pass_variant_t variant = parms->use_mboit ? MAIN_RENDER_PASS_MBOIT : parms->use_oit ? MAIN_RENDER_PASS_OIT : MAIN_RENDER_PASS_STANDARD;
 	const frame_desc_t				*frame = &current_layout.variants[variant];
 	VkCommandBuffer					 command_buffer = vulkan_globals.primary_cb_contexts[PCBX_RENDER_PASSES].cb;
-	const bool	 screen_effects = parms->render_warp || parms->vid_palettize || (parms->polyblend && parms->v_blend[3]) || parms->menu || parms->ray_debug;
+	const bool	 screen_effects = parms->hdr_tonemap || parms->render_warp || parms->vid_palettize || (parms->polyblend && parms->v_blend[3]) || parms->menu || parms->ray_debug;
 	const bool	 msaa = current_layout.samples != VK_SAMPLE_COUNT_1_BIT;
+	const physical_pass_t *scene_pass=&physical_passes[variant][0];
+	uint32_t scene_image=screen_effects ? 1u : 0u;
+	rc_experimental_pass=scene_pass->handles[Sky_NeedStencil () ? MAIN_RENDER_PASS_STENCIL_CLEAR : MAIN_RENDER_PASS_NO_STENCIL];
+	rc_experimental_framebuffer=scene_image<scene_pass->framebuffer_count ? scene_pass->framebuffers[scene_image] : VK_NULL_HANDLE;
+	rc_experimental_model_pass=VK_NULL_HANDLE; rc_experimental_model_framebuffer=VK_NULL_HANDLE; rc_experimental_model_subpass=0;
+	for (uint32_t i=0;i<frame->step_count;++i) if (frame->steps[i].type==FRAME_GRAPHICS_WORK && frame->steps[i].draw_stage==DRAW_MODELS)
+	{
+		const frame_step_t *models=&frame->steps[i];
+		const physical_pass_t *physical=&physical_passes[variant][models->pass];
+		rc_experimental_model_pass=physical->handles[Sky_NeedStencil()?MAIN_RENDER_PASS_STENCIL_CLEAR:MAIN_RENDER_PASS_NO_STENCIL];
+		rc_experimental_model_framebuffer=scene_image<physical->framebuffer_count?physical->framebuffers[scene_image]:VK_NULL_HANDLE;
+		rc_experimental_model_subpass=models->subpass; break;
+	}
 	VkClearValue clear_values[MAX_PASS_ATTACHMENTS] = {0};
 	clear_values[0] = parms->color_clear_value;
 	if (msaa)
@@ -778,9 +882,17 @@ uint32_t R_RecordFrame (
 
 	uint32_t submit_count = 0;
 	bool	 recording_started = false;
+	bool receiver_any_reused = false;
+	VkRenderPass active_pass = VK_NULL_HANDLE;
+	VkFramebuffer active_framebuffer = VK_NULL_HANDLE;
+	uint32_t active_subpass = 0;
 	for (uint32_t i = 0; i < frame->step_count; ++i)
 	{
 		const frame_step_t *step = &frame->steps[i];
+		/* Fallible radiance preparation owns its own primary command buffer.
+		 * Do not submit that buffer when it was disabled or discarded. */
+		if (step->type == FRAME_PREPARED_COMMANDS && step->first_context == PCBX_RADIANCE && !GL_RadianceCommandsReady ())
+			continue;
 		// The UI pass includes the swapchain attachment even without a postprocess draw.
 		// Skip the entire pass and its readback unless we own an acquired image.
 		if (!swapchain_acquired && (step->type == FRAME_READBACK || frame->passes[step->pass].target == FRAME_TARGET_UI))
@@ -804,7 +916,24 @@ uint32_t R_RecordFrame (
 			const bool			   ui = frame->passes[step->pass].target == FRAME_TARGET_UI;
 			const physical_pass_t *physical = &physical_passes[variant][step->pass];
 			const uint32_t		   image = ui ? swapchain_index : screen_effects ? 1 : 0;
-			if (ui && (parms->render_width != parms->vid_width || parms->render_height != parms->vid_height))
+			if (!ui && step->pass == 0)
+			{
+				/* Scene attachments are shared by frames in flight. A split MSAA
+				 * pass can include an unused resolve attachment whose final layout
+				 * transition still writes the image. With no subpass use to anchor
+				 * it, that transition needs ALL_COMMANDS in the destination scope. */
+				const VkMemoryBarrier previous_frame = {
+					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+					.dstAccessMask = physical->unanchored_layout_transition ? VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT :
+						VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+				};
+				vkCmdPipelineBarrier (command_buffer,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					physical->unanchored_layout_transition ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, 1, &previous_frame, 0, NULL, 0, NULL);
+			}
+			if (ui && current_layout.upscale)
 			{
 				// The fullscreen triangle samples the scene before the native-resolution GUI.
 				const VkImageMemoryBarrier barrier = {
@@ -830,15 +959,25 @@ uint32_t R_RecordFrame (
 				.clearValueCount = ui ? 0 : physical->attachment_count,
 				.pClearValues = clear_values,
 			};
+			active_pass = begin.renderPass; active_framebuffer = begin.framebuffer; active_subpass = 0;
 			vkCmdBeginRenderPass (command_buffer, &begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 			break;
 		}
 		case FRAME_NEXT_SUBPASS:
 			vkCmdNextSubpass (command_buffer, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			++active_subpass;
 			break;
 		case FRAME_GRAPHICS_WORK:
-			R_SubmitContexts (command_buffer, step->first_context, step->last_context);
+		{
+			bool reused=step->draw_stage == DRAW_WORLD && RCReceiverSelect_Submit (command_buffer, RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount),
+				RCReceiverFrame_Active (RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount)), active_pass, active_framebuffer, active_subpass);
+			if (step->draw_stage == DRAW_MODELS)
+				reused=RCExperimentalSubmitModels(command_buffer,RCReceiverFrame_CompletedSerial((uint32_t)r_framecount),
+					active_pass,active_framebuffer,active_subpass);
+			receiver_any_reused |= reused;
+			if (!reused) R_SubmitContexts (command_buffer, step->first_context, step->last_context);
 			break;
+		}
 		case FRAME_RECORD_WORK:
 			step->recorder (&vulkan_globals.primary_cb_contexts[PCBX_RENDER_PASSES]);
 			break;
@@ -851,13 +990,20 @@ uint32_t R_RecordFrame (
 			break;
 		case FRAME_END_GRAPHICS:
 			vkCmdEndRenderPass (command_buffer);
+			active_pass = VK_NULL_HANDLE; active_framebuffer = VK_NULL_HANDLE;
 			break;
 		}
 	}
+	const uint64_t serial=RCReceiverFrame_CompletedSerial((uint32_t)r_framecount);
+	R_RadianceRecordReceiverUse(receiver_any_reused?RCReceiverFrame_ActiveDivisor(serial):1,
+		receiver_any_reused && RCReceiverFrame_ActiveCheckerboard(serial),
+		receiver_any_reused && RCReceiverFrame_ActiveFilterMode(serial)==1);
+	R_RadianceRecordReceiverSoftUse(receiver_any_reused && RCReceiverFrame_ActiveSoftShadows(serial));
+	R_RadianceRecordReceiverShadowFilterUse(receiver_any_reused?RCReceiverFrame_ActiveShadowFilter(serial):0);
 	return submit_count;
 }
 
-static void R_CreateScenePasses (main_render_pass_variant_t variant)
+static VkResult R_CreateScenePasses (main_render_pass_variant_t variant)
 {
 	const bool resolve = current_layout.samples != VK_SAMPLE_COUNT_1_BIT;
 	ZEROED_STRUCT_ARRAY (VkAttachmentDescription, attachment_descriptions, 8);
@@ -874,7 +1020,7 @@ static void R_CreateScenePasses (main_render_pass_variant_t variant)
 	attachment_descriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachment_descriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
-	attachment_descriptions[0].format = vulkan_globals.color_format;
+	attachment_descriptions[0].format = vulkan_globals.scene_color_format;
 	attachment_descriptions[0].loadOp = resolve ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : VK_ATTACHMENT_LOAD_OP_CLEAR;
 	attachment_descriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -892,7 +1038,7 @@ static void R_CreateScenePasses (main_render_pass_variant_t variant)
 		attachment_descriptions[scene_attachment_index].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		attachment_descriptions[scene_attachment_index].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		attachment_descriptions[scene_attachment_index].samples = vulkan_globals.sample_count;
-		attachment_descriptions[scene_attachment_index].format = vulkan_globals.color_format;
+		attachment_descriptions[scene_attachment_index].format = vulkan_globals.scene_color_format;
 		attachment_descriptions[scene_attachment_index].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachment_descriptions[scene_attachment_index].storeOp = use_oit ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
 	}
@@ -1055,7 +1201,7 @@ static void R_CreateScenePasses (main_render_pass_variant_t variant)
 	if (resolve)
 		subpass_descriptions[SUBPASS_FTE_PARTICLES].pResolveAttachments = &resolve_attachment_reference;
 
-	R_CreateGraphicsPasses (
+	return R_CreateGraphicsPasses (
 		variant, FRAME_TARGET_SCENE, attachment_descriptions,
 		use_mboit	? (resolve ? 6 : 5)
 		: use_wboit ? (resolve ? 5 : 4)
@@ -1063,11 +1209,11 @@ static void R_CreateScenePasses (main_render_pass_variant_t variant)
 		subpass_descriptions);
 }
 
-static void R_CreateUIPasses (main_render_pass_variant_t variant)
+static VkResult R_CreateUIPasses (main_render_pass_variant_t variant)
 {
 	const bool upscale = current_layout.upscale;
 	// UI Render Pass
-	ZEROED_STRUCT_ARRAY (VkAttachmentDescription, attachment_descriptions, 2);
+	ZEROED_STRUCT_ARRAY (VkAttachmentDescription, attachment_descriptions, 3);
 
 	attachment_descriptions[0].initialLayout = upscale ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachment_descriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1083,6 +1229,17 @@ static void R_CreateUIPasses (main_render_pass_variant_t variant)
 	attachment_descriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	attachment_descriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
+	/* Single-sample depth for the native-resolution editor viewport. Normal
+	 * GUI drawing never tests depth; the editor clears it only when needed. */
+	attachment_descriptions[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment_descriptions[2].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachment_descriptions[2].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachment_descriptions[2].format = vulkan_globals.ui_depth_format;
+	attachment_descriptions[2].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachment_descriptions[2].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachment_descriptions[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachment_descriptions[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+
 	VkAttachmentReference color_input_attachment_reference;
 	color_input_attachment_reference.attachment = 0;
 	color_input_attachment_reference.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1094,10 +1251,12 @@ static void R_CreateUIPasses (main_render_pass_variant_t variant)
 	VkAttachmentReference swap_chain_attachment_reference;
 	swap_chain_attachment_reference.attachment = 1;
 	swap_chain_attachment_reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	const VkAttachmentReference ui_depth_attachment_reference = {2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
 	ZEROED_STRUCT_ARRAY (VkSubpassDescription, subpass_descriptions, SUBPASS_COUNT);
 	subpass_descriptions[SUBPASS_UI].colorAttachmentCount = 1;
 	subpass_descriptions[SUBPASS_UI].pColorAttachments = &ui_color_attachment_reference;
+	subpass_descriptions[SUBPASS_UI].pDepthStencilAttachment = &ui_depth_attachment_reference;
 	subpass_descriptions[SUBPASS_UI].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
 	subpass_descriptions[SUBPASS_POST_PROCESS].colorAttachmentCount = 1;
@@ -1106,20 +1265,34 @@ static void R_CreateUIPasses (main_render_pass_variant_t variant)
 	subpass_descriptions[SUBPASS_POST_PROCESS].inputAttachmentCount = 1;
 	subpass_descriptions[SUBPASS_POST_PROCESS].pInputAttachments = &color_input_attachment_reference;
 
-	R_CreateGraphicsPasses (variant, FRAME_TARGET_UI, attachment_descriptions, 2, subpass_descriptions);
+	return R_CreateGraphicsPasses (variant, FRAME_TARGET_UI, attachment_descriptions, 3, subpass_descriptions);
 }
 
-void R_CreateRenderPasses (void)
+VkResult R_TryCreateRenderPasses (void)
 {
+	/* This transaction operates only after old passes and framebuffers have
+	 * been released. Refuse to overwrite live handles on a second call. */
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		for (uint32_t pass = 0; pass < MAX_FRAME_PASSES; ++pass)
+		{
+			const physical_pass_t *physical = &physical_passes[variant][pass];
+			if (physical->framebuffers || physical->framebuffer_count) return VK_ERROR_INITIALIZATION_FAILED;
+			for (int stencil = 0; stencil < MAIN_RENDER_PASS_STENCIL_COUNT; ++stencil)
+				if (physical->handles[stencil]) return VK_ERROR_INITIALIZATION_FAILED;
+		}
+	const frame_layout_t old_current = current_layout, old_pending = pending_layout;
+	physical_pass_t old_physical[MAIN_RENDER_PASS_VARIANT_COUNT][MAX_FRAME_PASSES];
+	memcpy (old_physical, physical_passes, sizeof (old_physical));
 	R_SetupRenderPasses ();
 	current_layout = pending_layout;
+	VkResult err = VK_SUCCESS;
 	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
 	{
-		R_CreateScenePasses (variant);
-		R_CreateUIPasses (variant);
-		R_BindFrameContexts (variant);
+		err = R_CreateScenePasses (variant);
+		if (err != VK_SUCCESS) goto fail;
+		err = R_CreateUIPasses (variant);
+		if (err != VK_SUCCESS) goto fail;
 	}
-	VkResult err;
 	if (vulkan_globals.warp_render_pass == VK_NULL_HANDLE)
 	{
 		ZEROED_STRUCT (VkAttachmentDescription, attachment_description);
@@ -1169,12 +1342,34 @@ void R_CreateRenderPasses (void)
 		render_pass_create_info.dependencyCount = 2;
 		render_pass_create_info.pDependencies = subpass_dependencies;
 
-		err = vkCreateRenderPass (vulkan_globals.device, &render_pass_create_info, NULL, &vulkan_globals.warp_render_pass);
+		VkRenderPass created = VK_NULL_HANDLE;
+		err = vkCreateRenderPass (vulkan_globals.device, &render_pass_create_info, NULL, &created);
 		if (err != VK_SUCCESS)
-			Sys_Error ("Couldn't create Vulkan render pass with code %i", (int)err);
+			goto fail;
+		vulkan_globals.warp_render_pass = created;
 
 		GL_SetObjectName ((uint64_t)vulkan_globals.warp_render_pass, VK_OBJECT_TYPE_RENDER_PASS, "warp");
 	}
+	/* Bind only after all Vulkan calls have succeeded. */
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		R_BindFrameContexts (variant);
+	return VK_SUCCESS;
+fail:
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		for (uint32_t pass = 0; pass < MAX_FRAME_PASSES; ++pass)
+			for (int stencil = 0; stencil < MAIN_RENDER_PASS_STENCIL_COUNT; ++stencil)
+				if (physical_passes[variant][pass].handles[stencil])
+					vkDestroyRenderPass (vulkan_globals.device, physical_passes[variant][pass].handles[stencil], NULL);
+	memcpy (physical_passes, old_physical, sizeof (old_physical));
+	current_layout = old_current;
+	pending_layout = old_pending;
+	return err;
+}
+
+void R_CreateRenderPasses (void)
+{
+	VkResult err = R_TryCreateRenderPasses ();
+	if (err != VK_SUCCESS) Sys_Error ("Couldn't create render passes: %d", err);
 }
 
 static const render_pass_binding_t *R_RenderPassBindingAt (subpass_type_t type, main_render_pass_variant_t variant, uint32_t index)

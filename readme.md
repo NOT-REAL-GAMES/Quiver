@@ -24,6 +24,10 @@ Improvements over QuakeSpasm include:
 * External WAD support ([more info](https://github.com/Novum/vkQuake/pull/753))
 * WAD3 format support, allowing per-texture palettes for more colorful levels ([more info](https://github.com/Novum/vkQuake/pull/753))
 
+This checkout also includes an [experimental BSP meshlet renderer](docs/bsp-meshlets.md). Use `r_meshlets 3` to try the experimental Vulkan mesh-shader path and `meshlet_stats` to see the active path.
+
+The [in-engine map editor](docs/map-editor.md) edits source maps and compiles a playtest without leaving the game.
+
 ## Installation
 
 Windows and Linux binaries can be found in [Releases](https://github.com/Novum/vkQuake/releases).
@@ -144,17 +148,17 @@ To compile vkQuake, first install the build dependencies:
 
 Ubuntu:
 ~~~
-apt-get install git meson gcc glslang-tools spirv-tools libsdl3-dev libvulkan-dev libvorbis-dev libmpg123-dev libx11-xcb-dev
+apt-get install git meson ninja-build gcc g++ glslang-tools spirv-tools libsdl3-dev libvulkan-dev libvorbis-dev libmpg123-dev libx11-xcb-dev
 ~~~
 
 Arch Linux:
 ~~~
-pacman -S git meson flac glibc libgl mpg123 libvorbis libx11 sdl3 vulkan-headers glslang spirv-tools
+pacman -S git meson ninja gcc flac glibc libgl mpg123 libvorbis libx11 sdl3 vulkan-headers glslang spirv-tools
 ~~~
 
 Fedora:
 ~~~
-dnf install git meson gcc glslang spirv-tools vulkan-loader-devel SDL3-devel mpg123-devel libvorbis-devel flac-devel opusfile-devel
+dnf install git meson ninja-build gcc gcc-c++ glslang spirv-tools vulkan-loader-devel SDL3-devel mpg123-devel libvorbis-devel flac-devel opusfile-devel
 ~~~
 
 On distributions that do not ship SDL3 yet, install the SDL2 development package instead (e.g. `libsdl2-dev`); the build falls back to SDL2 automatically.
@@ -171,6 +175,8 @@ Now go to the Quake directory and compile the executable:
 cd vkQuake
 meson build -Ddebug=true -Dstrip=false && ninja -C build
 ~~~
+
+The embedded map tools require a C++ compiler with matching C++ standard library and threading headers. On Ubuntu, the `g++` package supplies them. If another compiler on your PATH lacks its standard library, configure with a complete compiler explicitly, for example `CXX=/usr/bin/g++ meson setup build`. Meson caches the compiler when a build directory is created; use a new build directory when changing compilers.
 
 Meson prefers SDL3 and falls back to SDL2 if it is not installed; add `-Duse_sdl3=disabled` to force SDL2 (or `enabled` to require SDL3).
 

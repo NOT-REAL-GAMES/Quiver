@@ -30,6 +30,15 @@ Misc/vq_pak/mkpak
 Misc/vq_pak/*.exe
 Misc/vq_pak/*.dSYM
 build/
+Quake/.editor-tools/
+Quake/editor_defaults.wad
+Quake/quiverscript
+Quake/fteqcc
+Quake/quiverscript.exe
+Quake/fteqcc.exe
+Quake/id1-quakec/
+Quake/quiver_ripple/
+tests/__pycache__/
 .settings
 .project
 .cproject

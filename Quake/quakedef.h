@@ -92,7 +92,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // per-level limits
 //
 #define MIN_EDICTS 256	 // johnfitz -- lowest allowed value for max_edicts cvar
-#define MAX_EDICTS 32000 // johnfitz -- highest allowed value for max_edicts cvar
+#define MAX_EDICTS 1048576 // highest allowed value for max_edicts cvar
 
 // Keep normally freed edicts unavailable for reuse until they reach this age.
 #define MIN_EDICT_AGE_FOR_REUSE 0.5

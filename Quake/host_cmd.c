@@ -1648,7 +1648,7 @@ static void Host_Map_f (void)
 			*p = '\0';
 	}
 	PR_SwitchQCVM (&sv.qcvm);
-	SV_SpawnServer (name);
+	SV_SpawnServer (name, false);
 	PR_SwitchQCVM (NULL);
 	if (!sv.active)
 	{
@@ -1747,7 +1747,7 @@ static void Host_Changelevel_f (void)
 	PR_SwitchQCVM (&sv.qcvm);
 	SV_SaveSpawnparms ();
 	q_strlcpy (level, Cmd_Argv (1), sizeof (level));
-	SV_SpawnServer (level);
+	SV_SpawnServer (level, false);
 	PR_SwitchQCVM (NULL);
 	// also issue an error if spawn failed -- O.S.
 	if (!sv.active)
@@ -1780,7 +1780,7 @@ static void Host_Restart_f (void)
 
 	q_strlcpy (mapname, sv.name, sizeof (mapname)); // mapname gets cleared in spawnserver
 	PR_SwitchQCVM (&sv.qcvm);
-	SV_SpawnServer (mapname);
+	SV_SpawnServer (mapname, false);
 	PR_SwitchQCVM (NULL);
 	if (!sv.active)
 		Host_Error ("cannot restart map %s", mapname);
@@ -2508,7 +2508,7 @@ static void Host_Loadgame_f (void)
 	PR_SwitchQCVM (&sv.qcvm);
 
 	if (!fastload)
-		SV_SpawnServer (mapname);
+		SV_SpawnServer (mapname, true);
 
 	if (!sv.active)
 	{
@@ -2709,6 +2709,7 @@ static void Host_Loadgame_f (void)
 	// The loading process purposefully bypassed the free-list
 	// usage, so rebuild it now
 	ED_RebuildFreeList (true);
+	ED_ECSReset ();
 
 	if (fastload)
 	{

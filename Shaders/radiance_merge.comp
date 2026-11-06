@@ -1,0 +1,83 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "radiance_cascades.glsl"
+
+/* Dispatch one invocation per interval. Dispatch levels from farthest to
+ * nearest with a compute shader write->read barrier between levels. */
+layout (local_size_x = 64) in;
+layout (push_constant) uniform RCWork { uint level; uint first; uint count; uint flags; } rcWork;
+
+void main ()
+{
+	uint invocation = gl_GlobalInvocationID.x;
+	if (invocation >= rcWork.count || rcWork.level >= RC_LEVELS) return;
+	RCCascade nearLevel = rcLevels[rcWork.level];
+	uint localIndex = rcWork.first + invocation;
+	if (localIndex < rcWork.first) return;
+	uvec3 nearCell; uvec2 nearDirection;
+	uint outputIndex;
+	if (!RC_DecodeWork (nearLevel, localIndex, rcWork.flags, nearCell, nearDirection, outputIndex)) return;
+	if (rcRawValid[outputIndex] == 0u)
+	{
+		rcMergedValid[outputIndex] = 0u;
+		return;
+	}
+	vec4 nearValue = rcRaw[outputIndex];
+	float nearDistance = rcRawDistance[outputIndex];
+	if (rcWork.level + 1u >= RC_LEVELS || nearValue.a <= 0.0)
+	{
+		rcMerged[outputIndex] = nearValue;
+		rcMergedDistance[outputIndex] = nearDistance;
+		rcMergedValid[outputIndex] = 1u;
+		return;
+	}
+	vec3 point = RC_ProbePosition (nearLevel, nearCell);
+	RCCascade farLevel = rcLevels[rcWork.level + 1u];
+	vec3 coordinate = (point - farLevel.origin_spacing.xyz) / farLevel.origin_spacing.w - vec3 (0.5);
+	ivec3 lower = ivec3 (floor (coordinate));
+	vec3 fraction = fract (coordinate);
+	vec4 farValue = vec4 (0.0);
+	float weightSum = 0.0;
+	float farDistance = RC_NO_HIT;
+	for (uint corner = 0u; corner < 8u; ++corner)
+	{
+		uvec3 delta = uvec3 (corner & 1u, (corner >> 1u) & 1u, (corner >> 2u) & 1u);
+		ivec3 integerCell = clamp (lower + ivec3 (delta), ivec3 (0), ivec3 (farLevel.meta.x) - ivec3 (1));
+		vec3 factor = mix (vec3 (1.0) - fraction, fraction, vec3 (delta));
+		float spatialWeight = factor.x * factor.y * factor.z;
+		if (spatialWeight <= 0.0) continue;
+		/* The far interval's hit distance is measured from its own probe,
+		 * not this near probe. The triangle inequality gives a conservative
+		 * lower bound in the near probe's coordinate frame. */
+		float probeOffset = distance (point, RC_ProbePosition (farLevel, uvec3 (integerCell)));
+		for (uint child = 0u; child < 4u; ++child)
+		{
+			uvec2 childDirection = nearDirection * 2u + uvec2 (child & 1u, child >> 1u);
+			uint farIndex = RC_RecordIndex (farLevel, uvec3 (integerCell), childDirection);
+			if (farIndex == RC_ABSENT || farIndex >= rcMergedValid.length () || farIndex >= rcMerged.length () ||
+				farIndex >= rcMergedDistance.length () || rcMergedValid[farIndex] == 0u) continue;
+			float weight = spatialWeight * 0.25;
+			farValue += rcMerged[farIndex] * weight;
+			farDistance = min (farDistance, max (0.0, rcMergedDistance[farIndex] - probeOffset));
+			weightSum += weight;
+		}
+	}
+	if (weightSum >= 0.9999)
+	{
+		farValue /= weightSum;
+		rcMerged[outputIndex] = RC_Compose (nearValue, farValue);
+		/* This near interval was traced clear through interval.y. A
+		 * neighboring far probe's conservative distance may shrink below
+		 * that bound after origin translation; it cannot invalidate the
+		 * directly observed clear segment of this ray. */
+		rcMergedDistance[outputIndex] = min (nearDistance, max (nearLevel.interval.y, farDistance));
+	}
+	else
+	{
+		/* Missing far coverage is unknown, not black or opaque. Receivers
+		 * reject this interval and use runtime direct lighting until it exists. */
+		rcMergedValid[outputIndex] = 0u;
+		return;
+	}
+	rcMergedValid[outputIndex] = 1u;
+}

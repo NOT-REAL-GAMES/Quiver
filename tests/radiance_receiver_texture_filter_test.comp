@@ -1,0 +1,138 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Run the production texture filter and forward gather against controlled
+ * geometry. Unused parts of the larger target deliberately contain data. */
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+#include "radiance_receiver_scale.glsl"
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+struct Cascade { vec4 origin_spacing; } rcLevels[1];
+uvec2 ids[1024]; uint statuses[49]; vec3 positions[49],normals[49]; vec4 fields[147];
+uint badFetch;
+ivec2 activeExtent() { return RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z); }
+int indexOf(ivec2 p) {
+    if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,activeExtent()))) { ++badFetch; return 0; }
+    return p.y*7+p.x;
+}
+uvec2 RC_ResolveID(ivec2 p) {
+    if(any(lessThan(p,rcReceiver.viewport.xy)) || any(greaterThanEqual(p,rcReceiver.viewport.xy+rcReceiver.viewport.zw))) { ++badFetch; return uvec2(0); }
+    return ids[p.y*32+p.x];
+}
+uint RC_ResolveStatus(ivec2 p) { return statuses[indexOf(p)]&3u; }
+vec3 RC_ResolvePosition(ivec2 p) { return positions[indexOf(p)]; }
+vec3 RC_ResolveNormal(ivec2 p) { return normals[indexOf(p)]; }
+vec4 RC_ResolveValue(ivec2 p,uint field) { return fields[int(field)*49+indexOf(p)]; }
+#define RC_RECEIVER_RESOLVE_TEST 1
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#include "radiance_receiver_resolve.glsl"
+#include "radiance_receiver_texture_filter.glsl"
+void reset(float strength,bool checker) {
+    rcReceiver.viewport=ivec4(3,1,13,13); rcReceiver.normalThreshold=vec4(.99,.01,2,0);
+    rcLighting.receiver_filter=vec4(strength,checker?1:0,1,0); rcLevels[0].origin_spacing=vec4(0,0,0,4);
+    badFetch=0u;
+    for(int i=0;i<1024;++i) ids[i]=uvec2(1);
+    for(int y=0;y<7;++y) for(int x=0;x<7;++x) {
+        int i=y*7+x; statuses[i]=5u; positions[i]=vec3(x,y,0); normals[i]=vec3(0,0,1);
+        for(uint f=0u;f<3u;++f) {
+            bool sampled=!checker || RC_CheckerHasSample(ivec2(x,y),f);
+            fields[int(f)*49+i]=vec4(vec3(1+f),sampled?1:0);
+        }
+    }
+}
+void blackIndirect() { for(int i=0;i<49;++i) fields[49+i].rgb=vec3(0); }
+void setID(ivec2 cell,uvec2 id) {
+    ivec2 p=rcReceiver.viewport.xy+RC_ReceiverFirstPixel(cell,rcReceiver.normalThreshold.z); ids[p.y*32+p.x]=id;
+}
+bool filtered(ivec2 p,out vec3 value) { return RC_TextureFilterIndirect(p,activeExtent(),value); }
+bool near(vec3 a,vec3 b) { return all(lessThan(abs(a-b),vec3(.0002))); }
+void main() {
+    vec3 value,direct,minimum;
+    reset(1,false);
+    bool ok=filtered(ivec2(2),value) && near(value,vec3(2));
+    rcLighting.receiver_filter.x=2;
+    ok=ok && filtered(ivec2(2),value) && near(value,vec3(2));
+    blackIndirect();
+    result[0]=uint(ok && filtered(ivec2(2),value) && value==vec3(0) && badFetch==0u);
+
+    reset(1,false); fields[49+16].a=0;
+    ok=!filtered(ivec2(2),value);
+    reset(2,true); fields[49+17].a=0;
+    result[1]=uint(ok && !filtered(ivec2(3,2),value));
+
+    reset(0,true);
+    fields[49+15].rgb=vec3(2); fields[49+17].rgb=vec3(4);
+    fields[49+9].rgb=vec3(6); fields[49+23].rgb=vec3(8);
+    result[2]=uint(filtered(ivec2(2),value) && near(value,vec3(5)) && badFetch==0u);
+
+    reset(2,true);
+    for(int i=0;i<49;++i) fields[49+i].a=0;
+    result[3]=uint(!filtered(ivec2(2),value));
+
+    reset(2,false); blackIndirect(); fields[49+18].rgb=vec3(100); setID(ivec2(4,2),uvec2(2));
+    result[4]=uint(filtered(ivec2(2),value) && value==vec3(0));
+
+    reset(2,false); blackIndirect(); fields[49+18].rgb=vec3(100); normals[18]=vec3(1,0,0);
+    result[5]=uint(filtered(ivec2(2),value) && value==vec3(0));
+
+    reset(2,false); blackIndirect(); fields[49+18].rgb=vec3(100); normals[18]=normalize(vec3(.1,0,1));
+    result[6]=uint(filtered(ivec2(2),value) && value==vec3(0)); /* symmetric plane test */
+
+    reset(2,false); blackIndirect(); fields[49+18].rgb=vec3(100); positions[18]=vec3(100,2,0);
+    result[7]=uint(filtered(ivec2(2),value) && value==vec3(0));
+
+    reset(2,false); blackIndirect(); fields[49+18].rgb=vec3(100); statuses[17]=2u;
+    ok=filtered(ivec2(2),value) && value==vec3(0);
+    statuses[17]=0u; ok=ok && filtered(ivec2(2),value) && value==vec3(0);
+    statuses[17]=1u; fields[49+17].a=0;
+    result[8]=uint(ok && filtered(ivec2(2),value) && value==vec3(0));
+
+    reset(2,false); setID(ivec2(3,2),uvec2(8,9));
+    ok=RC_ReceiverGuidesCompatible(ivec2(2),ivec2(3,2),activeExtent());
+    ivec2 parityPixel=rcReceiver.viewport.xy+ivec2(4);
+    ok=ok && !RC_ReceiverIndirect(parityPixel,uvec2(8,9),vec3(2,2,0),vec3(0,0,1),value);
+    setID(ivec2(3,2),uvec2(0));
+    result[9]=uint(ok && !RC_ReceiverGuidesCompatible(ivec2(2),ivec2(3,2),activeExtent()));
+
+    ok=true;
+    for(int divisor=1;divisor<=4;++divisor) {
+        reset(2,false); rcReceiver.normalThreshold.z=divisor; rcReceiver.viewport.zw=ivec2(2*divisor+1);
+        for(int y=0;y<7;++y) for(int x=0;x<7;++x) if(x>=3 || y>=3) fields[49+y*7+x].rgb=vec3(1000);
+        ok=ok && filtered(ivec2(2),value) && near(value,vec3(2));
+        ivec2 pixel=rcReceiver.viewport.xy+ivec2(2*divisor);
+        ok=ok && RC_ReceiverIndirect(pixel,uvec2(1),vec3(2,2,0),vec3(0,0,1),value) && near(value,vec3(2)) && badFetch==0u;
+    }
+    result[10]=uint(ok);
+
+    reset(1,false);
+    fields[49]=vec4(vec3(1),1); fields[50]=vec4(vec3(2),1); fields[56]=vec4(vec3(3),1);
+    fields[0]=vec4(vec3(10),1); fields[1]=vec4(vec3(20),1); fields[7]=vec4(vec3(30),1);
+    fields[98]=vec4(vec3(1),1); fields[99]=vec4(vec3(2),1); fields[105]=vec4(vec3(3),1); statuses[8]=2u;
+    ivec2 pixel=rcReceiver.viewport.xy+ivec2(1);
+    ok=RC_ReceiverIndirect(pixel,uvec2(1),vec3(.5,.5,0),vec3(0,0,1),value) && near(value,vec3(2));
+    result[11]=uint(ok && RC_ReceiverDirect(pixel,uvec2(1),vec3(.5,.5,0),vec3(0,0,1),direct,minimum) &&
+        near(direct,vec3(20)) && near(minimum,vec3(2)));
+
+    reset(1,false); for(int i=0;i<49;++i) fields[49+i].a=0;
+    pixel=rcReceiver.viewport.xy+ivec2(1);
+    result[12]=uint(!RC_ReceiverIndirect(pixel,uvec2(1),vec3(.5,.5,0),vec3(0,0,1),value) && value==vec3(0));
+
+    reset(2,false); fields[49+16].a=0;
+    ok=!filtered(ivec2(2),value);
+    pixel=rcReceiver.viewport.xy+ivec2(4);
+    result[13]=uint(ok && !RC_ReceiverIndirect(pixel,uvec2(1),vec3(2,2,0),vec3(0,0,1),value));
+
+    reset(1,false); fields[49+16].rgb=vec3(uintBitsToFloat(0x7f800000u));
+    ok=!filtered(ivec2(2),value);
+    fields[49+16].rgb=vec3(uintBitsToFloat(0x7fc00000u)); ok=ok && !filtered(ivec2(2),value);
+    fields[49+16].rgb=vec3(70000); ok=ok && !filtered(ivec2(2),value);
+    fields[49+16]=vec4(1); positions[16].z=uintBitsToFloat(0x7fc00000u);
+    result[14]=uint(ok && !filtered(ivec2(2),value));
+
+    reset(2,true); bool dv,mv;
+    RC_CheckerReconstructDirectPair(ivec2(3,2),activeExtent(),direct,dv,minimum,mv);
+    ok=dv && mv && near(direct,vec3(1)) && near(minimum,vec3(3));
+    fields[98+16].a=0;
+    RC_CheckerReconstructDirectPair(ivec2(3,2),activeExtent(),direct,dv,minimum,mv);
+    result[15]=uint(ok && dv && !mv && near(direct,vec3(1)) && minimum==vec3(0));
+}

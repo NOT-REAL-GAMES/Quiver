@@ -1,0 +1,53 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+#ifndef RC_BENCH_SINGLE
+#define RC_BENCH_SINGLE 0
+#endif
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x=64) in;
+layout(std430, set=0, binding=0) buffer Results { vec4 result[]; };
+void main ()
+{
+	uint id=gl_GlobalInvocationID.x;
+	float sum=0;
+#if RC_BENCH_DIRECT || RC_BENCH_FACING
+	RCLight source=RCLight(vec4(0,0,6,200),vec4(1),vec4(0),uvec4(RC_LIGHT_POINT,0,0,0),vec4(0));
+	const uint iterations=4096u;
+#elif RC_BENCH_AREA
+	RCLight source=RCLight(vec4(1.4,.3,6,100),vec4(1),vec4(0,0,1,.2),uvec4(RC_LIGHT_EMISSIVE,0,0,0),vec4(1,0,0,1));
+	const uint iterations=1024u;
+#else
+	const uint iterations=4096u;
+#endif
+	for (uint i=0; i<iterations; ++i)
+	{
+		/* Vary both position and direction. The scene includes a liquid,
+		 * alpha cutout, opaque geometry, a sky portal and BVH internal nodes. */
+		float x=(float((i*17u+id*13u)%190u)+.5)*.01;
+		float y=(float((i*11u+id*7u)%80u)+.5)*.01;
+#if RC_BENCH_FACING
+		source.position_radius.xy=vec2(x,y);
+		vec3 normal=vec3(0,0,((i+id)&1u)==0u ? -1.0 : 1.0);
+		sum+=RC_EvaluateOneLight(source,vec3(x,y,10),normal).r;
+#elif RC_BENCH_DIRECT
+		source.position_radius.xy=vec2(x+((i+id)%4u==0u ? 0.0 : 1000.0),y);
+		sum+=RC_EvaluateOneLight(source,vec3(x,y,10),vec3(0,0,-1)).r;
+#elif RC_BENCH_AREA
+		sum+=RC_EmissiveVisibilitySamples(source,vec3(x,y,10),vec3(0,0,-1), RC_BENCH_SINGLE != 0);
+#else
+		vec3 d=normalize(vec3((float(i%7u)-3.0)*.005, 0, -1));
+		/* The standard fixture places liquid and alpha layers above z=8.
+		 * This variant starts below both, exercising opaque-only traversal. */
+#if RC_BENCH_OPAQUE
+		sum+=float(RC_LightVisible(vec3(x,y,7),vec3(0,0,-1),d,10,false));
+#else
+		sum+=float(RC_LightVisible(vec3(x,y,10),vec3(0,0,-1),d,10,false));
+#endif
+#endif
+	}
+	result[id]=vec4(sum);
+}

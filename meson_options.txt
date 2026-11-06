@@ -1,4 +1,6 @@
 option('use_sdl3', type : 'feature', value : 'auto', description : 'Use SDL3 (auto: prefer SDL3, fall back to SDL2)')
+option('ecs_level_stress', type : 'boolean', value : false, description : 'Build test-only ECS level stress instrumentation')
+option('embedded_maptools', type : 'feature', value : 'enabled', description : 'Embed QBSP, VIS and LIGHT for editor playtesting')
 option('use_codec_wave', type : 'feature', value : 'enabled')
 option('use_codec_mp3', type : 'feature', value : 'auto')
 option('use_codec_flac', type : 'feature', value : 'auto')

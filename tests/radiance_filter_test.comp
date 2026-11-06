@@ -1,0 +1,26 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "radiance_filter.glsl"
+layout(local_size_x = 1) in;
+layout(std430,binding=0) buffer Output { vec4 result[]; };
+float evaluate(float t,float strength,int pattern)
+{
+ int center=int(floor(t+.5)), radius=strength>1.0 ? 2 : 1;
+ float sum=0, total=0;
+ for (int i=center-radius;i<=center+radius;++i) {
+  float w=RC_FilterKernel(vec3(abs(t-float(i))),strength).x;
+  total+=w;
+  float light=pattern==1 && (i&1)!=0 ? 0.0 : 1.0;
+  float visibility=pattern==2 ? 0.0 : pattern==3 && i>=0 ? 0.0 : 1.0;
+  sum+=w*light*visibility;
+ }
+ return sum/total;
+}
+void main() {
+ float s=1.5,t=.37;
+ result[0]=vec4(evaluate(t,s,0),evaluate(t,s,2),evaluate(t,s,3),
+   abs(evaluate(t,.999999,1)-evaluate(t,1.000001,1)));
+ result[1]=vec4(evaluate(0,1,1),evaluate(1,1,1),evaluate(0,2,1),evaluate(1,2,1));
+ result[2]=vec4(abs(evaluate(t,0,1)-evaluate(t,.000001,1)),
+                 abs(evaluate(t,2,1)-evaluate(t,clamp(10.0,0.0,2.0),1)),0,0);
+}

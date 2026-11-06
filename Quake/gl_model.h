@@ -27,6 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "modelgen.h"
 #include "spritegn.h"
 #include "atomics.h"
+#include "static_models.h"
 
 /*
 
@@ -341,6 +342,7 @@ typedef struct mtriangle_s
 
 typedef struct aliashdr_s		  aliashdr_t;
 typedef struct glheapallocation_s glheapallocation_t;
+struct rc_alias_mesh_s;
 
 typedef enum
 {
@@ -393,6 +395,7 @@ typedef struct aliashdr_s
 	int					num_skeleton_indexes;
 	VkBuffer			skeleton_index_buffer;
 	glheapallocation_t *skeleton_index_allocation;
+	struct rc_alias_mesh_s *radiance_mesh; // optional retained MDL/MD3 source
 	maliasframedesc_t	frames[1]; // variable sized
 } aliashdr_t;
 
@@ -622,6 +625,7 @@ typedef struct qmodel_s
 	unsigned int path_id;		// path id of the game directory
 								// that this model came from
 	qboolean	 needload;		// bmodels and sprites don't cache normally
+	qsm_data_t *static_models; // owned only by the compiled world model
 
 	modtype_t  type;
 	int		   numframes;
@@ -733,6 +737,7 @@ void	  Mod_ClearAll (void);
 void	  Mod_ResetAll (void); // for gamedir changes (Host_Game_f)
 qmodel_t *Mod_ForName (const char *name, qboolean crash);
 void	 *Mod_Extradata_CheckSkin (qmodel_t *mod, int skinnum);
+void	 *Mod_Extradata_Exact (qmodel_t *mod, int skinnum);
 void	 *Mod_Extradata (qmodel_t *mod);
 void	  Mod_TouchModel (const char *name);
 void	  Mod_RefreshSkins_f (cvar_t *var);

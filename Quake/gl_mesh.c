@@ -24,6 +24,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "gl_heap.h"
+#include "radiance_alias.h"
+#include "radiance_scene_alias.h"
 
 /*
 =================================================================
@@ -300,8 +302,9 @@ void GLMesh_DeleteMeshBuffers (aliashdr_t *mainhdr)
 	// Delete all surfaces:
 	for (aliashdr_t *hdr = mainhdr; hdr != NULL; hdr = hdr->nextsurface)
 	{
-		if (!hdr || (hdr->vertex_buffer == VK_NULL_HANDLE))
-			return;
+		RCScene_DetachAliasHeader (hdr);
+		if (hdr->vertex_buffer == VK_NULL_HANDLE)
+			continue; /* Other MD3/MD5 surfaces may still own resources. */
 
 		if (in_update_screen)
 		{
@@ -590,6 +593,37 @@ void GLMesh_UploadBuffers (
 		}
 	}
 
+	/* Preserve the exact decoded pose and UV stream for optional radiance
+	 * occluders. Failure leaves ordinary rendering usable. */
+	if (hdr->poseverttype == PV_QUAKE1 || hdr->poseverttype == PV_QUAKE3)
+	{
+		const uint32_t poses = hdr->poseverttype == PV_QUAKE1 ? (uint32_t)hdr->numposes : (uint32_t)hdr->numframes;
+		RCAlias_Destroy (hdr->radiance_mesh);
+		hdr->radiance_mesh = RCAlias_Create (hdr->poseverttype == PV_QUAKE1 ? RC_ALIAS_MDL : RC_ALIAS_MD3,
+			(uint32_t)hdr->numverts_vbo, poses, (uint32_t)hdr->numindexes, vbodata, sizeof (meshxyz_t),
+			vbodata + hdr->vbostofs, sizeof (meshst_t), indexes, hdr->scale, hdr->scale_origin);
+		if (!hdr->radiance_mesh)
+			Con_DPrintf ("Radiance: could not retain alias geometry for %s\n", mod->name);
+	}
+	else if (hdr->poseverttype == PV_MD5 || hdr->poseverttype == PV_MD5_8)
+	{
+		RCAlias_Destroy (hdr->radiance_mesh);
+		hdr->radiance_mesh = NULL;
+		/* One skeletal frame is immutable, but its skinned position need not
+		 * equal the bind-pose xyz. Match the packed renderer weights and the
+		 * absolute frame-zero joints while their upload data is available. */
+		if (hdr->numframes == 1 && hdr->numposes == 1 && hdr->numjoints > 0 && joints)
+		{
+			const bool eight_weights = hdr->poseverttype == PV_MD5_8;
+			hdr->radiance_mesh = RCAlias_CreateSkinnedStatic ((uint32_t)hdr->numverts_vbo,
+				(uint32_t)hdr->numindexes, vertexes, eight_weights ? sizeof (md5vert8_t) : sizeof (md5vert_t),
+				eight_weights ? NUM_JOINT_INFLUENCES_8_WEIGHT : NUM_JOINT_INFLUENCES_4_WEIGHT,
+				(uint32_t)hdr->numjoints, joints[0].mat, indexes);
+			if (!hdr->radiance_mesh)
+				Con_DPrintf ("Radiance: could not retain static MD5 geometry for %s\n", mod->name);
+		}
+	}
+
 	// Allocate vertex buffer & upload to GPU
 	{
 		ZEROED_STRUCT (VkBufferCreateInfo, buffer_create_info);
@@ -732,7 +766,7 @@ void R_AllocateEntityBLAS (entity_t *e)
 	if (modelflags & (EF_ROCKET | EF_GRENADE | EF_TRACER | EF_TRACER2 | EF_TRACER3))
 		return;
 
-	aliashdr_t *hdr = (aliashdr_t *)Mod_Extradata (e->model);
+	aliashdr_t *hdr = e->compiled_instance ? Mod_Extradata_Exact (e->model, e->skinnum) : Mod_Extradata (e->model);
 	if (!hdr)
 		return;
 
@@ -949,7 +983,7 @@ void R_UpdateAnimatedBLASes (cb_context_t *cbx)
 				continue;
 			if ((e->alpha != ENTALPHA_DEFAULT) && (ENTALPHA_DECODE (e->alpha) < 1.0f))
 				continue;
-			aliashdr_t *hdr = (aliashdr_t *)Mod_Extradata (e->model);
+			aliashdr_t *hdr = e->compiled_instance ? Mod_Extradata_Exact (e->model, e->skinnum) : Mod_Extradata (e->model);
 			if (!hdr || hdr->numverts_vbo == 0)
 				continue;
 			if (e->blas_data->model != e->model)
@@ -986,7 +1020,7 @@ void R_UpdateAnimatedBLASes (cb_context_t *cbx)
 			if ((e->alpha != ENTALPHA_DEFAULT) && (ENTALPHA_DECODE (e->alpha) < 1.0f))
 				continue;
 
-			aliashdr_t *hdr = (aliashdr_t *)Mod_Extradata (e->model);
+			aliashdr_t *hdr = e->compiled_instance ? Mod_Extradata_Exact (e->model, e->skinnum) : Mod_Extradata (e->model);
 			if (!hdr || hdr->numverts_vbo == 0)
 				continue;
 

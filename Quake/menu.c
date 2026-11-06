@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "bgmusic.h"
 #include "in_sdl.h"
 #include "r_ssao.h"
+#include "radiance_runtime.h"
 
 void (*vid_menucmdfn) (void); // johnfitz
 void (*vid_menukeyfn) (int key);
@@ -2189,6 +2190,7 @@ enum
 	GRAPHICS_OPT_MODEL_INTERPOLATION,
 	GRAPHICS_OPT_PARTICLES,
 	GRAPHICS_OPT_SOFT_PARTICLES,
+	GRAPHICS_OPT_RADIANCE,
 	GRAPHICS_OPT_SHADOWS,
 	GRAPHICS_OPT_AMBIENT_OCCLUSION,
 	GRAPHICS_OPTIONS_ITEMS,
@@ -2357,6 +2359,9 @@ static void M_GraphicsOptions_AdjustSliders (int dir, qboolean mouse)
 
 	case GRAPHICS_OPT_SOFT_PARTICLES:
 		Cvar_SetValueQuick (&r_softparticles, !r_softparticles.value);
+		break;
+	case GRAPHICS_OPT_RADIANCE:
+		Cvar_SetValueQuick (&r_radiance, !r_radiance.value);
 		break;
 	case GRAPHICS_OPT_SHADOWS:
 		if (vulkan_globals.ray_query)
@@ -2546,6 +2551,10 @@ static void M_GraphicsOptions_Draw (cb_context_t *cbx)
 	M_PreviewRow (cbx, GRAPHICS_OPT_SOFT_PARTICLES, top + CHARACTER_SIZE * GRAPHICS_OPT_SOFT_PARTICLES);
 	M_Print (cbx, MENU_LABEL_X, top + CHARACTER_SIZE * GRAPHICS_OPT_SOFT_PARTICLES, "Soft Particles");
 	M_DrawCheckbox (cbx, MENU_VALUE_X, top + CHARACTER_SIZE * GRAPHICS_OPT_SOFT_PARTICLES, r_softparticles.value);
+
+	M_PreviewRow (cbx, GRAPHICS_OPT_RADIANCE, top + CHARACTER_SIZE * GRAPHICS_OPT_RADIANCE);
+	M_Print (cbx, MENU_LABEL_X, top + CHARACTER_SIZE * GRAPHICS_OPT_RADIANCE, "Radiance GI");
+	M_Print (cbx, MENU_VALUE_X, top + CHARACTER_SIZE * GRAPHICS_OPT_RADIANCE, R_RadianceMenuStatus ());
 
 	if (vulkan_globals.screen_effects_sops && !vulkan_globals.ssao_broken)
 	{

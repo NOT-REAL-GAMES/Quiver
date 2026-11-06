@@ -26,6 +26,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "r_ssao.h"
 #include "gl_heap.h"
+#include "meshlet_hiz.h"
+#include "radiance_runtime.h"
+#include "radiance_graphics.h"
+#include "radiance_receiver_live.h"
+#include "radiance_receiver_experimental.h"
+#include "radiance_receiver_diagnostics.h"
+#include "vulkan_shader_transaction.h"
 #include <float.h>
 
 cvar_t r_lodbias = {"r_lodbias", "1", CVAR_ARCHIVE};
@@ -45,6 +52,8 @@ extern cvar_t r_waterwarpcompute;
 extern cvar_t r_oldskyleaf;
 extern cvar_t r_drawworld;
 extern cvar_t r_showtris;
+extern cvar_t r_ecs_batch;
+extern cvar_t r_ecs_gpu_cull;
 extern cvar_t r_showskel;
 extern cvar_t r_showbboxes;
 extern cvar_t r_showbboxes_think;
@@ -65,6 +74,7 @@ extern cvar_t r_alphasort;
 extern cvar_t r_gpulightmapupdate;
 extern cvar_t r_rtshadows;
 extern cvar_t r_indirect;
+extern cvar_t r_meshlets, r_meshlet_occlusion, r_meshlet_occlusion_stats, r_meshlet_task;
 extern cvar_t r_tasks;
 extern cvar_t r_parallelmark;
 
@@ -163,6 +173,7 @@ static dynbuffer_t	   dyn_index_buffers[NUM_DYNAMIC_BUFFERS];
 static dynbuffer_t	   dyn_uniform_buffers[NUM_DYNAMIC_BUFFERS];
 static dynbuffer_t	   dyn_storage_buffers[NUM_DYNAMIC_BUFFERS];
 static int			   current_dyn_buffer_index = 0;
+int R_ECSGPUFrameIndex (void) { return current_dyn_buffer_index; }
 static VkDescriptorSet ubo_descriptor_sets[2];
 
 static int				current_garbage_index = 0;
@@ -180,7 +191,7 @@ void R_VulkanMemStats_f (void);
 GL_MemoryTypeFromProperties
 ================
 */
-int GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask)
+int GL_TryMemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask)
 {
 	uint32_t current_type_bits = type_bits;
 	uint32_t i;
@@ -206,8 +217,14 @@ int GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, 
 		current_type_bits >>= 1;
 	}
 
-	Sys_Error ("Could not find memory type");
-	return 0;
+	return -1;
+}
+
+int GL_MemoryTypeFromProperties (uint32_t type_bits, VkFlags requirements_mask, VkFlags preferred_mask)
+{
+	int type = GL_TryMemoryTypeFromProperties (type_bits, requirements_mask, preferred_mask);
+	if (type < 0) Sys_Error ("Could not find memory type");
+	return type;
 }
 
 /*
@@ -1637,6 +1654,22 @@ void R_CreateDescriptorSetLayouts ()
 	}
 
 	{
+		VkDescriptorSetLayoutBinding bindings[3] = {0};
+		for (uint32_t i = 0; i < countof (bindings); ++i)
+		{
+			bindings[i].binding = i;
+			bindings[i].descriptorCount = 1;
+			bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		}
+		VkDescriptorSetLayoutCreateInfo info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.bindingCount = countof (bindings), .pBindings = bindings};
+		vulkan_globals.ecs_cull_set_layout.num_storage_buffers = countof (bindings);
+		if (vkCreateDescriptorSetLayout (vulkan_globals.device, &info, NULL, &vulkan_globals.ecs_cull_set_layout.handle) != VK_SUCCESS)
+			vulkan_globals.ecs_cull_set_layout.handle = VK_NULL_HANDLE;
+	}
+
+	{
 		ZEROED_STRUCT_ARRAY (VkDescriptorSetLayoutBinding, bmodel_instances_layout_bindings, 2);
 		bmodel_instances_layout_bindings[0].binding = 0;
 		bmodel_instances_layout_bindings[0].descriptorCount = 1;
@@ -1658,6 +1691,21 @@ void R_CreateDescriptorSetLayouts ()
 			Sys_Error ("vkCreateDescriptorSetLayout failed with code %i", (int)err);
 		GL_SetObjectName ((uint64_t)vulkan_globals.bmodel_instances_set_layout.handle, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "bmodel instances");
 	}
+
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	if (vulkan_globals.mesh_shader)
+	{
+		VkDescriptorSetLayoutBinding bindings[4];
+		for (uint32_t i = 0; i < countof (bindings); ++i)
+			bindings[i] = (VkDescriptorSetLayoutBinding){i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+				VK_SHADER_STAGE_MESH_BIT_EXT | (vulkan_globals.task_shader ? VK_SHADER_STAGE_TASK_BIT_EXT : 0), NULL};
+		VkDescriptorSetLayoutCreateInfo info = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = countof (bindings), .pBindings = bindings};
+		vulkan_globals.world_mesh_set_layout.num_storage_buffers = countof (bindings);
+		if (vkCreateDescriptorSetLayout (vulkan_globals.device, &info, NULL, &vulkan_globals.world_mesh_set_layout.handle) != VK_SUCCESS)
+			vulkan_globals.world_mesh_set_layout.handle = VK_NULL_HANDLE;
+	}
+#endif
 
 	if (vulkan_globals.ray_query)
 	{
@@ -1711,11 +1759,16 @@ R_CreateDescriptorPool
 */
 void R_CreateDescriptorPool ()
 {
+	/* Scene-descriptor updates create a replacement set before freeing the old
+	 * one. Reserve space for its maximum temporary footprint (upscale,
+	 * postprocess, one OIT mode, screen effects and debug ray output). */
+	enum { SCENE_REPLACEMENT_SETS = 5, SCENE_REPLACEMENT_COMBINED = 3,
+		SCENE_REPLACEMENT_STORAGE = 2, SCENE_REPLACEMENT_INPUT = 4 };
 	ZEROED_STRUCT_ARRAY (VkDescriptorPoolSize, pool_sizes, 9);
 	pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	pool_sizes[0].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + (MAX_SANITY_LIGHTMAPS * 2) + (MAX_GLTEXTURES + 1);
+	pool_sizes[0].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + (MAX_SANITY_LIGHTMAPS * 2) + (MAX_GLTEXTURES + 1) + SCENE_REPLACEMENT_COMBINED;
 	pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	pool_sizes[1].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + MAX_GLTEXTURES + MAX_SANITY_LIGHTMAPS;
+	pool_sizes[1].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + MAX_GLTEXTURES + MAX_SANITY_LIGHTMAPS + SCENE_REPLACEMENT_STORAGE;
 	pool_sizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
 	pool_sizes[2].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE;
 	pool_sizes[3].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -1725,7 +1778,7 @@ void R_CreateDescriptorPool ()
 	pool_sizes[5].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	pool_sizes[5].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + (MAX_SANITY_LIGHTMAPS * 2);
 	pool_sizes[6].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-	pool_sizes[6].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE;
+	pool_sizes[6].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + SCENE_REPLACEMENT_INPUT;
 	pool_sizes[7].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	pool_sizes[7].descriptorCount = MIN_NB_DESCRIPTORS_PER_TYPE + (1 + MAXLIGHTMAPS * 3 / 4) * MAX_SANITY_LIGHTMAPS;
 	pool_sizes[8].type = VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -1733,7 +1786,7 @@ void R_CreateDescriptorPool ()
 
 	ZEROED_STRUCT (VkDescriptorPoolCreateInfo, descriptor_pool_create_info);
 	descriptor_pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	descriptor_pool_create_info.maxSets = MAX_GLTEXTURES + MAX_SANITY_LIGHTMAPS + 128;
+	descriptor_pool_create_info.maxSets = MAX_GLTEXTURES + MAX_SANITY_LIGHTMAPS + 128 + SCENE_REPLACEMENT_SETS;
 	descriptor_pool_create_info.poolSizeCount = countof (pool_sizes);
 	descriptor_pool_create_info.pPoolSizes = pool_sizes;
 	descriptor_pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -1835,6 +1888,35 @@ void R_CreatePipelineLayouts ()
 		vulkan_globals.world_pipeline_layout.push_constant_range = push_constant_range;
 		vulkan_globals.world_pipeline_layout.mboit_input_attachment_set = 3;
 	}
+
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	if (vulkan_globals.mesh_shader && vulkan_globals.world_mesh_set_layout.handle)
+	{
+		VkDescriptorSetLayout layouts[] = {
+			vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle, vulkan_globals.single_texture_set_layout.handle,
+			vulkan_globals.mboit_input_attachment_set_layout.handle, vulkan_globals.world_mesh_set_layout.handle};
+		VkPushConstantRange range = {VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, 128};
+		VkPipelineLayoutCreateInfo info = {
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.setLayoutCount = countof (layouts), .pSetLayouts = layouts, .pushConstantRangeCount = 1, .pPushConstantRanges = &range};
+		if (vkCreatePipelineLayout (vulkan_globals.device, &info, NULL, &vulkan_globals.world_mesh_pipeline_layout.handle) == VK_SUCCESS)
+		{
+			vulkan_globals.world_mesh_pipeline_layout.push_constant_range = range;
+			vulkan_globals.world_mesh_pipeline_layout.mboit_input_attachment_set = 3;
+		}
+#if defined(HAVE_WORLD_TASK_SHADER)
+		if (vulkan_globals.task_shader)
+		{
+			range.stageFlags |= VK_SHADER_STAGE_TASK_BIT_EXT;
+			if (vkCreatePipelineLayout (vulkan_globals.device, &info, NULL, &vulkan_globals.world_task_pipeline_layout.handle) == VK_SUCCESS)
+			{
+				vulkan_globals.world_task_pipeline_layout.push_constant_range = range;
+				vulkan_globals.world_task_pipeline_layout.mboit_input_attachment_set = 3;
+			}
+		}
+#endif
+	}
+#endif
 
 	{
 		// Alias
@@ -2063,7 +2145,7 @@ void R_CreatePipelineLayouts ()
 
 		ZEROED_STRUCT (VkPushConstantRange, push_constant_range);
 		push_constant_range.offset = 0;
-		push_constant_range.size = 3 * sizeof (uint32_t) + 9 * sizeof (float);
+		push_constant_range.size = 3 * sizeof (uint32_t) + 10 * sizeof (float);
 		push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
 		ZEROED_STRUCT (VkPipelineLayoutCreateInfo, pipeline_layout_create_info);
@@ -2206,6 +2288,40 @@ void R_CreatePipelineLayouts ()
 			Sys_Error ("vkCreatePipelineLayout failed with code %i", (int)err);
 		GL_SetObjectName ((uint64_t)vulkan_globals.indirect_clear_pipeline.layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "indirect_clear_pipeline_layout");
 		vulkan_globals.indirect_clear_pipeline.layout.push_constant_range = push_constant_range;
+
+		// Same storage-buffer layout, but cull whole meshlets against the view frustum.
+		push_constant_range.size = 96;
+		err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.meshlet_cull_pipeline.layout.handle);
+		if (err == VK_SUCCESS)
+		{
+			vulkan_globals.meshlet_cull_pipeline.layout.push_constant_range = push_constant_range;
+			GL_SetObjectName ((uint64_t)vulkan_globals.meshlet_cull_pipeline.layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "meshlet_cull_layout");
+
+			VkDescriptorSetLayout layouts[2] = {indirect_draw_descriptor_set_layouts[0], MLHiZ_Layout ()};
+			if (layouts[1])
+			{
+				pipeline_layout_create_info.setLayoutCount = countof (layouts);
+				pipeline_layout_create_info.pSetLayouts = layouts;
+				err = vkCreatePipelineLayout (vulkan_globals.device, &pipeline_layout_create_info, NULL, &vulkan_globals.meshlet_hiz_pipeline.layout.handle);
+				if (err == VK_SUCCESS)
+				{
+					vulkan_globals.meshlet_hiz_pipeline.layout.push_constant_range = push_constant_range;
+					GL_SetObjectName ((uint64_t)vulkan_globals.meshlet_hiz_pipeline.layout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "meshlet_hiz_layout");
+				}
+			}
+		}
+		else
+			Sys_Printf ("Meshlet pipeline layout unavailable (%i); using stock BSP renderer\n", err);
+	}
+
+	if (vulkan_globals.ecs_cull_set_layout.handle)
+	{
+		VkPushConstantRange range = {.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = 96};
+		VkPipelineLayoutCreateInfo info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+			.setLayoutCount = 1, .pSetLayouts = &vulkan_globals.ecs_cull_set_layout.handle,
+			.pushConstantRangeCount = 1, .pPushConstantRanges = &range};
+		if (vkCreatePipelineLayout (vulkan_globals.device, &info, NULL, &vulkan_globals.ecs_cull_pipeline.layout.handle) == VK_SUCCESS)
+			vulkan_globals.ecs_cull_pipeline.layout.push_constant_range = range;
 	}
 
 	if (vulkan_globals.ray_query)
@@ -2478,7 +2594,7 @@ void R_InitSamplers ()
 R_CreateShaderModule
 ===============
 */
-static VkShaderModule R_CreateShaderModule (const byte *code, const int size, const char *name)
+static VkShaderModule R_TryCreateShaderModule (const byte *code, const int size, const char *name)
 {
 	ZEROED_STRUCT (VkShaderModuleCreateInfo, module_create_info);
 	module_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -2489,16 +2605,31 @@ static VkShaderModule R_CreateShaderModule (const byte *code, const int size, co
 	VkShaderModule module;
 	VkResult	   err = vkCreateShaderModule (vulkan_globals.device, &module_create_info, NULL, &module);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateShaderModule failed with code %i", (int)err);
+	{
+		Sys_Printf ("vkCreateShaderModule failed (%s) with code %i\n", name, (int)err);
+		return VK_NULL_HANDLE;
+	}
 
 	GL_SetObjectName ((uint64_t)module, VK_OBJECT_TYPE_SHADER_MODULE, name);
 
 	return module;
 }
 
+static VkShaderModule R_CreateShaderModuleForTransaction (void *context, const unsigned char *code, int size, const char *name)
+{
+	(void)context;
+	return R_TryCreateShaderModule (code, size, name);
+}
+
+static void R_DestroyShaderModuleForTransaction (void *context, VkShaderModule module)
+{
+	(void)context;
+	vkDestroyShaderModule (vulkan_globals.device, module, NULL);
+}
+
 typedef struct pipeline_create_infos_s
 {
-	VkPipelineShaderStageCreateInfo		   shader_stages[2];
+	VkPipelineShaderStageCreateInfo		   shader_stages[3];
 	VkPipelineDynamicStateCreateInfo	   dynamic_state;
 	VkDynamicState						   dynamic_states[3];
 	VkPipelineVertexInputStateCreateInfo   vertex_input_state;
@@ -2510,6 +2641,7 @@ typedef struct pipeline_create_infos_s
 	VkPipelineColorBlendStateCreateInfo	   color_blend_state;
 	VkPipelineColorBlendAttachmentState	   blend_attachment_states[3];
 	VkGraphicsPipelineCreateInfo		   graphics_pipeline;
+	qboolean							   skip_ssao_stencil;
 } pipeline_create_infos_t;
 
 static VkVertexInputAttributeDescription basic_vertex_input_attribute_descriptions[3];
@@ -2526,16 +2658,16 @@ static VkVertexInputAttributeDescription md5_8_vertex_input_attribute_descriptio
 static VkVertexInputBindingDescription	 md5_8_vertex_binding_description;
 
 #define DECLARE_SHADER_MODULE(name) static VkShaderModule name##_module
-#define CREATE_SHADER_MODULE(name)                                                 \
-	do                                                                             \
-	{                                                                              \
-		name##_module = R_CreateShaderModule (name##_spv, name##_spv_size, #name); \
+#define CREATE_SHADER_MODULE_CODE(name, code_name, required)                                               \
+	do                                                                                                    \
+	{                                                                                                     \
+		if (!ShaderTransaction_Create (&transaction, &name##_module, code_name##_spv, code_name##_spv_size, \
+			#code_name, required))                                                                        \
+			goto fail;                                                                                \
 	} while (0)
-#define CREATE_SHADER_MODULE_COND(name, cond)                                                              \
-	do                                                                                                     \
-	{                                                                                                      \
-		name##_module = cond ? R_CreateShaderModule (name##_spv, name##_spv_size, #name) : VK_NULL_HANDLE; \
-	} while (0)
+#define CREATE_SHADER_MODULE(name) CREATE_SHADER_MODULE_CODE (name, name, true)
+#define CREATE_SHADER_MODULE_COND(name, cond) do { if (cond) CREATE_SHADER_MODULE (name); } while (0)
+#define CREATE_SHADER_MODULE_OPTIONAL(name, cond) do { if (cond) CREATE_SHADER_MODULE_CODE (name, name, false); } while (0)
 #define DESTROY_SHADER_MODULE(name)                                             \
 	do                                                                          \
 	{                                                                           \
@@ -2566,6 +2698,7 @@ DECLARE_SHADER_MODULE (world_mboit_moment_frag);
 DECLARE_SHADER_MODULE (world_mboit_composite_frag);
 DECLARE_SHADER_MODULE (world_mboit_composite_msaa_frag);
 DECLARE_SHADER_MODULE (alias_vert);
+DECLARE_SHADER_MODULE (alias_instanced_vert);
 DECLARE_SHADER_MODULE (alias_frag);
 DECLARE_SHADER_MODULE (alias_alphatest_frag);
 DECLARE_SHADER_MODULE (alias_oit_frag);
@@ -2609,9 +2742,20 @@ DECLARE_SHADER_MODULE (mboit_resolve_frag);
 DECLARE_SHADER_MODULE (mboit_resolve_msaa_frag);
 DECLARE_SHADER_MODULE (screen_effects_8bit_comp);
 DECLARE_SHADER_MODULE (screen_effects_10bit_comp);
+DECLARE_SHADER_MODULE (screen_effects_hdr_comp);
 DECLARE_SHADER_MODULE (cs_tex_warp_comp);
 DECLARE_SHADER_MODULE (indirect_comp);
 DECLARE_SHADER_MODULE (indirect_clear_comp);
+DECLARE_SHADER_MODULE (meshlet_cull_comp);
+DECLARE_SHADER_MODULE (alias_ecs_cull_comp);
+DECLARE_SHADER_MODULE (meshlet_hiz_comp);
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+DECLARE_SHADER_MODULE (world_mesh_mesh);
+#if defined(HAVE_WORLD_TASK_SHADER)
+DECLARE_SHADER_MODULE (world_task_task);
+DECLARE_SHADER_MODULE (world_task_mesh_mesh);
+#endif
+#endif
 DECLARE_SHADER_MODULE (showtris_vert);
 DECLARE_SHADER_MODULE (showtris_frag);
 DECLARE_SHADER_MODULE (update_lightmap_8bit_comp);
@@ -2619,6 +2763,7 @@ DECLARE_SHADER_MODULE (update_lightmap_8bit_rt_comp);
 DECLARE_SHADER_MODULE (update_lightmap_10bit_comp);
 DECLARE_SHADER_MODULE (update_lightmap_10bit_rt_comp);
 DECLARE_SHADER_MODULE (ray_debug_comp);
+DECLARE_SHADER_MODULE (ray_debug_hdr_comp);
 DECLARE_SHADER_MODULE (mesh_interpolate_comp);
 DECLARE_SHADER_MODULE (skinning_comp);
 DECLARE_SHADER_MODULE (skinning_8_comp);
@@ -3006,6 +3151,234 @@ static void R_SetPipelineRenderPassVariant (pipeline_create_infos_t *infos, subp
 	infos->graphics_pipeline.subpass = binding->subpass;
 }
 
+/* Slot-private host-coherent viewport data and secondary pool for the isolated
+ * receiver experiment. The live slot's fence owns both until shutdown. */
+typedef struct {
+	VkBuffer buffer; VkDeviceMemory memory; void *mapped; VkCommandPool pool; VkSampler sampler;
+	rc_receiver_diagnostics_t diagnostics;
+	VkImageView diagnostic_views[RC_RECEIVER_TARGET_COUNT];
+} rc_experimental_aux_t;
+static rc_experimental_aux_t rc_experimental_aux[RC_RECEIVER_LIVE_SLOTS];
+
+void R_ReceiverExperimentalDiagnosticsCollect(uint32_t slot)
+{
+	if(slot>=RC_RECEIVER_LIVE_SLOTS)return;
+	rc_receiver_diagnostic_stats_t stats;
+	if(RCReceiverDiagnostics_Collect(&rc_experimental_aux[slot].diagnostics,&stats))
+		R_RadianceSetReceiverDiagnostics(&stats);
+}
+
+bool R_ReceiverExperimentalDiagnosticsSubmitted(uint32_t slot,VkFence fence)
+{
+	if(slot>=RC_RECEIVER_LIVE_SLOTS)return false;
+	rc_receiver_diagnostics_t *d=&rc_experimental_aux[slot].diagnostics;
+	return !d->recorded || RCReceiverDiagnostics_Submitted(d,fence);
+}
+
+void R_ReceiverExperimentalDiagnosticsRecord(uint32_t slot,VkCommandBuffer command,uint64_t serial)
+{
+	if(slot>=RC_RECEIVER_LIVE_SLOTS || r_radiance_receiver_diagnostics.value<=0 ||
+		RCReceiverFrame_ActiveFilterMode(serial)!=1)return;
+	rc_experimental_aux_t *a=&rc_experimental_aux[slot];
+	rc_receiver_slot_t *s=RCReceiverLive_Get(slot);
+	const rc_receiver_params_t *params=RCReceiverFrame_ActiveParams(serial);
+	if(!s || !params || !a->diagnostics.device)return;
+	/* Failures in this optional estimate never disable receiver lighting. */
+	if(!RCReceiverDiagnostics_Record(&a->diagnostics,command,serial,params,
+		R_RadianceActiveProbeSpacing(),RCReceiverFrame_ActivePostprocess(serial),true))
+		Con_DPrintf("Receiver coverage diagnostic skipped\n");
+}
+
+void R_ReceiverExperimentalShutdown(void)
+{
+	bool had_aux=false;
+	for (unsigned i=0;i<RC_RECEIVER_LIVE_SLOTS;++i) {
+		if (rc_experimental_aux[i].pool || rc_experimental_aux[i].buffer) had_aux=true;
+		rc_experimental_aux_t *a=&rc_experimental_aux[i];
+		R_ReceiverExperimentalDiagnosticsCollect(i);
+		if(a->diagnostics.recorded && !a->diagnostics.fence)RCReceiverDiagnostics_Discard(&a->diagnostics);
+		if(!RCReceiverDiagnostics_Destroy(&a->diagnostics))Sys_Error("Receiver diagnostic still in flight during shutdown");
+		if (a->pool) vkDestroyCommandPool(vulkan_globals.device,a->pool,NULL);
+		if (a->sampler) vkDestroySampler(vulkan_globals.device,a->sampler,NULL);
+		if (a->mapped) vkUnmapMemory(vulkan_globals.device,a->memory);
+		if (a->buffer) vkDestroyBuffer(vulkan_globals.device,a->buffer,NULL);
+		if (a->memory) vkFreeMemory(vulkan_globals.device,a->memory,NULL);
+		memset(a,0,sizeof(*a));
+	}
+	if(had_aux) Con_Printf("RC experimental auxiliary resources released\n");
+}
+
+static bool R_ReceiverExperimentalAux(uint32_t slot)
+{
+	rc_experimental_aux_t *a=&rc_experimental_aux[slot];
+	if (a->pool && a->mapped && a->sampler) return true;
+	VkBufferCreateInfo bi={.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,.size=32,.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,.sharingMode=VK_SHARING_MODE_EXCLUSIVE};
+	if (vkCreateBuffer(vulkan_globals.device,&bi,NULL,&a->buffer)!=VK_SUCCESS) return false;
+	VkMemoryRequirements req; vkGetBufferMemoryRequirements(vulkan_globals.device,a->buffer,&req);
+	const VkMemoryPropertyFlags wanted=VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	uint32_t type=0;
+	while(type<vulkan_globals.memory_properties.memoryTypeCount && (!(req.memoryTypeBits & (1u<<type)) ||
+		(vulkan_globals.memory_properties.memoryTypes[type].propertyFlags & wanted)!=wanted)) ++type;
+	if(type==vulkan_globals.memory_properties.memoryTypeCount) goto fail;
+	VkMemoryAllocateInfo ai={.sType=VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,.allocationSize=req.size,.memoryTypeIndex=type};
+	if(vkAllocateMemory(vulkan_globals.device,&ai,NULL,&a->memory)!=VK_SUCCESS ||
+		vkBindBufferMemory(vulkan_globals.device,a->buffer,a->memory,0)!=VK_SUCCESS ||
+		vkMapMemory(vulkan_globals.device,a->memory,0,VK_WHOLE_SIZE,0,&a->mapped)!=VK_SUCCESS) goto fail;
+	VkCommandPoolCreateInfo pi={.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,.queueFamilyIndex=vulkan_globals.gfx_queue_family_index};
+	if(vkCreateCommandPool(vulkan_globals.device,&pi,NULL,&a->pool)!=VK_SUCCESS) goto fail;
+	VkSamplerCreateInfo si={.sType=VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,.magFilter=VK_FILTER_NEAREST,
+		.minFilter=VK_FILTER_NEAREST,.mipmapMode=VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		.addressModeU=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.addressModeV=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,.maxLod=0.0f};
+	if(vkCreateSampler(vulkan_globals.device,&si,NULL,&a->sampler)!=VK_SUCCESS) goto fail;
+	return true;
+fail:
+	if(a->pool) vkDestroyCommandPool(vulkan_globals.device,a->pool,NULL);
+	if(a->sampler) vkDestroySampler(vulkan_globals.device,a->sampler,NULL);
+	if(a->mapped) vkUnmapMemory(vulkan_globals.device,a->memory);
+	if(a->buffer) vkDestroyBuffer(vulkan_globals.device,a->buffer,NULL);
+	if(a->memory) vkFreeMemory(vulkan_globals.device,a->memory,NULL);
+	memset(a,0,sizeof(*a)); return false;
+}
+
+bool R_ReceiverExperimentalPrepare(uint32_t slot,VkRenderPass pass,uint32_t width,uint32_t height,
+	const rc_experimental_bindings_t *bindings,const int32_t viewport[4],float divisor,bool texture_filter,bool soft_shadows,VkCommandPool *pool)
+{
+	if(slot>=RC_RECEIVER_LIVE_SLOTS || !pass || !bindings || !viewport || !pool ||
+		!RCReceiver_ValidDivisor(divisor) || (divisor <= 1 && r_radiance_deferred.value <= 0) || !vulkan_globals.device_features.geometryShader ||
+		vulkan_globals.sample_count!=VK_SAMPLE_COUNT_1_BIT) {
+		static bool reported; if(!reported) { Con_Printf("RC experimental provider prerequisites: geometry=%d samples=%d\n",vulkan_globals.device_features.geometryShader,(int)vulkan_globals.sample_count); reported=true; } return false;
+	}
+	if(!R_ReceiverExperimentalAux(slot)) { static bool reported; if(!reported){Con_Printf("RC experimental auxiliary allocation failed\n");reported=true;} return false; }
+	rc_experimental_aux_t *a=&rc_experimental_aux[slot];
+	struct { int32_t viewport[4]; float threshold[4]; } data={{viewport[0],viewport[1],viewport[2],viewport[3]},{.99f,.01f,divisor,0}};
+	memcpy(a->mapped,&data,sizeof(data));
+	rc_receiver_slot_config_t c={.physical=GL_RadiancePhysicalDevice(),.device=vulkan_globals.device,.memory=&vulkan_globals.memory_properties,
+		.revision=(uint64_t)(uintptr_t)pass ^ ((uint64_t)(uintptr_t)bindings->graphics<<1) ^ (bindings->hardware ? UINT64_C(1)<<63 : 0) ^
+			(texture_filter ? UINT64_C(1)<<62 : 0),
+		.width=width,.height=height,.samples=VK_SAMPLE_COUNT_1_BIT,.hardware=bindings->hardware,
+		.texture_filter=texture_filter,
+		.soft_shadows=soft_shadows,
+		.geometry_enabled=true,.ray_query_enabled=vulkan_globals.ray_query,.nearest=a->sampler,
+		.viewport_buffer=a->buffer,.viewport_range=32,.radiance=bindings->graphics,.cascade=bindings->cascade,.light=bindings->lighting,.cache=R_PipelineCache()};
+	if (!c.revision) c.revision=1;
+	for(int i=0;i<3;++i)c.world[i]=vulkan_globals.single_texture_set_layout.handle;
+	c.world[3]=vulkan_globals.mboit_input_attachment_set_layout.handle;
+	c.world[4]=vulkan_globals.bmodel_instances_set_layout.handle;
+	pipeline_create_infos_t state[6]; VkSpecializationInfo spec[6]; uint32_t values[6][5];
+	VkSpecializationMapEntry entries[5];
+	for(unsigned j=0;j<5;++j) entries[j]=(VkSpecializationMapEntry){j,j*4,4};
+	for(unsigned i=0;i<6;++i) {
+		R_InitDefaultStates(&state[i]);
+		state[i].depth_stencil_state.depthTestEnable=VK_TRUE; state[i].depth_stencil_state.depthWriteEnable=VK_TRUE;
+		if(i>=2 && r_ssao.value>0) {
+			state[i].depth_stencil_state.stencilTestEnable=VK_TRUE;
+			state[i].depth_stencil_state.front=(VkStencilOpState){VK_STENCIL_OP_KEEP,VK_STENCIL_OP_REPLACE,VK_STENCIL_OP_KEEP,VK_COMPARE_OP_ALWAYS,2,2,2};
+			state[i].depth_stencil_state.back=state[i].depth_stencil_state.front;
+		}
+		state[i].rasterization_state.depthBiasEnable=VK_TRUE;
+		state[i].dynamic_states[state[i].dynamic_state.dynamicStateCount++]=VK_DYNAMIC_STATE_DEPTH_BIAS;
+		state[i].vertex_input_state.vertexAttributeDescriptionCount=3;
+		state[i].vertex_input_state.pVertexAttributeDescriptions=world_vertex_input_attribute_descriptions;
+		state[i].vertex_input_state.vertexBindingDescriptionCount=1;
+		state[i].vertex_input_state.pVertexBindingDescriptions=&world_vertex_binding_description;
+		state[i].graphics_pipeline.renderPass=pass; state[i].graphics_pipeline.subpass=0;
+		memset(values[i],0,sizeof(values[i]));
+		if(i<2) { values[i][1]=i; state[i].color_blend_state.attachmentCount=2;
+			state[i].blend_attachment_states[1].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT; }
+		else { unsigned variant=i-2; values[i][0]=variant&1; values[i][1]=(variant>>1)&1;
+			values[i][4]=vulkan_globals.color_format==VK_FORMAT_A2B10G10R10_UNORM_PACK32; }
+		spec[i]=(VkSpecializationInfo){5,entries,sizeof(values[i]),values[i]}; state[i].shader_stages[1].pSpecializationInfo=&spec[i];
+		if(i<2)c.prepass[i]=state[i].graphics_pipeline; else c.forward[i-2]=state[i].graphics_pipeline;
+	}
+	c.classify=(VkComputePipelineCreateInfo){.sType=VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+		.stage={.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,.stage=VK_SHADER_STAGE_COMPUTE_BIT,.pName="main"}};
+	c.direct=c.classify;
+	bool was_ready=RCReceiverLive_Get(slot)->ready;
+	if(!RCReceiverLive_Prepare(slot,&c)){static bool reported;if(!reported){Con_Printf("RC experimental live slot creation failed\n");reported=true;}return false;}
+	if(r_radiance_receiver_diagnostics.value>0 && c.texture_filter) {
+		const rc_receiver_targets_t *targets=&RCReceiverLive_Get(slot)->resources.targets;
+		bool changed=!a->diagnostics.device;
+		for(unsigned i=0;i<RC_RECEIVER_TARGET_COUNT;++i)changed|=a->diagnostic_views[i]!=targets->images[i].view;
+		if(changed) {
+			if(RCReceiverDiagnostics_Destroy(&a->diagnostics) &&
+				RCReceiverDiagnostics_Create(&a->diagnostics,vulkan_globals.device,&vulkan_globals.memory_properties,
+					targets,a->sampler,R_PipelineCache())) {
+				for(unsigned i=0;i<RC_RECEIVER_TARGET_COUNT;++i)a->diagnostic_views[i]=targets->images[i].view;
+				Con_DPrintf("Receiver coverage diagnostic ready: slot=%u\n",slot);
+			} else {
+				static unsigned failures;
+				if(failures++<4)Con_Printf("Receiver coverage diagnostic resources unavailable: slot=%u\n",slot);
+			}
+		}
+	}
+	if(!was_ready) Con_Printf("RC experimental provider ready: slot=%u\n",slot);
+	*pool=a->pool; return true;
+}
+
+bool R_ReceiverExperimentalModelsPrepare(uint32_t slot,VkRenderPass pass,uint32_t subpass)
+{
+	rc_receiver_slot_t *s=slot<RC_RECEIVER_LIVE_SLOTS?RCReceiverLive_Get(slot):NULL;
+	if(!s || !s->ready || !s->texture_filter || !pass || s->last_fence ||
+		vulkan_globals.sample_count!=VK_SAMPLE_COUNT_1_BIT)return false;
+	rc_receiver_model_pipelines_t *models=&s->resources.models;
+	uint64_t revision=(uint64_t)(uintptr_t)pass ^ ((uint64_t)subpass<<48) ^ ((uint64_t)s->hardware<<63);
+	if(!revision)revision=1;
+	if(models->attempted_revision==revision)return models->device && models->forward_pass==pass && models->forward_subpass==subpass;
+	models->attempted_revision=revision;
+	rc_experimental_bindings_t bindings;
+	if(!R_RadianceExperimentalBindings(slot,&bindings))return false;
+	VkShaderModule vertex[3]={0},prepass[2]={0},forward[2]={0};
+	bool ready=false;
+#define MODEL_MODULE(dst,name) do { dst=R_TryCreateShaderModule(name##_spv,name##_spv_size,#name);if(!dst)goto cleanup; } while(0)
+	MODEL_MODULE(vertex[0],alias_radiance_vert);MODEL_MODULE(vertex[1],md5_radiance_vert);MODEL_MODULE(vertex[2],md5_8_radiance_vert);
+	MODEL_MODULE(prepass[0],radiance_receiver_model_frag);MODEL_MODULE(prepass[1],radiance_receiver_model_alphatest_frag);
+	if(s->hardware) {
+		MODEL_MODULE(forward[0],alias_receiver_forward_fast_rt_frag);MODEL_MODULE(forward[1],alias_receiver_forward_fast_rt_alphatest_frag);
+	} else {
+		MODEL_MODULE(forward[0],alias_receiver_forward_fast_sw_frag);MODEL_MODULE(forward[1],alias_receiver_forward_fast_sw_alphatest_frag);
+	}
+#undef MODEL_MODULE
+	pipeline_create_infos_t state[3][2][2];VkGraphicsPipelineCreateInfo pre[3][2],fwd[3][2];
+	for(unsigned kind=0;kind<3;++kind)for(unsigned cutout=0;cutout<2;++cutout)for(unsigned stage=0;stage<2;++stage) {
+		pipeline_create_infos_t *info=&state[kind][cutout][stage];R_InitDefaultStates(info);
+		info->depth_stencil_state.depthTestEnable=VK_TRUE;info->depth_stencil_state.depthWriteEnable=VK_TRUE;
+		/* Raw receiver pipeline creation must retain the same opaque SSAO
+		 * coverage bit as R_TryCreateGraphicsPipeline. The private prepass
+		 * has its own depth-only attachment and does not write this mask. */
+		if(stage && r_ssao.value>0) {
+			info->depth_stencil_state.stencilTestEnable=VK_TRUE;
+			info->depth_stencil_state.front=(VkStencilOpState){VK_STENCIL_OP_KEEP,VK_STENCIL_OP_REPLACE,VK_STENCIL_OP_KEEP,VK_COMPARE_OP_ALWAYS,2,2,2};
+			info->depth_stencil_state.back=info->depth_stencil_state.front;
+		}
+		info->multisample_state.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+		info->color_blend_state.attachmentCount=stage?1:2;
+		if(!stage)info->blend_attachment_states[1].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
+		info->vertex_input_state.vertexAttributeDescriptionCount=kind?kind==1?countof(md5_vertex_input_attribute_descriptions):countof(md5_8_vertex_input_attribute_descriptions):countof(alias_vertex_input_attribute_descriptions);
+		info->vertex_input_state.pVertexAttributeDescriptions=kind?kind==1?md5_vertex_input_attribute_descriptions:md5_8_vertex_input_attribute_descriptions:alias_vertex_input_attribute_descriptions;
+		info->vertex_input_state.vertexBindingDescriptionCount=kind?1:3;
+		info->vertex_input_state.pVertexBindingDescriptions=kind?kind==1?&md5_vertex_binding_description:&md5_8_vertex_binding_description:alias_vertex_binding_descriptions;
+		info->shader_stages[0].module=vertex[kind];info->shader_stages[1].module=stage?forward[cutout]:prepass[cutout];
+		if(stage)fwd[kind][cutout]=info->graphics_pipeline;else pre[kind][cutout]=info->graphics_pipeline;
+	}
+	const VkDescriptorSetLayout sets[2][5]={
+		{vulkan_globals.single_texture_set_layout.handle,vulkan_globals.single_texture_set_layout.handle,vulkan_globals.ubo_set_layout.handle,
+		 vulkan_globals.mboit_input_attachment_set_layout.handle,VK_NULL_HANDLE},
+		{vulkan_globals.single_texture_set_layout.handle,vulkan_globals.single_texture_set_layout.handle,vulkan_globals.ubo_set_layout.handle,
+		 vulkan_globals.joints_buffer_set_layout.handle,vulkan_globals.mboit_input_attachment_set_layout.handle}};
+	ready=RCReceiverModelPipelines_Create(models,vulkan_globals.device,R_PipelineCache(),sets,bindings.graphics,
+		s->resources.descriptors.layouts[2],s->resources.targets.pass,pass,subpass,pre,fwd);
+	models->attempted_revision=revision;
+cleanup:
+	for(unsigned i=0;i<3;++i)if(vertex[i])vkDestroyShaderModule(vulkan_globals.device,vertex[i],NULL);
+	for(unsigned i=0;i<2;++i) {
+		if(prepass[i])vkDestroyShaderModule(vulkan_globals.device,prepass[i],NULL);
+		if(forward[i])vkDestroyShaderModule(vulkan_globals.device,forward[i],NULL);
+	}
+	return ready;
+}
+
 /*
 ===============
 R_CreateGraphicsPipeline
@@ -3021,6 +3394,167 @@ typedef struct pipeline_instance_s
 
 static pipeline_instance_t *pipeline_instances;
 
+/* During scene-pipeline creation, track only the objects created by this
+ * attempt. Rollback must not reset Radiance, ECS, or unrelated GPU state. */
+typedef struct pipeline_transaction_s
+{
+	vulkan_pipeline_t **created;
+	size_t count, capacity;
+} pipeline_transaction_t;
+static pipeline_transaction_t *active_pipeline_transaction;
+static bool renderer_pipelines_created;
+
+static bool R_PipelineTransactionReserve (void)
+{
+	pipeline_transaction_t *transaction = active_pipeline_transaction;
+	if (!transaction || transaction->count < transaction->capacity) return true;
+	if (transaction->capacity > SIZE_MAX / (2 * sizeof (*transaction->created))) return false;
+	size_t capacity = transaction->capacity ? transaction->capacity * 2 : 128;
+	vulkan_pipeline_t **created = realloc (transaction->created, capacity * sizeof (*created));
+	if (!created) return false;
+	transaction->created = created;
+	transaction->capacity = capacity;
+	return true;
+}
+
+static void R_PipelineTransactionRecord (vulkan_pipeline_t *pipeline)
+{
+	if (active_pipeline_transaction)
+		active_pipeline_transaction->created[active_pipeline_transaction->count++] = pipeline;
+}
+
+static void R_PipelineTransactionRollback (pipeline_transaction_t *transaction)
+{
+	while (transaction->count)
+	{
+		vulkan_pipeline_t *pipeline = transaction->created[--transaction->count];
+		while (pipeline->alternatives)
+		{
+			pipeline_instance_t *instance = pipeline->alternatives;
+			pipeline->alternatives = instance->next;
+			assert (pipeline_instances == instance);
+			pipeline_instances = instance->allocation_next;
+			vkDestroyPipeline (vulkan_globals.device, instance->handle, NULL);
+			Mem_Free (instance);
+		}
+		vkDestroyPipeline (vulkan_globals.device, pipeline->handle, NULL);
+		pipeline->handle = VK_NULL_HANDLE;
+	}
+}
+
+/* The driver may persist its own shader cache, but it is not guaranteed to do
+ * so. Keep a bounded application cache across launches and video restarts.
+ * The private envelope catches partial/corrupt files and driver changes before
+ * passing a cache blob to the driver. Cache misses are always nonfatal. */
+#define PIPELINE_CACHE_LIMIT (64u * 1024u * 1024u)
+typedef struct pipeline_cache_file_s
+{
+	uint32_t magic, version, vendor, device, driver;
+	uint8_t uuid[VK_UUID_SIZE];
+	uint64_t bytes, checksum;
+} pipeline_cache_file_t;
+static VkPipelineCache pipeline_cache;
+static bool pipeline_cache_attempted;
+static char pipeline_cache_path[MAX_OSPATH];
+
+static uint64_t R_PipelineCacheHash (const void *data, size_t bytes)
+{
+	const unsigned char *p = data;
+	uint64_t hash = UINT64_C (1469598103934665603);
+	while (bytes--) { hash ^= *p++; hash *= UINT64_C (1099511628211); }
+	return hash;
+}
+
+VkPipelineCache R_PipelineCache (void)
+{
+	if (pipeline_cache_attempted) return pipeline_cache;
+	pipeline_cache_attempted = true;
+	const VkPhysicalDeviceProperties *properties = &vulkan_globals.device_properties;
+	const char *root = COM_GetWriteRoot ();
+	if (strlen (root) + sizeof ("/vulkan-pipeline-cache.bin") + 32 < sizeof (pipeline_cache_path))
+		q_snprintf (pipeline_cache_path, sizeof (pipeline_cache_path), "%s/vulkan-pipeline-cache.bin", root);
+	else pipeline_cache_path[0] = '\0';
+	FILE *file = pipeline_cache_path[0] ? Sys_fopen (pipeline_cache_path, "rb") : NULL;
+	pipeline_cache_file_t header;
+	void *data = NULL;
+	size_t size = 0;
+	if (file)
+	{
+		if (fread (&header, sizeof (header), 1, file) == 1 &&
+			header.magic == 0x51565043u && header.version == 1 && header.vendor == properties->vendorID &&
+			header.device == properties->deviceID && header.driver == properties->driverVersion &&
+			!memcmp (header.uuid, properties->pipelineCacheUUID, VK_UUID_SIZE) &&
+			header.bytes >= sizeof (VkPipelineCacheHeaderVersionOne) && header.bytes <= PIPELINE_CACHE_LIMIT &&
+			(data = malloc ((size_t)header.bytes)) != NULL)
+		{
+			VkPipelineCacheHeaderVersionOne vkheader;
+			size = (size_t)header.bytes;
+			if (fread (data, 1, size, file) != size || fgetc (file) != EOF ||
+				R_PipelineCacheHash (data, size) != header.checksum)
+				size = 0;
+			else
+			{
+				memcpy (&vkheader, data, sizeof (vkheader));
+				if (vkheader.headerSize < sizeof (vkheader) || vkheader.headerSize > size ||
+					vkheader.headerVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE ||
+					vkheader.vendorID != properties->vendorID || vkheader.deviceID != properties->deviceID ||
+					memcmp (vkheader.pipelineCacheUUID, properties->pipelineCacheUUID, VK_UUID_SIZE)) size = 0;
+			}
+		}
+		fclose (file);
+	}
+	VkPipelineCacheCreateInfo info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+		.initialDataSize = size, .pInitialData = size ? data : NULL};
+	VkResult result = vkCreatePipelineCache (vulkan_globals.device, &info, NULL, &pipeline_cache);
+	if (result != VK_SUCCESS && size)
+	{
+		info.initialDataSize = 0; info.pInitialData = NULL;
+		result = vkCreatePipelineCache (vulkan_globals.device, &info, NULL, &pipeline_cache);
+	}
+	free (data);
+	if (result != VK_SUCCESS) pipeline_cache = VK_NULL_HANDLE;
+	else if (size) Sys_Printf ("Loaded Vulkan pipeline cache (%zu bytes)\n", size);
+	return pipeline_cache;
+}
+
+void R_PipelineCacheShutdown (void)
+{
+	if (!pipeline_cache) { pipeline_cache_attempted = false; return; }
+	size_t size = 0;
+	if (pipeline_cache_path[0] && vkGetPipelineCacheData (vulkan_globals.device, pipeline_cache, &size, NULL) == VK_SUCCESS &&
+		size >= sizeof (VkPipelineCacheHeaderVersionOne) && size <= PIPELINE_CACHE_LIMIT)
+	{
+		void *data = malloc (size);
+		if (data && vkGetPipelineCacheData (vulkan_globals.device, pipeline_cache, &size, data) == VK_SUCCESS)
+		{
+			const VkPhysicalDeviceProperties *properties = &vulkan_globals.device_properties;
+			pipeline_cache_file_t header = {0};
+			header.magic = 0x51565043u; header.version = 1;
+			header.vendor = properties->vendorID; header.device = properties->deviceID; header.driver = properties->driverVersion;
+			memcpy (header.uuid, properties->pipelineCacheUUID, VK_UUID_SIZE);
+			header.bytes = size; header.checksum = R_PipelineCacheHash (data, size);
+			char temp[MAX_OSPATH];
+			q_snprintf (temp, sizeof (temp), "%s.tmp.%llu", pipeline_cache_path, (unsigned long long)SDL_GetPerformanceCounter ());
+			FILE *file = Sys_fopen (temp, "wb");
+			if (file)
+			{
+				bool ok = fwrite (&header, sizeof (header), 1, file) == 1 && fwrite (data, 1, size, file) == size;
+				if (fclose (file)) ok = false;
+				if (!ok || Sys_rename (temp, pipeline_cache_path)) Sys_remove (temp);
+			}
+		}
+		free (data);
+	}
+	vkDestroyPipelineCache (vulkan_globals.device, pipeline_cache, NULL);
+	pipeline_cache = VK_NULL_HANDLE;
+	pipeline_cache_attempted = false;
+}
+
+static void R_PipelineCacheRetryFailed (void)
+{
+	if (!pipeline_cache) pipeline_cache_attempted = false;
+}
+
 VkPipeline R_ResolvePipelineInstance (const cb_context_t *cbx, vulkan_pipeline_t pipeline)
 {
 	for (const pipeline_instance_t *instance = pipeline.alternatives; instance; instance = instance->next)
@@ -3031,12 +3565,16 @@ VkPipeline R_ResolvePipelineInstance (const cb_context_t *cbx, vulkan_pipeline_t
 	return pipeline.handle;
 }
 
-static void R_CreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_create_infos_t *infos, vulkan_pipeline_layout_t layout, const char *name)
+static bool R_TryCreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_create_infos_t *infos, vulkan_pipeline_layout_t layout, const char *name)
 {
 	assert (pipeline->handle == VK_NULL_HANDLE);
+	if (!R_PipelineTransactionReserve ()) return false;
+	/* A prior normal teardown freed the alternative list; a failed retry must
+	 * not leave the old, now-dangling pointer attached to this pipeline. */
+	pipeline->alternatives = NULL;
 	infos->graphics_pipeline.layout = layout.handle;
 	VkPipelineDepthStencilStateCreateInfo depth_stencil = infos->depth_stencil_state;
-	if (r_ssao.value > 0 && depth_stencil.depthTestEnable && depth_stencil.depthWriteEnable && !depth_stencil.stencilTestEnable)
+	if (r_ssao.value > 0 && !infos->skip_ssao_stencil && depth_stencil.depthTestEnable && depth_stencil.depthWriteEnable && !depth_stencil.stencilTestEnable)
 	{
 		// Bit 0 belongs to sky. Bit 1 records surviving opaque samples for SSAO.
 		depth_stencil.stencilTestEnable = VK_TRUE;
@@ -3044,9 +3582,16 @@ static void R_CreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_crea
 		depth_stencil.back = depth_stencil.front;
 	}
 	infos->graphics_pipeline.pDepthStencilState = &depth_stencil;
-	const VkResult err = vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &infos->graphics_pipeline, NULL, &pipeline->handle);
+	const VkResult err = vkCreateGraphicsPipelines (vulkan_globals.device, R_PipelineCache (), 1, &infos->graphics_pipeline, NULL, &pipeline->handle);
 	if (err != VK_SUCCESS)
-		Sys_Error ("vkCreateGraphicsPipelines failed (%s) with code %i", name, (int)err);
+	{
+		Con_Warning ("vkCreateGraphicsPipelines failed (%s) with code %i\n", name, (int)err);
+		infos->graphics_pipeline.pDepthStencilState = &infos->depth_stencil_state;
+		if (pipeline->handle != VK_NULL_HANDLE)
+			vkDestroyPipeline (vulkan_globals.device, pipeline->handle, NULL);
+		pipeline->handle = VK_NULL_HANDLE;
+		return false;
+	}
 	pipeline->layout = layout;
 	pipeline->alternatives = NULL;
 #ifndef NDEBUG
@@ -3060,12 +3605,20 @@ static void R_CreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_crea
 		if (!binding)
 			break;
 		pipeline_instance_t			*instance = Mem_Alloc (sizeof (*instance));
+		if (!instance)
+			goto fail;
 		VkGraphicsPipelineCreateInfo create_info = infos->graphics_pipeline;
 		create_info.renderPass = binding->render_pass[MAIN_RENDER_PASS_STENCIL_CLEAR];
 		create_info.subpass = binding->subpass;
-		const VkResult instance_err = vkCreateGraphicsPipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &create_info, NULL, &instance->handle);
+		const VkResult instance_err = vkCreateGraphicsPipelines (vulkan_globals.device, R_PipelineCache (), 1, &create_info, NULL, &instance->handle);
 		if (instance_err != VK_SUCCESS)
-			Sys_Error ("vkCreateGraphicsPipelines failed (%s instance) with code %i", name, (int)instance_err);
+		{
+			Con_Warning ("vkCreateGraphicsPipelines failed (%s instance) with code %i\n", name, (int)instance_err);
+			if (instance->handle != VK_NULL_HANDLE)
+				vkDestroyPipeline (vulkan_globals.device, instance->handle, NULL);
+			Mem_Free (instance);
+			goto fail;
+		}
 		instance->binding = *binding;
 		instance->next = pipeline->alternatives;
 		pipeline->alternatives = instance;
@@ -3074,7 +3627,26 @@ static void R_CreateGraphicsPipeline (vulkan_pipeline_t *pipeline, pipeline_crea
 		GL_SetObjectName ((uint64_t)instance->handle, VK_OBJECT_TYPE_PIPELINE, name);
 	}
 	infos->graphics_pipeline.pDepthStencilState = &infos->depth_stencil_state;
+	R_PipelineTransactionRecord (pipeline);
+	return true;
+
+fail:
+	while (pipeline->alternatives)
+	{
+		pipeline_instance_t *instance = pipeline->alternatives;
+		pipeline->alternatives = instance->next;
+		assert (pipeline_instances == instance);
+		pipeline_instances = instance->allocation_next;
+		vkDestroyPipeline (vulkan_globals.device, instance->handle, NULL);
+		Mem_Free (instance);
+	}
+	vkDestroyPipeline (vulkan_globals.device, pipeline->handle, NULL);
+	pipeline->handle = VK_NULL_HANDLE;
+	infos->graphics_pipeline.pDepthStencilState = &infos->depth_stencil_state;
+	return false;
 }
+
+#define R_CreateGraphicsPipeline(...) do { if (!R_TryCreateGraphicsPipeline (__VA_ARGS__)) return false; } while (0)
 
 /*
 ===============
@@ -3083,12 +3655,13 @@ R_CreateComputePipeline
 The pipeline layout must already be stored in pipeline->layout.
 ===============
 */
-static void R_CreateComputePipeline (
+static bool R_TryCreateComputePipeline (
 	vulkan_pipeline_t *pipeline, VkShaderModule module, VkPipelineShaderStageCreateFlags stage_flags, const VkSpecializationInfo *specialization_info,
 	const char *name, bool fail_on_error)
 {
 	assert (pipeline->handle == VK_NULL_HANDLE);
 	assert (pipeline->layout.handle != VK_NULL_HANDLE);
+	if (!R_PipelineTransactionReserve ()) return !fail_on_error;
 
 	ZEROED_STRUCT (VkComputePipelineCreateInfo, create_info);
 	create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -3100,17 +3673,18 @@ static void R_CreateComputePipeline (
 	create_info.stage.pSpecializationInfo = specialization_info;
 	create_info.layout = pipeline->layout.handle;
 
-	const VkResult err = vkCreateComputePipelines (vulkan_globals.device, VK_NULL_HANDLE, 1, &create_info, NULL, &pipeline->handle);
+	const VkResult err = vkCreateComputePipelines (vulkan_globals.device, R_PipelineCache (), 1, &create_info, NULL, &pipeline->handle);
 	if (err != VK_SUCCESS)
 	{
 		pipeline->handle = VK_NULL_HANDLE;
-		if (fail_on_error)
-			Sys_Error ("vkCreateComputePipelines failed (%s) with code %i", name, (int)err);
 		Sys_Printf ("vkCreateComputePipelines failed (%s) with code %i\n", name, (int)err);
-		return;
+		return !fail_on_error;
 	}
 	GL_SetObjectName ((uint64_t)pipeline->handle, VK_OBJECT_TYPE_PIPELINE, name);
+	R_PipelineTransactionRecord (pipeline);
+	return true;
 }
+#define R_CreateComputePipeline(...) do { if (!R_TryCreateComputePipeline (__VA_ARGS__)) return false; } while (0)
 
 // Compatible instances are owned here; draw sites only name the logical pipeline.
 static vulkan_pipeline_t graphics_pipelines[GRAPHICS_PIPELINE_COUNT][SUBPASS_COUNT][MAIN_RENDER_PASS_VARIANT_COUNT];
@@ -3133,7 +3707,7 @@ void R_BindGraphicsPipeline (cb_context_t *cbx, graphics_pipeline_t pipeline)
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, R_ResolveGraphicsPipeline (cbx, pipeline));
 }
 
-static void R_CreateBasicPipelines ()
+static bool R_CreateBasicPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -3201,6 +3775,15 @@ static void R_CreateBasicPipelines ()
 		infos.blend_attachment_states[0].blendEnable = VK_TRUE;
 		R_CreateGraphicsPipeline (
 			&graphics_pipelines[PIPELINE_BASIC_NOTEX_BLEND][stage][variant], &infos, vulkan_globals.basic_pipeline_layout, "basic_notex_blend");
+		if (stage == SUBPASS_UI)
+		{
+			infos.depth_stencil_state.depthTestEnable = VK_TRUE;
+			infos.depth_stencil_state.depthWriteEnable = VK_TRUE;
+			infos.skip_ssao_stencil = true;
+			R_CreateGraphicsPipeline (&graphics_pipelines[PIPELINE_EDITOR_DEPTH][stage][variant], &infos, vulkan_globals.basic_pipeline_layout, "editor_depth");
+			infos.depth_stencil_state.depthWriteEnable = VK_FALSE;
+			R_CreateGraphicsPipeline (&graphics_pipelines[PIPELINE_EDITOR_DEPTH_READ][stage][variant], &infos, vulkan_globals.basic_pipeline_layout, "editor_depth_read");
+		}
 	}
 
 	for (int entry = 0; entry < countof (pipeline_variants); ++entry)
@@ -3230,6 +3813,7 @@ static void R_CreateBasicPipelines ()
 			infos.blend_attachment_states[0].blendEnable = VK_TRUE;
 		R_CreateGraphicsPipeline (&graphics_pipelines[PIPELINE_BASIC_BLEND][stage][variant], &infos, vulkan_globals.basic_pipeline_layout, "basic_blend");
 	}
+	return true;
 }
 
 /*
@@ -3237,7 +3821,7 @@ static void R_CreateBasicPipelines ()
 R_CreateWarpPipelines
 ===============
 */
-static void R_CreateWarpPipelines ()
+static bool R_CreateWarpPipelines ()
 {
 	pipeline_create_infos_t infos;
 	R_InitDefaultStates (&infos);
@@ -3251,6 +3835,7 @@ static void R_CreateWarpPipelines ()
 	R_CreateGraphicsPipeline (&vulkan_globals.raster_tex_warp_pipeline, &infos, vulkan_globals.basic_pipeline_layout, "warp");
 
 	R_CreateComputePipeline (&vulkan_globals.cs_tex_warp_pipeline, cs_tex_warp_comp_module, 0, NULL, "cs_tex_warp", true);
+	return true;
 }
 
 /*
@@ -3258,7 +3843,7 @@ static void R_CreateWarpPipelines ()
 R_CreateParticlesPipelines
 ===============
 */
-static void R_CreateParticlesPipelines ()
+static bool R_CreateParticlesPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -3300,6 +3885,7 @@ static void R_CreateParticlesPipelines ()
 		(vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT) ? basic_mboit_composite_frag_module : basic_mboit_composite_msaa_frag_module;
 	R_SetMBOITCompositeBlend (infos.blend_attachment_states);
 	R_CreateGraphicsPipeline (&vulkan_globals.particle_mboit_composite_pipeline, &infos, vulkan_globals.basic_pipeline_layout, "particles_mboit_composite");
+	return true;
 }
 
 /*
@@ -3307,14 +3893,15 @@ static void R_CreateParticlesPipelines ()
 R_CreateRayDebugPipelines
 ===============
 */
-static void R_CreateRayDebugPipelines ()
+static bool R_CreateRayDebugPipelines ()
 {
 #if defined(_DEBUG)
 	if (!vulkan_globals.ray_query)
-		return;
+		return true;
 
-	R_CreateComputePipeline (&vulkan_globals.ray_debug_pipeline, ray_debug_comp_module, 0, NULL, "ray_debug_pipeline", true);
+	R_CreateComputePipeline (&vulkan_globals.ray_debug_pipeline, vulkan_globals.scene_hdr_active ? ray_debug_hdr_comp_module : ray_debug_comp_module, 0, NULL, "ray_debug_pipeline", true);
 #endif
+	return true;
 }
 
 /*
@@ -3322,14 +3909,15 @@ static void R_CreateRayDebugPipelines ()
 R_CreateAnimComputePipelines
 ===============
 */
-static void R_CreateAnimComputePipelines ()
+static bool R_CreateAnimComputePipelines ()
 {
 	if (!vulkan_globals.ray_query)
-		return;
+		return true;
 
 	R_CreateComputePipeline (&vulkan_globals.mesh_interpolate_pipeline, mesh_interpolate_comp_module, 0, NULL, "mesh_interpolate_pipeline", true);
 	R_CreateComputePipeline (&vulkan_globals.skinning_pipeline, skinning_comp_module, 0, NULL, "skinning_pipeline", true);
 	R_CreateComputePipeline (&vulkan_globals.skinning_8_pipeline, skinning_8_comp_module, 0, NULL, "skinning_8_pipeline", true);
+	return true;
 }
 
 /*
@@ -3370,7 +3958,7 @@ static void R_SetFTEParticleBlend (VkPipelineColorBlendAttachmentState *blend_at
 	blend_attachment_state->alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
-static void R_CreateFTEParticlesPipelines ()
+static bool R_CreateFTEParticlesPipelines ()
 {
 	static const char *fte_particle_pipeline_names[16] = {"fte_particles_blend_tris",
 														  "fte_particles_blend_color_tris",
@@ -3435,6 +4023,7 @@ static void R_CreateFTEParticlesPipelines ()
 			}
 		}
 	}
+	return true;
 }
 
 /*
@@ -3442,7 +4031,7 @@ static void R_CreateFTEParticlesPipelines ()
 R_CreateSpritesPipelines
 ===============
 */
-static void R_CreateSpritesPipelines ()
+static bool R_CreateSpritesPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -3483,6 +4072,7 @@ static void R_CreateSpritesPipelines ()
 		(vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT) ? basic_mboit_composite_frag_module : basic_mboit_composite_msaa_frag_module;
 	R_SetMBOITCompositeBlend (infos.blend_attachment_states);
 	R_CreateGraphicsPipeline (&vulkan_globals.sprite_mboit_composite_pipeline, &infos, vulkan_globals.basic_pipeline_layout, "sprite_mboit_composite");
+	return true;
 }
 
 /*
@@ -3490,7 +4080,7 @@ static void R_CreateSpritesPipelines ()
 R_CreateSkyPipelines
 ===============
 */
-static void R_CreateSkyPipelines ()
+static bool R_CreateSkyPipelines ()
 {
 	for (int i = 0; i < 2; i++)
 	{
@@ -3579,6 +4169,7 @@ static void R_CreateSkyPipelines ()
 			}
 		}
 	}
+	return true;
 }
 
 /*
@@ -3586,7 +4177,7 @@ static void R_CreateSkyPipelines ()
 R_CreateShowTrisPipelines
 ===============
 */
-static void R_CreateShowTrisPipelines ()
+static bool R_CreateShowTrisPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -3625,7 +4216,7 @@ static void R_CreateShowTrisPipelines ()
 	}
 
 	if (!vulkan_globals.non_solid_fill)
-		return;
+		return true;
 
 	base.rasterization_state.cullMode = VK_CULL_MODE_NONE;
 	base.rasterization_state.polygonMode = VK_POLYGON_MODE_LINE;
@@ -3694,6 +4285,7 @@ static void R_CreateShowTrisPipelines ()
 			&vulkan_globals.showtris_indirect_depth_test_pipeline[variant], &infos, vulkan_globals.world_pipeline_layout,
 			va ("showtris_indirect_depth_test%s", pass_suffix));
 	}
+	return true;
 }
 
 /*
@@ -3701,8 +4293,14 @@ static void R_CreateShowTrisPipelines ()
 R_CreateWorldPipelines
 ===============
 */
-static void R_CreateWorldPipelines ()
+static bool R_CreateWorldPipelines ()
 {
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	bool mesh_ready = vulkan_globals.mesh_shader && vulkan_globals.world_mesh_pipeline_layout.handle && world_mesh_mesh_module;
+#if defined(HAVE_WORLD_TASK_SHADER)
+	bool task_ready = vulkan_globals.task_shader && vulkan_globals.world_task_pipeline_layout.handle && world_task_task_module && world_task_mesh_mesh_module;
+#endif
+#endif
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
 
@@ -3775,6 +4373,52 @@ static void R_CreateWorldPipelines ()
 						R_CreateGraphicsPipeline (
 							&vulkan_globals.world_pipelines[variant][pipeline_index], &infos, vulkan_globals.world_pipeline_layout,
 							va (variant ? "world_main_oit %d" : "world %d", pipeline_index));
+
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+						if (mesh_ready && !alpha_blend && !alpha_test)
+						{
+							R_CopyPipelineCreateInfos (&infos, &base);
+							R_SetPipelineRenderPassVariant (&infos, SUBPASS_MAIN, variant);
+							infos.shader_stages[0].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+							infos.shader_stages[0].module = world_mesh_mesh_module;
+							infos.shader_stages[1].module = world_frag_module;
+							infos.graphics_pipeline.pVertexInputState = NULL;
+							infos.graphics_pipeline.pInputAssemblyState = NULL;
+							infos.multisample_state.sampleShadingEnable = vulkan_globals.supersampling;
+							if (!R_TryCreateGraphicsPipeline (
+									&vulkan_globals.world_mesh_pipelines[variant][pipeline_index], &infos, vulkan_globals.world_mesh_pipeline_layout,
+									va (variant ? "world_mesh_main_oit %d" : "world_mesh %d", pipeline_index)))
+							{
+								Con_Warning ("Mesh world pipeline unavailable; using indexed meshlets\n");
+								mesh_ready = false;
+							}
+						}
+#if defined(HAVE_WORLD_TASK_SHADER)
+						if (task_ready && mesh_ready && !alpha_blend && !alpha_test)
+						{
+							R_CopyPipelineCreateInfos (&infos, &base);
+							R_SetPipelineRenderPassVariant (&infos, SUBPASS_MAIN, variant);
+							infos.shader_stages[2] = infos.shader_stages[1];
+							infos.shader_stages[2].module = world_frag_module;
+							infos.shader_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+							infos.shader_stages[0].module = world_task_task_module;
+							infos.shader_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+							infos.shader_stages[1].module = world_task_mesh_mesh_module;
+							infos.shader_stages[1].pSpecializationInfo = NULL;
+							infos.graphics_pipeline.stageCount = 3;
+							infos.graphics_pipeline.pVertexInputState = NULL;
+							infos.graphics_pipeline.pInputAssemblyState = NULL;
+							infos.multisample_state.sampleShadingEnable = vulkan_globals.supersampling;
+							if (!R_TryCreateGraphicsPipeline (
+									&vulkan_globals.world_task_pipelines[variant][pipeline_index], &infos, vulkan_globals.world_task_pipeline_layout,
+									va (variant ? "world_task_main_oit %d" : "world_task %d", pipeline_index)))
+							{
+								Con_Warning ("Task world pipeline unavailable; using mesh shaders\n");
+								task_ready = false;
+							}
+						}
+#endif
+#endif
 					}
 
 					if (alpha_blend)
@@ -3814,6 +4458,13 @@ static void R_CreateWorldPipelines ()
 			}
 		}
 	}
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	vulkan_globals.world_mesh_ready = mesh_ready;
+#if defined(HAVE_WORLD_TASK_SHADER)
+	vulkan_globals.world_task_ready = task_ready && mesh_ready;
+#endif
+#endif
+	return true;
 }
 
 /*
@@ -3821,7 +4472,30 @@ static void R_CreateWorldPipelines ()
 R_CreateAliasPipelines
 ===============
 */
-static void R_CreateAliasPipelines ()
+static bool R_CreateEditorModelPipelines (const pipeline_create_infos_t *base,
+	vulkan_pipeline_layout_t layout, graphics_pipeline_t first, const char *name)
+{
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		for (int cutout = 0; cutout < 2; ++cutout)
+		{
+			pipeline_create_infos_t infos; R_CopyPipelineCreateInfos (&infos, base);
+			R_SetPipelineRenderPassVariant (&infos, SUBPASS_UI, variant);
+			infos.shader_stages[1].module = cutout ? alias_alphatest_frag_module : alias_frag_module;
+			infos.rasterization_state.cullMode = VK_CULL_MODE_NONE;
+			infos.multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+			infos.multisample_state.sampleShadingEnable = VK_FALSE;
+			infos.color_blend_state.attachmentCount = 1;
+			infos.blend_attachment_states[0].blendEnable = VK_TRUE;
+			infos.depth_stencil_state.depthTestEnable = VK_TRUE;
+			infos.depth_stencil_state.depthWriteEnable = VK_TRUE;
+			infos.skip_ssao_stencil = true;
+			R_CreateGraphicsPipeline (&graphics_pipelines[first + cutout][SUBPASS_UI][variant], &infos, layout,
+				va ("editor_%s_%d_%d", name, variant, cutout));
+		}
+	return true;
+}
+
+static bool R_CreateAliasPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -3837,6 +4511,33 @@ static void R_CreateAliasPipelines ()
 	base.shader_stages[0].module = alias_vert_module;
 
 	const vulkan_pipeline_layout_t layout = vulkan_globals.alias_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout;
+	if (!R_CreateEditorModelPipelines (&base, layout, PIPELINE_EDITOR_ALIAS, "alias")) return false;
+
+	/* The stress visualization contains many copies of a single opaque alias
+	 * model. Keep the ordinary alias shader/layout and feed origin and lighting
+	 * as a per-instance vertex stream, reducing them to one indexed draw. */
+	VkVertexInputAttributeDescription instanced_attributes[7];
+	VkVertexInputBindingDescription instanced_bindings[4];
+	memcpy (instanced_attributes, alias_vertex_input_attribute_descriptions, sizeof (alias_vertex_input_attribute_descriptions));
+	memcpy (instanced_bindings, alias_vertex_binding_descriptions, sizeof (alias_vertex_binding_descriptions));
+	instanced_attributes[5] = (VkVertexInputAttributeDescription){5, 3, VK_FORMAT_R32G32B32_SFLOAT, 0};
+	instanced_attributes[6] = (VkVertexInputAttributeDescription){6, 3, VK_FORMAT_R32G32B32_SFLOAT, 3 * sizeof (float)};
+	instanced_bindings[3] = (VkVertexInputBindingDescription){3, 6 * sizeof (float), VK_VERTEX_INPUT_RATE_INSTANCE};
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+	{
+		pipeline_create_infos_t instances;
+		R_CopyPipelineCreateInfos (&instances, &base);
+		R_SetPipelineRenderPassVariant (&instances, SUBPASS_MAIN, variant);
+		instances.vertex_input_state.vertexAttributeDescriptionCount = countof (instanced_attributes);
+		instances.vertex_input_state.pVertexAttributeDescriptions = instanced_attributes;
+		instances.vertex_input_state.vertexBindingDescriptionCount = countof (instanced_bindings);
+		instances.vertex_input_state.pVertexBindingDescriptions = instanced_bindings;
+		instances.shader_stages[0].module = alias_instanced_vert_module;
+		instances.shader_stages[1].module = alias_frag_module;
+		instances.multisample_state.sampleShadingEnable = vulkan_globals.supersampling ? VK_TRUE : VK_FALSE;
+		R_TryCreateGraphicsPipeline (&vulkan_globals.alias_instanced_pipelines[variant], &instances, layout,
+			va ("alias_instanced %d", variant));
+	}
 
 	pipeline_create_infos_t infos;
 	for (int pipeline_index = 0; pipeline_index < MODEL_PIPELINE_SHOWTRIS; ++pipeline_index)
@@ -3911,6 +4612,7 @@ static void R_CreateAliasPipelines ()
 			}
 		}
 	}
+	return true;
 }
 
 /*
@@ -3918,7 +4620,7 @@ static void R_CreateAliasPipelines ()
 R_CreateMD5Pipelines
 ===============
 */
-static void R_CreateMD5PipelineSet (
+static bool R_TryCreateMD5PipelineSet (
 	vulkan_pipeline_t pipelines[MAIN_RENDER_PASS_VARIANT_COUNT][MODEL_PIPELINE_COUNT], vulkan_pipeline_t wboit_pipelines[MODEL_PIPELINE_COUNT],
 	vulkan_pipeline_t mboit_moment_pipelines[MODEL_PIPELINE_COUNT], vulkan_pipeline_t mboit_composite_pipelines[MODEL_PIPELINE_COUNT],
 	VkVertexInputAttributeDescription *vertex_attributes, uint32_t vertex_attribute_count, VkVertexInputBindingDescription *vertex_binding,
@@ -3938,6 +4640,8 @@ static void R_CreateMD5PipelineSet (
 	base.shader_stages[0].module = vertex_module;
 
 	const vulkan_pipeline_layout_t layout = vulkan_globals.md5_pipelines[MAIN_RENDER_PASS_STANDARD][0].layout;
+	if (!R_CreateEditorModelPipelines (&base, layout,
+		vertex_module == md5_8_vert_module ? PIPELINE_EDITOR_MD5_8 : PIPELINE_EDITOR_MD5, name)) return false;
 
 	pipeline_create_infos_t infos;
 	for (int pipeline_index = 0; pipeline_index < MODEL_PIPELINE_SHOWTRIS; ++pipeline_index)
@@ -4010,9 +4714,12 @@ static void R_CreateMD5PipelineSet (
 			}
 		}
 	}
+	return true;
 }
 
-static void R_CreateMD5Pipelines ()
+#define R_CreateMD5PipelineSet(...) do { if (!R_TryCreateMD5PipelineSet (__VA_ARGS__)) return false; } while (0)
+
+static bool R_CreateMD5Pipelines ()
 {
 	R_CreateMD5PipelineSet (
 		vulkan_globals.md5_pipelines, vulkan_globals.md5_wboit_pipelines, vulkan_globals.md5_mboit_moment_pipelines,
@@ -4022,14 +4729,17 @@ static void R_CreateMD5Pipelines ()
 		vulkan_globals.md5_8_pipelines, vulkan_globals.md5_8_wboit_pipelines, vulkan_globals.md5_8_mboit_moment_pipelines,
 		vulkan_globals.md5_8_mboit_composite_pipelines, md5_8_vertex_input_attribute_descriptions, countof (md5_8_vertex_input_attribute_descriptions),
 		&md5_8_vertex_binding_description, md5_8_vert_module, "md5_8");
+	return true;
 }
+
+#include "radiance_graphics.inc"
 
 /*
 ===============
 R_CreatePostprocessPipelines
 ===============
 */
-static void R_CreatePostprocessPipelines ()
+static bool R_CreatePostprocessPipelines ()
 {
 	pipeline_create_infos_t base;
 	R_InitDefaultStates (&base);
@@ -4088,7 +4798,7 @@ static void R_CreatePostprocessPipelines ()
 		}
 	}
 
-	if (vid.render_width != vid.width || vid.render_height != vid.height)
+	if (vulkan_globals.scene_hdr_active || vid.render_width != vid.width || vid.render_height != vid.height)
 	{
 		pipeline_create_infos_t upscale;
 		R_CopyPipelineCreateInfos (&upscale, &base);
@@ -4120,6 +4830,10 @@ static void R_CreatePostprocessPipelines ()
 	infos.blend_attachment_states[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	infos.blend_attachment_states[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	infos.blend_attachment_states[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	uint32_t hdr_scene = vulkan_globals.scene_hdr_active ? 1u : 0u;
+	const VkSpecializationMapEntry hdr_entry = {0, 0, sizeof (hdr_scene)};
+	const VkSpecializationInfo hdr_specialization = {1, &hdr_entry, sizeof (hdr_scene), &hdr_scene};
+	infos.shader_stages[1].pSpecializationInfo = &hdr_specialization;
 	infos.shader_stages[1].module = (vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT) ? wboit_resolve_frag_module : wboit_resolve_msaa_frag_module;
 	R_SetPipelineRenderPassVariant (&infos, SUBPASS_OIT_RESOLVE, MAIN_RENDER_PASS_OIT);
 	R_CreateGraphicsPipeline (&vulkan_globals.wboit_resolve_pipeline, &infos, vulkan_globals.wboit_resolve_pipeline.layout, "wboit_resolve");
@@ -4130,9 +4844,11 @@ static void R_CreatePostprocessPipelines ()
 	infos.blend_attachment_states[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	infos.blend_attachment_states[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	infos.blend_attachment_states[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	infos.shader_stages[1].pSpecializationInfo = &hdr_specialization;
 	infos.shader_stages[1].module = (vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT) ? mboit_resolve_frag_module : mboit_resolve_msaa_frag_module;
 	R_SetPipelineRenderPassVariant (&infos, SUBPASS_OIT_RESOLVE, MAIN_RENDER_PASS_MBOIT);
 	R_CreateGraphicsPipeline (&vulkan_globals.mboit_resolve_pipeline, &infos, vulkan_globals.mboit_resolve_pipeline.layout, "mboit_resolve");
+	return true;
 }
 
 /*
@@ -4140,12 +4856,13 @@ static void R_CreatePostprocessPipelines ()
 R_CreateScreenEffectsPipelines
 ===============
 */
-static void R_CreateScreenEffectsPipelines ()
+static bool R_CreateScreenEffectsPipelines ()
 {
 	const qboolean ten_bit = vulkan_globals.color_format == VK_FORMAT_A2B10G10R10_UNORM_PACK32;
 
 	R_CreateComputePipeline (
-		&vulkan_globals.screen_effects_pipeline, ten_bit ? screen_effects_10bit_comp_module : screen_effects_8bit_comp_module, 0, NULL, "screen_effects", true);
+		&vulkan_globals.screen_effects_pipeline, vulkan_globals.scene_hdr_active ? screen_effects_hdr_comp_module : ten_bit ? screen_effects_10bit_comp_module : screen_effects_8bit_comp_module, 0, NULL, "screen_effects", true);
+	return true;
 }
 
 /*
@@ -4153,7 +4870,7 @@ static void R_CreateScreenEffectsPipelines ()
 R_CreateUpdateLightmapPipelines
 ===============
 */
-static void R_CreateUpdateLightmapPipelines ()
+static bool R_CreateUpdateLightmapPipelines ()
 {
 	const qboolean ten_bit = vulkan_globals.color_format == VK_FORMAT_A2B10G10R10_UNORM_PACK32;
 
@@ -4176,6 +4893,7 @@ static void R_CreateUpdateLightmapPipelines ()
 		R_CreateComputePipeline (
 			&vulkan_globals.update_lightmap_rt_pipeline, ten_bit ? update_lightmap_10bit_rt_comp_module : update_lightmap_8bit_rt_comp_module, 0,
 			&specialization_info, "update_lightmap_rt", true);
+	return true;
 }
 
 /*
@@ -4183,10 +4901,17 @@ static void R_CreateUpdateLightmapPipelines ()
 R_CreateIndirectComputePipelines
 ===============
 */
-static void R_CreateIndirectComputePipelines ()
+static bool R_CreateIndirectComputePipelines ()
 {
 	R_CreateComputePipeline (&vulkan_globals.indirect_draw_pipeline, indirect_comp_module, 0, NULL, "indirect_draw", true);
 	R_CreateComputePipeline (&vulkan_globals.indirect_clear_pipeline, indirect_clear_comp_module, 0, NULL, "indirect_clear", true);
+	if (meshlet_cull_comp_module)
+		R_CreateComputePipeline (&vulkan_globals.meshlet_cull_pipeline, meshlet_cull_comp_module, 0, NULL, "meshlet_cull", false);
+	if (alias_ecs_cull_comp_module)
+		R_CreateComputePipeline (&vulkan_globals.ecs_cull_pipeline, alias_ecs_cull_comp_module, 0, NULL, "alias_ecs_cull", false);
+	if (meshlet_hiz_comp_module)
+		R_CreateComputePipeline (&vulkan_globals.meshlet_hiz_pipeline, meshlet_hiz_comp_module, 0, NULL, "meshlet_hiz", false);
+	return true;
 }
 
 /*
@@ -4194,8 +4919,11 @@ static void R_CreateIndirectComputePipelines ()
 R_CreateShaderModules
 ===============
 */
-static void R_CreateShaderModules ()
+static bool R_TryCreateShaderModules ()
 {
+	VkShaderModule *created[128];
+	shader_transaction_t transaction = {created, 0, countof (created), R_CreateShaderModuleForTransaction,
+		R_DestroyShaderModuleForTransaction, NULL};
 	CREATE_SHADER_MODULE (basic_vert);
 	CREATE_SHADER_MODULE (basic_frag);
 	CREATE_SHADER_MODULE (fte_particles_frag);
@@ -4218,6 +4946,7 @@ static void R_CreateShaderModules ()
 	CREATE_SHADER_MODULE (world_mboit_composite_frag);
 	CREATE_SHADER_MODULE_COND (world_mboit_composite_msaa_frag, vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
 	CREATE_SHADER_MODULE (alias_vert);
+	CREATE_SHADER_MODULE (alias_instanced_vert);
 	CREATE_SHADER_MODULE (alias_frag);
 	CREATE_SHADER_MODULE (alias_alphatest_frag);
 	CREATE_SHADER_MODULE (alias_oit_frag);
@@ -4247,10 +4976,9 @@ static void R_CreateShaderModules ()
 	if (r_ssao.value > 0)
 	{
 		if (vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT)
-			ssao_composite_frag_module = R_CreateShaderModule (ssao_composite_debug_frag_spv, ssao_composite_debug_frag_spv_size, "ssao_composite_debug_frag");
+			CREATE_SHADER_MODULE_CODE (ssao_composite_frag, ssao_composite_debug_frag, true);
 		else
-			ssao_composite_msaa_frag_module =
-				R_CreateShaderModule (ssao_composite_msaa_debug_frag_spv, ssao_composite_msaa_debug_frag_spv_size, "ssao_composite_msaa_debug_frag");
+			CREATE_SHADER_MODULE_CODE (ssao_composite_msaa_frag, ssao_composite_msaa_debug_frag, true);
 	}
 #else
 	CREATE_SHADER_MODULE_COND (ssao_composite_frag, r_ssao.value > 0 && vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT);
@@ -4273,9 +5001,20 @@ static void R_CreateShaderModules ()
 	CREATE_SHADER_MODULE_COND (mboit_resolve_msaa_frag, vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT);
 	CREATE_SHADER_MODULE (screen_effects_8bit_comp);
 	CREATE_SHADER_MODULE (screen_effects_10bit_comp);
+	CREATE_SHADER_MODULE_COND (screen_effects_hdr_comp, vulkan_globals.scene_hdr_active);
 	CREATE_SHADER_MODULE (cs_tex_warp_comp);
 	CREATE_SHADER_MODULE (indirect_comp);
 	CREATE_SHADER_MODULE (indirect_clear_comp);
+	CREATE_SHADER_MODULE_OPTIONAL (meshlet_cull_comp, vulkan_globals.meshlet_cull_pipeline.layout.handle);
+	CREATE_SHADER_MODULE_OPTIONAL (alias_ecs_cull_comp, vulkan_globals.ecs_cull_pipeline.layout.handle);
+	CREATE_SHADER_MODULE_OPTIONAL (meshlet_hiz_comp, vulkan_globals.meshlet_hiz_pipeline.layout.handle);
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	CREATE_SHADER_MODULE_OPTIONAL (world_mesh_mesh, vulkan_globals.world_mesh_pipeline_layout.handle);
+#if defined(HAVE_WORLD_TASK_SHADER)
+	CREATE_SHADER_MODULE_OPTIONAL (world_task_task, vulkan_globals.world_task_pipeline_layout.handle);
+	CREATE_SHADER_MODULE_OPTIONAL (world_task_mesh_mesh, vulkan_globals.world_task_pipeline_layout.handle);
+#endif
+#endif
 	CREATE_SHADER_MODULE (showtris_vert);
 	CREATE_SHADER_MODULE (showtris_frag);
 	CREATE_SHADER_MODULE (update_lightmap_8bit_comp);
@@ -4284,10 +5023,16 @@ static void R_CreateShaderModules ()
 	CREATE_SHADER_MODULE_COND (update_lightmap_10bit_rt_comp, vulkan_globals.ray_query);
 #ifdef _DEBUG
 	CREATE_SHADER_MODULE_COND (ray_debug_comp, vulkan_globals.ray_query);
+	CREATE_SHADER_MODULE_COND (ray_debug_hdr_comp, vulkan_globals.ray_query && vulkan_globals.scene_hdr_active);
 #endif
 	CREATE_SHADER_MODULE_COND (mesh_interpolate_comp, vulkan_globals.ray_query);
 	CREATE_SHADER_MODULE_COND (skinning_comp, vulkan_globals.ray_query);
 	CREATE_SHADER_MODULE_COND (skinning_8_comp, vulkan_globals.ray_query);
+	return true;
+
+fail:
+	ShaderTransaction_Rollback (&transaction);
+	return false;
 }
 
 /*
@@ -4319,6 +5064,7 @@ static void R_DestroyShaderModules ()
 	DESTROY_SHADER_MODULE (world_mboit_composite_frag);
 	DESTROY_SHADER_MODULE (world_mboit_composite_msaa_frag);
 	DESTROY_SHADER_MODULE (alias_vert);
+	DESTROY_SHADER_MODULE (alias_instanced_vert);
 	DESTROY_SHADER_MODULE (alias_frag);
 	DESTROY_SHADER_MODULE (alias_alphatest_frag);
 	DESTROY_SHADER_MODULE (alias_oit_frag);
@@ -4362,9 +5108,20 @@ static void R_DestroyShaderModules ()
 	DESTROY_SHADER_MODULE (mboit_resolve_msaa_frag);
 	DESTROY_SHADER_MODULE (screen_effects_8bit_comp);
 	DESTROY_SHADER_MODULE (screen_effects_10bit_comp);
+	DESTROY_SHADER_MODULE (screen_effects_hdr_comp);
 	DESTROY_SHADER_MODULE (cs_tex_warp_comp);
 	DESTROY_SHADER_MODULE (indirect_comp);
 	DESTROY_SHADER_MODULE (indirect_clear_comp);
+	DESTROY_SHADER_MODULE (meshlet_cull_comp);
+	DESTROY_SHADER_MODULE (alias_ecs_cull_comp);
+	DESTROY_SHADER_MODULE (meshlet_hiz_comp);
+#if defined(VK_EXT_mesh_shader) && defined(HAVE_WORLD_MESH_SHADER)
+	DESTROY_SHADER_MODULE (world_mesh_mesh);
+#if defined(HAVE_WORLD_TASK_SHADER)
+	DESTROY_SHADER_MODULE (world_task_task);
+	DESTROY_SHADER_MODULE (world_task_mesh_mesh);
+#endif
+#endif
 	DESTROY_SHADER_MODULE (showtris_vert);
 	DESTROY_SHADER_MODULE (showtris_frag);
 	DESTROY_SHADER_MODULE (update_lightmap_8bit_comp);
@@ -4372,6 +5129,7 @@ static void R_DestroyShaderModules ()
 	DESTROY_SHADER_MODULE (update_lightmap_10bit_comp);
 	DESTROY_SHADER_MODULE (update_lightmap_10bit_rt_comp);
 	DESTROY_SHADER_MODULE (ray_debug_comp);
+	DESTROY_SHADER_MODULE (ray_debug_hdr_comp);
 	DESTROY_SHADER_MODULE (mesh_interpolate_comp);
 	DESTROY_SHADER_MODULE (skinning_comp);
 	DESTROY_SHADER_MODULE (skinning_8_comp);
@@ -4382,31 +5140,52 @@ static void R_DestroyShaderModules ()
 R_CreatePipelines
 ===============
 */
-void R_CreatePipelines ()
+bool R_TryCreatePipelines (void)
 {
+	if (renderer_pipelines_created || active_pipeline_transaction) return false;
+	pipeline_transaction_t transaction = {0};
+	const float previous_ssao = r_ssao.value;
+	const qboolean previous_ssao_broken = vulkan_globals.ssao_broken;
+#if defined(VK_EXT_mesh_shader)
+	const qboolean previous_mesh_ready = vulkan_globals.world_mesh_ready;
+	const qboolean previous_task_ready = vulkan_globals.world_task_ready;
+#endif
 	Sys_Printf ("Creating pipelines\n");
 
-	R_CreateShaderModules ();
+	if (!R_TryCreateShaderModules ()) return false;
+	active_pipeline_transaction = &transaction;
 	R_InitVertexAttributes ();
 
-	R_CreateBasicPipelines ();
-	R_CreateWarpPipelines ();
-	R_CreateParticlesPipelines ();
-	R_CreateFTEParticlesPipelines ();
-	R_CreateSpritesPipelines ();
-	R_CreateSkyPipelines ();
-	R_CreateShowTrisPipelines ();
-	R_CreateWorldPipelines ();
-	R_CreateAliasPipelines ();
-	R_CreateMD5Pipelines ();
-	R_CreatePostprocessPipelines ();
-	R_CreateScreenEffectsPipelines ();
-	R_CreateUpdateLightmapPipelines ();
-	R_CreateIndirectComputePipelines ();
-	R_CreateRayDebugPipelines ();
-	R_CreateAnimComputePipelines ();
+	if (!R_CreateBasicPipelines () || !R_CreateWarpPipelines () || !R_CreateParticlesPipelines () ||
+		!R_CreateFTEParticlesPipelines () || !R_CreateSpritesPipelines () || !R_CreateSkyPipelines () ||
+		!R_CreateShowTrisPipelines () || !R_CreateWorldPipelines () || !R_CreateAliasPipelines () ||
+		!R_CreateMD5Pipelines () || !R_CreatePostprocessPipelines () || !R_CreateScreenEffectsPipelines () ||
+		!R_CreateUpdateLightmapPipelines () || !R_CreateIndirectComputePipelines () ||
+		!R_CreateRayDebugPipelines () || !R_CreateAnimComputePipelines ())
+	{
+		R_PipelineTransactionRollback (&transaction);
+		active_pipeline_transaction = NULL;
+		free (transaction.created);
+		R_DestroyShaderModules ();
+		if (r_ssao.value != previous_ssao) Cvar_SetValueQuick (&r_ssao, previous_ssao);
+		vulkan_globals.ssao_broken = previous_ssao_broken;
+#if defined(VK_EXT_mesh_shader)
+		vulkan_globals.world_mesh_ready = previous_mesh_ready;
+		vulkan_globals.world_task_ready = previous_task_ready;
+#endif
+		return false;
+	}
 
+	active_pipeline_transaction = NULL;
+	free (transaction.created);
 	R_DestroyShaderModules ();
+	renderer_pipelines_created = true;
+	return true;
+}
+
+void R_CreatePipelines (void)
+{
+	if (!R_TryCreatePipelines ()) Sys_Error ("Could not create renderer pipelines");
 }
 
 /*
@@ -4416,6 +5195,12 @@ R_DestroyPipelines
 */
 void R_DestroyPipelines (void)
 {
+	renderer_pipelines_created = false;
+	R_PipelineCacheRetryFailed ();
+	R_RadianceSetReceiverUse (1, false, false);
+	R_RadianceReset ("renderer resources being recreated");
+	/* The caller has waited for the device before destroying frame resources. */
+	R_ECSGPUShutdown ();
 	vkDestroyPipeline (vulkan_globals.device, ssao_mip_pipeline.handle, NULL);
 	ssao_mip_pipeline.handle = VK_NULL_HANDLE;
 	vkDestroyPipeline (vulkan_globals.device, ssao_prepare_pipeline.handle, NULL);
@@ -4453,6 +5238,12 @@ void R_DestroyPipelines (void)
 		{
 			vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_pipelines[variant][i].handle, NULL);
 			vulkan_globals.world_pipelines[variant][i].handle = VK_NULL_HANDLE;
+#if defined(VK_EXT_mesh_shader)
+			vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_mesh_pipelines[variant][i].handle, NULL);
+			vulkan_globals.world_mesh_pipelines[variant][i].handle = VK_NULL_HANDLE;
+			vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_task_pipelines[variant][i].handle, NULL);
+			vulkan_globals.world_task_pipelines[variant][i].handle = VK_NULL_HANDLE;
+#endif
 		}
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_wboit_pipelines[i].handle, NULL);
 		vulkan_globals.world_wboit_pipelines[i].handle = VK_NULL_HANDLE;
@@ -4461,6 +5252,10 @@ void R_DestroyPipelines (void)
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.world_mboit_composite_pipelines[i].handle, NULL);
 		vulkan_globals.world_mboit_composite_pipelines[i].handle = VK_NULL_HANDLE;
 	}
+#if defined(VK_EXT_mesh_shader)
+	vulkan_globals.world_mesh_ready = false;
+	vulkan_globals.world_task_ready = false;
+#endif
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.raster_tex_warp_pipeline.handle, NULL);
 	vulkan_globals.raster_tex_warp_pipeline.handle = VK_NULL_HANDLE;
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.particle_pipeline.handle, NULL);
@@ -4512,6 +5307,11 @@ void R_DestroyPipelines (void)
 		}
 		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.sky_box_pipeline[variant].handle, NULL);
 		vulkan_globals.sky_box_pipeline[variant].handle = VK_NULL_HANDLE;
+	}
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+	{
+		vkDestroyPipeline (vulkan_globals.device, vulkan_globals.alias_instanced_pipelines[variant].handle, NULL);
+		vulkan_globals.alias_instanced_pipelines[variant].handle = VK_NULL_HANDLE;
 	}
 	for (i = 0; i < MODEL_PIPELINE_COUNT; ++i)
 	{
@@ -4612,6 +5412,12 @@ void R_DestroyPipelines (void)
 	vulkan_globals.indirect_draw_pipeline.handle = VK_NULL_HANDLE;
 	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.indirect_clear_pipeline.handle, NULL);
 	vulkan_globals.indirect_clear_pipeline.handle = VK_NULL_HANDLE;
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.meshlet_cull_pipeline.handle, NULL);
+	vulkan_globals.meshlet_cull_pipeline.handle = VK_NULL_HANDLE;
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.ecs_cull_pipeline.handle, NULL);
+	vulkan_globals.ecs_cull_pipeline.handle = VK_NULL_HANDLE;
+	vkDestroyPipeline (vulkan_globals.device, vulkan_globals.meshlet_hiz_pipeline.handle, NULL);
+	vulkan_globals.meshlet_hiz_pipeline.handle = VK_NULL_HANDLE;
 }
 
 /*
@@ -4632,8 +5438,11 @@ R_Init
 void R_Init (void)
 {
 	cmd_function_t *cmd;
+	R_RadianceInit ();
 
 	Cmd_AddCommand ("timerefresh", R_TimeRefresh_f);
+	Cmd_AddCommand ("meshlet_stats", R_MeshletStats_f);
+	Cmd_AddCommand ("ecs_gpu_stats", R_ECSGPUStats_f);
 	Cmd_AddCommand ("pointfile", R_ReadPointFile_f);
 
 	cmd = Cmd_AddCommand ("r_showbboxes_filter", R_ShowbboxesFilter_f);
@@ -4679,6 +5488,8 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_oldskyleaf);
 	Cvar_RegisterVariable (&r_drawworld);
 	Cvar_RegisterVariable (&r_showtris);
+	Cvar_RegisterVariable (&r_ecs_batch);
+	Cvar_RegisterVariable (&r_ecs_gpu_cull);
 	Cvar_RegisterVariable (&r_showskel);
 	Cvar_RegisterVariable (&r_showbboxes);
 	Cvar_RegisterVariable (&r_showbboxes_think);
@@ -4713,6 +5524,10 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_rtshadows);
 	Cvar_SetCallback (&r_rtshadows, R_SetRTShadows_f);
 	Cvar_RegisterVariable (&r_indirect);
+	Cvar_RegisterVariable (&r_meshlets);
+	Cvar_RegisterVariable (&r_meshlet_occlusion);
+	Cvar_RegisterVariable (&r_meshlet_occlusion_stats);
+	Cvar_RegisterVariable (&r_meshlet_task);
 	Cvar_RegisterVariable (&r_tasks);
 	R_InitSSAO ();
 	Cvar_RegisterVariable (&r_parallelmark);
@@ -4733,16 +5548,18 @@ void R_Init (void)
 R_AllocateDescriptorSet
 ===============
 */
-VkDescriptorSet R_AllocateDescriptorSet (vulkan_desc_set_layout_t *layout)
+VkResult R_TryAllocateDescriptorSet (vulkan_desc_set_layout_t *layout, VkDescriptorSet *out)
 {
+	if (!layout || !out || *out != VK_NULL_HANDLE) return VK_ERROR_INITIALIZATION_FAILED;
 	ZEROED_STRUCT (VkDescriptorSetAllocateInfo, descriptor_set_allocate_info);
 	descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	descriptor_set_allocate_info.descriptorPool = vulkan_globals.descriptor_pool;
 	descriptor_set_allocate_info.descriptorSetCount = 1;
 	descriptor_set_allocate_info.pSetLayouts = &layout->handle;
 
-	VkDescriptorSet handle;
-	vkAllocateDescriptorSets (vulkan_globals.device, &descriptor_set_allocate_info, &handle);
+	VkDescriptorSet handle = VK_NULL_HANDLE;
+	VkResult err = vkAllocateDescriptorSets (vulkan_globals.device, &descriptor_set_allocate_info, &handle);
+	if (err != VK_SUCCESS) return err;
 
 	Atomic_AddUInt32 (&num_vulkan_combined_image_samplers, layout->num_combined_image_samplers);
 	Atomic_AddUInt32 (&num_vulkan_samplers, layout->num_samplers);
@@ -4754,6 +5571,15 @@ VkDescriptorSet R_AllocateDescriptorSet (vulkan_desc_set_layout_t *layout)
 	Atomic_AddUInt32 (&num_vulkan_sampled_images, layout->num_sampled_images);
 	Atomic_AddUInt32 (&num_acceleration_structures, layout->num_acceleration_structures);
 
+	*out = handle;
+	return VK_SUCCESS;
+}
+
+VkDescriptorSet R_AllocateDescriptorSet (vulkan_desc_set_layout_t *layout)
+{
+	VkDescriptorSet handle = VK_NULL_HANDLE;
+	VkResult err = R_TryAllocateDescriptorSet (layout, &handle);
+	if (err != VK_SUCCESS) Sys_Error ("Couldn't allocate descriptor set: %d", (int)err);
 	return handle;
 }
 
@@ -4925,6 +5751,9 @@ R_NewMap
 void R_NewMap (void)
 {
 	int i;
+	R_RadianceFrameNewMap ();
+	R_RadianceSetReceiverUse (1, false, false);
+	R_RadianceReset ("map resources not ready");
 
 	for (i = 0; i < MAX_LIGHTSTYLES; i++)
 		d_lightstylevalue[i] = 264; // normal light value
@@ -4999,22 +5828,32 @@ void R_TimeRefresh_f (void)
 R_AllocateVulkanMemory
 ====================
 */
-void R_AllocateVulkanMemory (vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations)
+VkResult R_TryAllocateVulkanMemory (vulkan_memory_t *memory, const VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations)
 {
-	memory->type = type;
-	if (memory->type != VULKAN_MEMORY_TYPE_NONE)
+	VkDeviceMemory handle = VK_NULL_HANDLE;
+	if (type != VULKAN_MEMORY_TYPE_NONE)
 	{
-		VkResult err = vkAllocateMemory (vulkan_globals.device, memory_allocate_info, NULL, &memory->handle);
+		VkResult err = vkAllocateMemory (vulkan_globals.device, memory_allocate_info, NULL, &handle);
 		if (err != VK_SUCCESS)
-			Sys_Error ("vkAllocateMemory failed with code %i", (int)err);
+			return err;
 		if (num_allocations)
 			Atomic_IncrementUInt32 (num_allocations);
 	}
+	memory->handle = handle;
+	memory->type = type;
 	memory->size = memory_allocate_info->allocationSize;
 	if (memory->type == VULKAN_MEMORY_TYPE_DEVICE)
 		Atomic_AddUInt64 (&total_device_vulkan_allocation_size, memory->size);
 	else if (memory->type == VULKAN_MEMORY_TYPE_HOST)
 		Atomic_AddUInt64 (&total_host_vulkan_allocation_size, memory->size);
+	return VK_SUCCESS;
+}
+
+void R_AllocateVulkanMemory (vulkan_memory_t *memory, VkMemoryAllocateInfo *memory_allocate_info, vulkan_memory_type_t type, atomic_uint32_t *num_allocations)
+{
+	VkResult err = R_TryAllocateVulkanMemory (memory, memory_allocate_info, type, num_allocations);
+	if (err != VK_SUCCESS)
+		Sys_Error ("vkAllocateMemory failed with code %i", (int)err);
 }
 
 /*

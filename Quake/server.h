@@ -389,6 +389,14 @@ void SV_ClientPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 void SV_BroadcastPrintf (const char *fmt, ...) FUNC_PRINTF (1, 2);
 
 void SV_Physics (void);
+void SV_ECSStressTick (void);
+void SV_QuiverMapTick (void);
+/* Copies the current local scripted stress visuals, returning their total count.
+ * The caller must use the result on the host thread after the server tick. */
+uint32_t SV_ECSStressVisualSnapshot (vec3_t *positions, uint32_t capacity);
+/* Nonzero serial for a complete local snapshot, changing at every publish and
+ * across map changes; zero means no complete snapshot is currently valid. */
+uint64_t SV_ECSStressVisualRevision (void);
 
 qboolean SV_CheckBottom (edict_t *ent);
 qboolean SV_movestep (edict_t *ent, vec3_t move, qboolean relink);
@@ -401,6 +409,6 @@ void SV_ConnectClient (int clientnum); // called from the netcode to add new cli
 void SV_CheckForNewClients (void);
 void SV_RunClients (void);
 void SV_SaveSpawnparms ();
-void SV_SpawnServer (const char *server);
+void SV_SpawnServer (const char *server, qboolean restoring);
 
 #endif /* _QUAKE_SERVER_H */

@@ -114,10 +114,13 @@ static void R_UploadSSAOHilbert (void)
 	R_StagingEndCopy ();
 }
 
-void R_CreateSSAO (VkImage depth)
+VkResult R_TryCreateSSAO (VkImage depth)
 {
 	if (r_ssao.value <= 0)
-		return;
+		return VK_SUCCESS;
+	if (scene_depth || sampler || !depth)
+		return VK_ERROR_INITIALIZATION_FAILED;
+	VkResult err;
 	scene_depth = depth;
 	const VkSamplerCreateInfo sampler_info = {
 		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
@@ -129,8 +132,10 @@ void R_CreateSSAO (VkImage depth)
 		.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 	};
-	if (vkCreateSampler (vulkan_globals.device, &sampler_info, NULL, &sampler) != VK_SUCCESS)
-		Sys_Error ("Couldn't create SSAO sampler");
+	VkSampler new_sampler = VK_NULL_HANDLE;
+	err = vkCreateSampler (vulkan_globals.device, &sampler_info, NULL, &new_sampler);
+	if (err != VK_SUCCESS) goto fail;
+	sampler = new_sampler;
 	for (int i = 0; i < SSAO_DEPTH_COUNT + SSAO_IMAGE_COUNT; ++i)
 	{
 		const bool working = i >= SSAO_DEPTH_COUNT;
@@ -172,23 +177,28 @@ void R_CreateSSAO (VkImage depth)
 		// Depth and stencil views both borrow the main attachment; only working images own memory.
 		if (working)
 		{
-			if (vkCreateImage (vulkan_globals.device, &image_info, NULL, target) != VK_SUCCESS)
-				Sys_Error ("Couldn't create SSAO working image");
+			VkImage image = VK_NULL_HANDLE;
+			err = vkCreateImage (vulkan_globals.device, &image_info, NULL, &image);
+			if (err != VK_SUCCESS) goto fail;
+			*target = image;
 			VkMemoryRequirements requirements;
 			vkGetImageMemoryRequirements (vulkan_globals.device, *target, &requirements);
 			const VkMemoryDedicatedAllocateInfoKHR dedicated = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR,
 				.image = *target,
 			};
+			int memory_type = GL_TryMemoryTypeFromProperties (requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0);
+			if (memory_type < 0) { err = VK_ERROR_FEATURE_NOT_PRESENT; goto fail; }
 			VkMemoryAllocateInfo allocation = {
 				.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 				.pNext = vulkan_globals.dedicated_allocation ? &dedicated : NULL,
 				.allocationSize = requirements.size,
-				.memoryTypeIndex = GL_MemoryTypeFromProperties (requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0),
+				.memoryTypeIndex = (uint32_t)memory_type,
 			};
-			R_AllocateVulkanMemory (allocation_memory, &allocation, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
-			if (vkBindImageMemory (vulkan_globals.device, *target, allocation_memory->handle, 0) != VK_SUCCESS)
-				Sys_Error ("Couldn't bind SSAO depth memory");
+			err = R_TryAllocateVulkanMemory (allocation_memory, &allocation, VULKAN_MEMORY_TYPE_DEVICE, &num_vulkan_misc_allocations);
+			if (err != VK_SUCCESS) goto fail;
+			err = vkBindImageMemory (vulkan_globals.device, *target, allocation_memory->handle, 0);
+			if (err != VK_SUCCESS) goto fail;
 		}
 		const VkImageViewCreateInfo view_info = {
 			.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -201,9 +211,12 @@ void R_CreateSSAO (VkImage depth)
 										 : VK_IMAGE_ASPECT_DEPTH_BIT,
 				 0, image_info.mipLevels, 0, 1},
 		};
-		if (vkCreateImageView (vulkan_globals.device, &view_info, NULL, view) != VK_SUCCESS)
-			Sys_Error ("Couldn't create SSAO depth view");
-		*descriptor = R_AllocateDescriptorSet (&vulkan_globals.single_texture_set_layout);
+		VkImageView new_view = VK_NULL_HANDLE;
+		err = vkCreateImageView (vulkan_globals.device, &view_info, NULL, &new_view);
+		if (err != VK_SUCCESS) goto fail;
+		*view = new_view;
+		err = R_TryAllocateDescriptorSet (&vulkan_globals.single_texture_set_layout, descriptor);
+		if (err != VK_SUCCESS) goto fail;
 		VkDescriptorImageInfo image = {sampler, *view, working ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
 		VkWriteDescriptorSet  write = {
 			 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -217,13 +230,13 @@ void R_CreateSSAO (VkImage depth)
 		{
 			if (depth_pyramid || image_index == SSAO_HILBERT)
 				continue; // The LUT is read-only; depth storage uses the individual mip views below.
-			working_write[image_index] = R_AllocateDescriptorSet (&vulkan_globals.single_texture_cs_write_set_layout);
+			err = R_TryAllocateDescriptorSet (&vulkan_globals.single_texture_cs_write_set_layout, &working_write[image_index]);
+			if (err != VK_SUCCESS) goto fail;
 			write.dstSet = working_write[image_index];
 			write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 			vkUpdateDescriptorSets (vulkan_globals.device, 1, &write, 0, NULL);
 		}
 	}
-	R_UploadSSAOHilbert ();
 	for (int resolution = 0; resolution < 2; ++resolution)
 	{
 		for (int mip = 0; mip < 5; ++mip)
@@ -234,12 +247,16 @@ void R_CreateSSAO (VkImage depth)
 				.viewType = VK_IMAGE_VIEW_TYPE_2D,
 				.format = VK_FORMAT_R16G16_SFLOAT,
 				.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, 0, 1}};
-			if (vkCreateImageView (vulkan_globals.device, &info, NULL, &mip_views[resolution][mip]) != VK_SUCCESS)
-				Sys_Error ("Couldn't create GTAO mip view");
+			VkImageView new_view = VK_NULL_HANDLE;
+			err = vkCreateImageView (vulkan_globals.device, &info, NULL, &new_view);
+			if (err != VK_SUCCESS) goto fail;
+			mip_views[resolution][mip] = new_view;
 			if (mip != 0)
 				continue;
-			prepared_read[resolution] = R_AllocateDescriptorSet (&vulkan_globals.single_texture_set_layout);
-			prepared_write[resolution] = R_AllocateDescriptorSet (&vulkan_globals.single_texture_cs_write_set_layout);
+			err = R_TryAllocateDescriptorSet (&vulkan_globals.single_texture_set_layout, &prepared_read[resolution]);
+			if (err != VK_SUCCESS) goto fail;
+			err = R_TryAllocateDescriptorSet (&vulkan_globals.single_texture_cs_write_set_layout, &prepared_write[resolution]);
+			if (err != VK_SUCCESS) goto fail;
 			const VkDescriptorImageInfo image = {sampler, mip_views[resolution][mip], VK_IMAGE_LAYOUT_GENERAL};
 			VkWriteDescriptorSet		write = {
 					   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -252,7 +269,8 @@ void R_CreateSSAO (VkImage depth)
 			write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 			vkUpdateDescriptorSets (vulkan_globals.device, 1, &write, 0, NULL);
 		}
-		mip_descriptors[resolution] = R_AllocateDescriptorSet (&ssao_mip_set_layout);
+		err = R_TryAllocateDescriptorSet (&ssao_mip_set_layout, &mip_descriptors[resolution]);
+		if (err != VK_SUCCESS) goto fail;
 		for (int binding = 0; binding < 7; ++binding)
 		{
 			const VkDescriptorImageInfo image = {
@@ -270,7 +288,8 @@ void R_CreateSSAO (VkImage depth)
 				.pImageInfo = &image};
 			vkUpdateDescriptorSets (vulkan_globals.device, 1, &write, 0, NULL);
 		}
-		lookup_descriptors[resolution] = R_AllocateDescriptorSet (&ssao_lookup_set_layout);
+		err = R_TryAllocateDescriptorSet (&ssao_lookup_set_layout, &lookup_descriptors[resolution]);
+		if (err != VK_SUCCESS) goto fail;
 		for (int binding = 0; binding < 2; ++binding)
 		{
 			const VkDescriptorImageInfo image = {
@@ -290,6 +309,22 @@ void R_CreateSSAO (VkImage depth)
 			vkUpdateDescriptorSets (vulkan_globals.device, 1, &write, 0, NULL);
 		}
 	}
+	return VK_SUCCESS;
+fail:
+	R_DestroySSAO ();
+	return err;
+}
+
+void R_FinalizeSSAO (void)
+{
+	if (scene_depth) R_UploadSSAOHilbert ();
+}
+
+void R_CreateSSAO (VkImage depth)
+{
+	VkResult err = R_TryCreateSSAO (depth);
+	if (err != VK_SUCCESS) Sys_Error ("Couldn't create SSAO resources: %d", (int)err);
+	R_FinalizeSSAO ();
 }
 
 void R_DestroySSAO (void)

@@ -1,0 +1,80 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Compile the production lookup with inert storage; only its direction-bin
+ * and sparse address helpers are used by this test. */
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) buffer Results { uint result[16]; };
+const float RC_PI = 3.14159265358979323846;
+const uint RC_ABSENT = 0xffffffffu;
+struct RCCascade { uvec4 meta; vec4 origin_spacing; vec4 interval; };
+RCCascade rcLevels[1];
+uint rcMergedValid[4], rcRawValid[4];
+uint rcBrickTable[4];
+float rcMergedDistance[4], rcRawDistance[4];
+vec4 rcMerged[4], rcRaw[4];
+/* Reference the generic sparse layout used by RC_RecordIndex in the cascade
+ * shader, so the specialized receiver address is checked independently. */
+uint RC_RecordIndex(RCCascade c, uvec3 cell, uvec2 direction)
+{
+	if (c.meta.w == 0u || any(greaterThanEqual(cell, uvec3(c.meta.x))) ||
+		any(greaterThanEqual(direction, uvec2(c.meta.y)))) return RC_ABSENT;
+	uint side = c.meta.x / c.meta.w;
+	uvec3 brick = cell / c.meta.w, local = cell % c.meta.w;
+	uint tableIndex = c.meta.z + (brick.z * side + brick.y) * side + brick.x;
+	if (tableIndex >= rcBrickTable.length()) return RC_ABSENT;
+	uint base = rcBrickTable[tableIndex];
+	if (base == RC_ABSENT) return RC_ABSENT;
+	uint probe = (local.z * c.meta.w + local.y) * c.meta.w + local.x;
+	uint within = probe * c.meta.y * c.meta.y + direction.y * c.meta.y + direction.x;
+	return base > 0xffffffffu - within ? RC_ABSENT : base + within;
+}
+vec3 RC_ProbePosition(RCCascade c, uvec3 cell) { return vec3(0); }
+vec3 RC_Direction(uvec2 bin, uint side) { return vec3(0, 0, 1); }
+#define RC_INDIRECT_BOUNCE 0
+#include "radiance_lookup.glsl"
+
+uint rnd(inout uint state) { state ^= state << 13; state ^= state >> 17; state ^= state << 5; return state; }
+float sampleValue(inout uint state) { return float(rnd(state) >> 8) * (1.0 / 16777216.0) * 2.0 - 1.0; }
+
+void main()
+{
+	uint mismatches[3] = uint[3](0u, 0u, 0u);
+	uint state = 12345u;
+	for (int i = 0; i < 200000; ++i)
+	{
+		vec3 p = vec3(sampleValue(state), sampleValue(state), sampleValue(state));
+		/* Include exact and near-axis cases, including on the guarded boundary. */
+		if ((i & 3) == 0) p.y *= 0.00002;
+		if ((i & 7) == 0) p.z *= 0.00002;
+		if ((i & 63) == 0) p.y = 0.0;
+		if ((i & 127) == 0) p.z = 0.0;
+		float distance = length(p);
+		if (distance < 0.0001) continue;
+		for (uint s = 0u; s < 3u; ++s)
+		{
+			uint side = s == 0u ? 2u : s == 1u ? 1u : 4u;
+			if (any(notEqual(RC_DirectionBin(p / distance, side), RC_DirectionBinFromOffset(p, distance, side))))
+				++mismatches[s];
+		}
+	}
+	/* Include sparse/missing bricks, invalid cells, offset tables and overflow,
+	 * plus non-specialized layouts that must use the generic path. */
+	uint addressMismatches = 0u;
+	for (uint i = 0u; i < 100000u; ++i)
+	{
+		for (uint j = 0u; j < 4u; ++j)
+		{
+			uint r = rnd(state);
+			rcBrickTable[j] = (r & 7u) == 0u ? RC_ABSENT :
+				((r & 7u) == 1u ? 0xffffff00u + (r & 255u) : r & 0xffffu);
+		}
+		RCCascade c;
+		c.meta = uvec4((rnd(state) % 4u + 1u) * 4u, (rnd(state) % 3u == 0u) ? 4u : 2u,
+			rnd(state) % 6u, (rnd(state) % 4u == 0u) ? 2u : 4u);
+		uvec3 cell = uvec3(rnd(state) % 20u, rnd(state) % 20u, rnd(state) % 20u);
+		if (RC_ReceiverProbeBase(c, cell) != RC_RecordIndex(c, cell, uvec2(0))) ++addressMismatches;
+	}
+	for (uint i = 0u; i < 16u; ++i) result[i] = 0u;
+	result[8] = addressMismatches;
+	for (uint i = 0u; i < 3u; ++i) result[i] = uint(mismatches[i] == 0u);
+}

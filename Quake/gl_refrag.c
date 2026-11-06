@@ -181,8 +181,13 @@ void R_AddEfrags (entity_t *ent)
 
 	entmodel = ent->model;
 
-	scalefactor = ENTSCALE_DECODE (ent->netstate.scale);
-	if (scalefactor != 1.0f)
+	scalefactor = R_EntityModelScale (ent);
+	if (ent->compiled_bounds_valid)
+	{
+		VectorCopy (ent->compiled_mins, r_emins);
+		VectorCopy (ent->compiled_maxs, r_emaxs);
+	}
+	else if (scalefactor != 1.0f)
 	{
 		VectorMA (ent->origin, scalefactor, entmodel->mins, r_emins);
 		VectorMA (ent->origin, scalefactor, entmodel->maxs, r_emaxs);
@@ -254,7 +259,7 @@ void R_StoreEfrags (efrag_t **ppefrag)
 					axis[0][2] *= -1; // stupid vanilla bug
 				PScript_RunParticleEffectState (pent->origin, axis[0], t, cl.particle_precache[pent->netstate.emiteffectnum].index, &pent->emitstate);
 			}
-			else if (pent->model->emiteffect >= 0)
+			else if (!pent->compiled_instance && pent->model->emiteffect >= 0)
 			{
 				float  t = cl.time - cl.oldtime;
 				vec3_t axis[3];

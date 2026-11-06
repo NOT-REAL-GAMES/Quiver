@@ -23,8 +23,16 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "r_ssao.h"
+#include "radiance_receiver_capture.h"
+#include "radiance_receiver_model.h"
+#include "radiance_receiver_frame.h"
+#include "radiance_receiver_stage.h"
+#include "radiance_receiver_live.h"
+#include "radiance_receiver_experimental.h"
+#include "radiance_matrix.h"
 #include "tasks.h"
 #include "atomics.h"
+#include "radiance_runtime.h"
 
 int r_visframecount; // bumped when going to a new PVS
 int r_framecount;	 // used for dlight push checking
@@ -126,7 +134,7 @@ cvar_t r_rtshadows = {"r_rtshadows", "2", CVAR_ARCHIVE};
 
 cvar_t r_tasks = {"r_tasks", "1", CVAR_NONE};
 
-cvar_t			r_indirect = {"r_indirect", "1", CVAR_NONE};
+cvar_t			r_indirect = {"r_indirect", "0", CVAR_NONE};
 extern qboolean indirect_ready;
 
 extern SDL_Mutex *draw_qcvm_mutex;
@@ -165,6 +173,7 @@ R_CullModelForEntity -- johnfitz -- uses correct bounds based on rotation
 */
 qboolean R_CullModelForEntity (entity_t *e)
 {
+	if (e->compiled_bounds_valid) return R_CullBox (e->compiled_mins, e->compiled_maxs);
 	vec3_t mins, maxs;
 	vec_t  scalefactor, *minbounds, *maxbounds;
 
@@ -184,7 +193,7 @@ qboolean R_CullModelForEntity (entity_t *e)
 		maxbounds = e->model->maxs;
 	}
 
-	scalefactor = ENTSCALE_DECODE (e->netstate.scale);
+	scalefactor = R_EntityModelScale (e);
 	if (scalefactor != 1.0f)
 	{
 		VectorMA (e->origin, scalefactor, minbounds, mins);
@@ -204,7 +213,7 @@ qboolean R_CullModelForEntity (entity_t *e)
 R_RotateForEntity -- johnfitz -- modified to take origin and angles instead of pointer to entity
 ===============
 */
-void R_RotateForEntity (float matrix[16], vec3_t origin, vec3_t angles, unsigned char scale)
+void R_RotateForEntityScale (float matrix[16], vec3_t origin, vec3_t angles, float scalefactor)
 {
 	float translation_matrix[16];
 	TranslationMatrix (translation_matrix, origin[0], origin[1], origin[2]);
@@ -218,13 +227,17 @@ void R_RotateForEntity (float matrix[16], vec3_t origin, vec3_t angles, unsigned
 	RotationMatrix (rotation_matrix, DEG2RAD (angles[2]), 1, 0, 0);
 	MatrixMultiply (matrix, rotation_matrix);
 
-	float scalefactor = ENTSCALE_DECODE (scale);
 	if (scalefactor != 1.0f)
 	{
 		float mscale_matrix[16];
 		ScaleMatrix (mscale_matrix, scalefactor, scalefactor, scalefactor);
 		MatrixMultiply (matrix, mscale_matrix);
 	}
+}
+
+void R_RotateForEntity (float matrix[16], vec3_t origin, vec3_t angles, unsigned char scale)
+{
+	R_RotateForEntityScale (matrix, origin, angles, ENTSCALE_DECODE (scale));
 }
 
 //==============================================================================
@@ -370,6 +383,7 @@ static void R_SceneViewport (cb_context_t *cbx, float min_depth)
 
 static void R_SetupContext (cb_context_t *cbx)
 {
+	cbx->receiver_world_capture = NULL;
 	R_SceneViewport (cbx, 0.0f);
 	R_BindGraphicsPipeline (cbx, PIPELINE_BASIC_BLEND);
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
@@ -1250,6 +1264,187 @@ static void R_ShowSkeletons (cb_context_t *cbx)
 	R_EndDebugUtilsLabel (cbx);
 }
 
+/* Each world recorder owns one capture; the primary consumes it only after
+ * draw_done has joined the workers. The reduced path is optional and falls
+ * back to the ordinary world commands whenever staging fails. */
+#define RC_EXPERIMENTAL_CAPTURE_CAPACITY 512
+static rc_receiver_world_capture_t rc_capture_workers[NUM_WORLD_CBX];
+static rc_receiver_world_draw_t rc_capture_draws[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_forward_material_t rc_capture_materials[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_world_draw_t rc_capture_combined_draws[NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_forward_material_t rc_capture_combined_materials[NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+#define RC_EXPERIMENTAL_MODEL_CAPACITY 2048
+static rc_receiver_model_capture_t rc_model_workers[NUM_ENTITIES_CBX];
+static rc_receiver_model_draw_t rc_model_draws[NUM_ENTITIES_CBX][RC_EXPERIMENTAL_MODEL_CAPACITY];
+static rc_receiver_model_draw_t rc_model_combined[NUM_ENTITIES_CBX * RC_EXPERIMENTAL_MODEL_CAPACITY];
+static rc_receiver_model_snapshot_t rc_model_snapshot;
+static uint32_t rc_model_capture_count;
+static bool rc_capture_requested;
+static uint32_t rc_capture_count;
+static uint64_t rc_capture_serial;
+typedef struct {
+	rc_receiver_params_t params;
+	uint32_t width,height;
+	bool texture_filter,checkerboard,smooth_indirect;
+	float shadow_parameters[4];
+} rc_experimental_view_t;
+static rc_experimental_view_t rc_capture_view;
+static bool RCExperimentalCaptureView (rc_experimental_view_t *out)
+{
+	if (!out || vid.render_width<=0 || vid.render_height<=0 ||
+		r_scene_vrect.x<0 || r_scene_vrect.y<0 || r_scene_vrect.width<=0 || r_scene_vrect.height<=0 ||
+		(uint64_t)r_scene_vrect.x+(uint32_t)r_scene_vrect.width>(uint32_t)vid.render_width ||
+		(uint64_t)r_scene_vrect.y+(uint32_t)r_scene_vrect.height>(uint32_t)vid.render_height) return false;
+	rc_experimental_view_t pending={.width=(uint32_t)vid.render_width,.height=(uint32_t)vid.render_height,
+		.params={.viewport={r_scene_vrect.x,r_scene_vrect.y,r_scene_vrect.width,r_scene_vrect.height},
+			.samples=1,.plane_tolerance=.01f,.normal_cosine=.99f,.divisor=R_RadianceResolutionDivisor ()}};
+	rc_receiver_params_t *params=&pending.params;
+	if (!Radiance_InvertMatrix(vulkan_globals.view_projection_matrix,params->inverse_view_projection)) return false;
+	params->ndc_transform[0]=2.0f/params->viewport[2]; params->ndc_transform[1]=2.0f/params->viewport[3];
+	params->ndc_transform[2]=-1.0f-params->viewport[0]*params->ndc_transform[0];
+	params->ndc_transform[3]=-1.0f-params->viewport[1]*params->ndc_transform[1];
+	pending.texture_filter=r_radiance_receiver_filter.value>0;
+	pending.checkerboard=r_radiance_checkerboard.value>0 && params->divisor>1;
+	pending.smooth_indirect=pending.texture_filter &&
+		(!isfinite(r_radiance_bounce_gain.value) || r_radiance_bounce_gain.value>0) &&
+		isfinite(r_radiance_probe_gaussian.value) && r_radiance_probe_gaussian.value>0;
+	R_RadianceShadowParameters(pending.shadow_parameters);
+	*out=pending; return true;
+}
+static void RCExperimentalCaptureBegin (void *data)
+{
+	bool task_mode = *(const bool *)data;
+	rc_capture_requested = (R_RadianceResolutionDivisor () > 1 || r_radiance_deferred.value > 0) && !indirect && R_RadianceActive ();
+	memset (&rc_capture_view, 0, sizeof (rc_capture_view));
+	RCReceiverModelCapture_Reset ();
+	memset (&rc_model_snapshot, 0, sizeof (rc_model_snapshot));
+	rc_model_capture_count = task_mode ? NUM_ENTITIES_CBX : 1;
+	static bool setup_reported;
+	if (!setup_reported) { Con_Printf ("RC experimental capture setup: indirect=%d enabled=%d\n", indirect, rc_capture_requested); setup_reported=true; }
+	rc_capture_count = task_mode ? NUM_WORLD_CBX : 1;
+	rc_capture_serial = (uint64_t)(uint32_t)r_framecount;
+	if (!rc_capture_requested) return;
+	/* Next-frame view setup may overlap this frame's end-recording task.
+	 * Keep the reconstruction camera identical to the captured draw MVPs. */
+	if (!RCExperimentalCaptureView (&rc_capture_view)) { rc_capture_requested=false; return; }
+	for (uint32_t i = 0; i < rc_capture_count; ++i)
+	{
+		rc_capture_workers[i] = (rc_receiver_world_capture_t){.frame_serial=rc_capture_serial,
+			.draws=rc_capture_draws[i], .materials=rc_capture_materials[i],
+			.capacity=RC_EXPERIMENTAL_CAPTURE_CAPACITY, .first_token=1+i*RC_EXPERIMENTAL_CAPTURE_CAPACITY};
+		if (!RCReceiverCapture_Install (i, &rc_capture_workers[i])) { rc_capture_requested=false; RCReceiverCapture_Reset(); return; }
+	}
+	if (r_radiance_deferred.value > 0 && r_radiance_receiver_filter.value > 0 && vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT)
+		for (uint32_t i = 0; i < rc_model_capture_count; ++i)
+		{
+			rc_model_workers[i] = (rc_receiver_model_capture_t){.frame_serial=rc_capture_serial,
+				.draws=rc_model_draws[i], .capacity=RC_EXPERIMENTAL_MODEL_CAPACITY,
+				.first_token=1+NUM_WORLD_CBX*RC_EXPERIMENTAL_CAPTURE_CAPACITY+i*RC_EXPERIMENTAL_MODEL_CAPACITY};
+			if (!RCReceiverModelCapture_Install (i, &rc_model_workers[i]))
+			{ RCReceiverModelCapture_Reset (); break; }
+		}
+}
+void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass,
+	VkRenderPass model_pass, VkFramebuffer model_framebuffer, uint32_t model_subpass)
+{
+	static bool reported;
+	static unsigned failures_reported;
+	if (!rc_capture_requested || rc_capture_serial != RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount)) return;
+	rc_receiver_world_capture_t *parts[NUM_WORLD_CBX];
+	for (uint32_t i=0;i<rc_capture_count;i++) parts[i]=&rc_capture_workers[i];
+	rc_receiver_world_snapshot_t snapshot={0};
+	bool ok=RCReceiverCapture_Collect(&snapshot,rc_capture_serial,rc_capture_combined_draws,rc_capture_combined_materials,
+		NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY,parts,rc_capture_count);
+	bool empty_world=true;
+	for (uint32_t i=0;i<rc_capture_count;++i) empty_world &= !parts[i]->failed && !parts[i]->count;
+	if (empty_world) { snapshot=(rc_receiver_world_snapshot_t){.frame_serial=rc_capture_serial,.draws=rc_capture_combined_draws}; ok=true; }
+	rc_receiver_model_capture_t *model_parts[NUM_ENTITIES_CBX];
+	bool has_model_capture=r_radiance_deferred.value>0 && r_radiance_receiver_filter.value>0;
+	for (uint32_t i=0;i<rc_model_capture_count;++i) {
+		model_parts[i]=RCReceiverModelCapture_Acquire(i,rc_capture_serial);
+		if (!model_parts[i]) has_model_capture=false;
+	}
+	if (has_model_capture && !RCReceiverModelCapture_Collect(&rc_model_snapshot,rc_capture_serial,rc_model_combined,
+		NUM_ENTITIES_CBX*RC_EXPERIMENTAL_MODEL_CAPACITY,model_parts,rc_model_capture_count)) ok=false;
+	if (ok && !reported) { Con_Printf ("RC experimental world capture: collected %u direct draw batches, workers=%u\n", snapshot.count, rc_capture_count); reported=true; }
+	else if (!ok && failures_reported < 3) {
+		Con_Printf ("RC experimental world capture unavailable: frame=%llu workers=%u", (unsigned long long)rc_capture_serial, rc_capture_count);
+		for (uint32_t i=0;i<rc_capture_count;i++) Con_Printf (" [%u:%u%s]", i, parts[i]->count, parts[i]->failed ? " failed" : "");
+		Con_Printf ("\n"); ++failures_reported;
+	}
+	const uint32_t eligible_models=RCReceiverModel_EligibleCount(&rc_model_snapshot);
+	if (ok && (snapshot.count || eligible_models) && primary && pass && framebuffer && subpass==0)
+	{
+		const uint32_t slot=GL_RenderFrameSlot();
+		rc_experimental_bindings_t bindings;
+		const int32_t *view=rc_capture_view.params.viewport;
+		VkCommandPool pool=VK_NULL_HANDLE;
+		rc_receiver_params_t params=rc_capture_view.params;
+		bool view_ok=rc_capture_view.width>0 && rc_capture_view.height>0;
+		bool bindings_ok=view_ok && R_RadianceExperimentalBindings(slot,&bindings);
+		bool prepared=bindings_ok && R_ReceiverExperimentalPrepare(slot,pass,rc_capture_view.width,rc_capture_view.height,&bindings,view,params.divisor,
+			rc_capture_view.texture_filter,rc_capture_view.shadow_parameters[0]>0,&pool);
+		static unsigned preflight_reports;
+		if(preflight_reports<4) { Con_Printf("RC experimental preflight: slot=%u view=%d bindings=%d provider=%d\n",slot,view_ok,bindings_ok,prepared); ++preflight_reports; }
+		if (prepared)
+		{
+			rc_receiver_slot_t *s=RCReceiverLive_Get(slot);
+			const bool texture_filter=rc_capture_view.texture_filter;
+			const bool checkerboard=rc_capture_view.checkerboard;
+			const float *shadow_parameters=rc_capture_view.shadow_parameters;
+			const bool smooth_indirect=rc_capture_view.smooth_indirect;
+			const bool smooth_shadows=texture_filter && shadow_parameters[0]>0 && shadow_parameters[3]>0 && s->resources.soft_shadows;
+			VkDescriptorSet receiver_set=checkerboard || smooth_indirect || smooth_shadows ?
+				s->resources.descriptors.forward_resolved : s->resources.descriptors.forward;
+			for(uint32_t i=0;i<snapshot.count;++i)rc_capture_combined_materials[i].reuse_set=receiver_set;
+			VkViewport viewport={(float)view[0],(float)view[1],(float)view[2],(float)view[3],0,1};
+			VkRect2D scissor={{0,0},{rc_capture_view.width,rc_capture_view.height}};
+			rc_receiver_alternate_part_t part={.snapshot=&snapshot,.materials=rc_capture_combined_materials};
+			uint32_t world_first_query=0;
+			VkQueryPool world_timestamps=GL_GPUStageWorldQueries(&world_first_query);
+			bool alternate=!snapshot.count || RCReceiverAlternates_Create(&s->alternates,vulkan_globals.device,pool,rc_capture_serial,pass,framebuffer,subpass,
+				s->resources.layouts.forward,s->resources.forward,&viewport,&scissor,&part,1,world_timestamps,world_first_query);
+			/* Unsafe receiver blocks take the full-resolution fallback in the forward shader. */
+			uint32_t receiver_first_query=0;
+			VkQueryPool receiver_timestamps=GL_GPUReceiverStageQueries(&receiver_first_query);
+			bool models_ready=!eligible_models;
+			if (eligible_models && model_pass && model_framebuffer && R_ReceiverExperimentalModelsPrepare(slot,model_pass,model_subpass))
+				models_ready=RCReceiverModelAlternates_Create(&s->model_alternates,vulkan_globals.device,pool,rc_capture_serial,
+					model_pass,model_framebuffer,model_subpass,&s->resources.models,&rc_model_snapshot,receiver_set,bindings.cascade_set,
+					&viewport,&scissor,world_timestamps,world_first_query+3);
+			bool staged=alternate && models_ready && RCReceiverResources_StageFrameModels(&s->resources,rc_capture_serial,primary,bindings.cascade_set,bindings.lighting_set,
+					&params,0.0f,&snapshot,rc_capture_combined_materials,&s->alternates,true,true,texture_filter,checkerboard,smooth_indirect,smooth_shadows,shadow_parameters[0]>0,
+					receiver_timestamps,receiver_first_query,smooth_shadows?shadow_parameters[3]:0,eligible_models?&rc_model_snapshot:NULL,eligible_models?&s->model_alternates:NULL);
+			static unsigned gate_reports;
+			if(gate_reports<4) { Con_Printf("RC experimental frame: alternate=%d staged=%d\n",alternate,staged); ++gate_reports; }
+			if (staged) {
+				static bool staged_reported;
+				if(!staged_reported){Con_Printf("RC experimental half-resolution frame staged\n");staged_reported=true;}
+			}
+		}
+	}
+	rc_capture_requested=false;
+}
+
+
+/* Select only the captured model stream at its actual entity pass. A failed
+ * model/prepass/compute stage leaves every original fallback command intact. */
+bool RCExperimentalSubmitModels (VkCommandBuffer primary, uint64_t serial,
+	VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass)
+{
+	const rc_receiver_slot_t *slot=RCReceiverLive_Get(GL_RenderFrameSlot());
+	const rc_receiver_model_alternates_t *a=slot?&slot->model_alternates:NULL;
+	uint32_t draws=0; uint64_t triangles=0;
+	if(rc_model_snapshot.frame_serial==serial)
+		for (uint32_t i=0;i<rc_model_snapshot.count;++i) if(rc_model_snapshot.draws[i].reuse_eligible)
+		{ ++draws; triangles+=rc_model_snapshot.draws[i].index_count/3; }
+	bool reused=primary && draws && RCReceiverFrame_Active(serial) && a && a->count &&
+		a->serial==serial && a->pass==pass && a->framebuffer==framebuffer && a->subpass==subpass;
+	if (reused) vkCmdExecuteCommands(primary,a->count,a->buffers);
+	R_RadianceRecordModelReceiverUse(draws,triangles>UINT32_MAX?UINT32_MAX:(uint32_t)triangles,reused);
+	return reused;
+}
+
 /*
 ================
 R_DrawWorldTask
@@ -1260,10 +1455,14 @@ static void R_DrawWorldTask (int index, void *use_tasks)
 	cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[SCBX_WORLD][index];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
+	/* Only the legacy direct world path can produce this prototype snapshot.
+	 * Indirect and mesh/task draws retain the ordinary renderer. */
+	cbx->receiver_world_capture = indirect ? NULL : RCReceiverCapture_Acquire ((uint32_t)index, (uint64_t)(uint32_t)r_framecount);
 	if (indirect)
 		R_DrawIndirectBrushes (cbx, false, false, false, use_tasks ? index : -1);
 	else
 		R_DrawWorld (cbx, index);
+	cbx->receiver_world_capture = NULL;
 }
 
 /*
@@ -1339,12 +1538,14 @@ static void R_SortAlphaEntitiesTask (void *unused)
 		}
 
 		vec3_t		center;
-		const float scalefactor = ENTSCALE_DECODE (currententity->netstate.scale);
+		const float scalefactor = R_EntityModelScale (currententity);
 		float		dist_squared = 0;
 		for (int j = 0; j < 3; ++j)
 		{
-			const float mins = currententity->origin[j] + scalefactor * currententity->model->mins[j];
-			const float maxs = currententity->origin[j] + scalefactor * currententity->model->maxs[j];
+			const float mins = currententity->compiled_bounds_valid ? currententity->compiled_mins[j] :
+				currententity->origin[j] + scalefactor * currententity->model->mins[j];
+			const float maxs = currententity->compiled_bounds_valid ? currententity->compiled_maxs[j] :
+				currententity->origin[j] + scalefactor * currententity->model->maxs[j];
 			center[j] = (mins + maxs) / 2;
 			const float dist = q_max (0.0f, q_max (mins - r_refdef.vieworg[j], r_refdef.vieworg[j] - maxs));
 			dist_squared += dist * dist;
@@ -1408,7 +1609,31 @@ static void R_DrawEntitiesTask (int index, void *use_tasks)
 	cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[SCBX_ENTITIES][index];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx); // johnfitz
+	cb_context_t *models = &vulkan_globals.secondary_cb_contexts[SCBX_MODELS][index];
+	R_SetupContext (models); Fog_EnableGFog (models);
+	cbx->receiver_model_capture = RCReceiverModelCapture_Acquire ((uint32_t)index, (uint64_t)(uint32_t)r_framecount);
+	cbx->receiver_model_context = cbx->receiver_model_capture ? models : NULL;
 	R_DrawEntitiesOnList (cbx, false, index + chain_model_0, use_tasks ? true : false);
+	R_DrawECSVisualBatch (cbx, use_tasks ? index : 0, use_tasks ? NUM_ENTITIES_CBX : 1);
+	cbx->receiver_model_capture = NULL; cbx->receiver_model_context = NULL;
+}
+
+/* The particle count is known only after setup. Assign the dependent indexed
+ * task while its setup/layout dependency still holds it off the work queue. */
+static void R_SetupParticleWorkTask (void *payload)
+{
+	const task_handle_t update = *(const task_handle_t *)payload;
+	PScript_UpdateParticlesSetupTask (NULL);
+	Task_AssignIndexedFunc (update, PScript_UpdateParticlesTask, PScript_ParticleTaskCount (), NULL, 0);
+	Task_Submit (update);
+}
+
+static void R_LayoutParticleWorkTask (void *payload)
+{
+	const task_handle_t emit = *(const task_handle_t *)payload;
+	PScript_LayoutParticlesTask (NULL);
+	Task_AssignIndexedFunc (emit, PScript_EmitParticlesTask, PScript_ParticleTaskCount (), NULL, 0);
+	Task_Submit (emit);
 }
 
 /*
@@ -1530,6 +1755,7 @@ void R_RenderView (
 
 	if (!cl.worldmodel)
 		Sys_Error ("R_RenderView: NULL worldmodel");
+	R_PrepareMeshlets ();
 
 	if (scr_speeds.value)
 		rs_frame_starttime = Sys_DoubleTime ();
@@ -1571,6 +1797,13 @@ void R_RenderView (
 		Task_AddDependency (update_warp_textures, draw_done_task);
 
 		task_handle_t draw_world_task = Task_AllocateAndAssignIndexedFunc (R_DrawWorldTask, NUM_WORLD_CBX, &use_tasks, sizeof (use_tasks));
+		task_handle_t capture_task = INVALID_TASK_HANDLE;
+		if (r_radiance.value > 0 && (R_RadianceResolutionDivisor () > 1 || r_radiance_deferred.value > 0)) {
+			bool task_mode = true;
+			capture_task = Task_AllocateAndAssignFunc (RCExperimentalCaptureBegin, &task_mode, sizeof (task_mode));
+			Task_AddDependency (begin_rendering_task, capture_task);
+			Task_AddDependency (capture_task, draw_world_task);
+		}
 		if (indirect)
 			Task_AddDependency (before_mark, draw_world_task);
 		else
@@ -1610,6 +1843,7 @@ void R_RenderView (
 		task_handle_t draw_entities_task = Task_AllocateAndAssignIndexedFunc (R_DrawEntitiesTask, NUM_ENTITIES_CBX, &use_tasks, sizeof (use_tasks));
 		Task_AddDependency (store_efrags, draw_entities_task);
 		Task_AddDependency (begin_rendering_task, draw_entities_task);
+		if (capture_task != INVALID_TASK_HANDLE) Task_AddDependency (capture_task, draw_entities_task);
 
 		task_handle_t draw_alpha_entities_task = Task_AllocateAndAssignIndexedFunc (R_DrawAlphaEntitiesTask, 2, &use_tasks, sizeof (use_tasks));
 		Task_AddDependency (sort_transparents, draw_alpha_entities_task);
@@ -1622,20 +1856,64 @@ void R_RenderView (
 		Task_AddDependency (flush_dlights_task, draw_entities_task);
 		Task_AddDependency (flush_dlights_task, draw_alpha_entities_task);
 
-		task_handle_t update_particles_setup_task = Task_AllocateAndAssignFunc (PScript_UpdateParticlesSetupTask, NULL, 0);
+		/* Publish one immutable radiance frame after slot reuse and scene/light
+		 * collection, before any draw worker can select its pipeline. */
+		task_handle_t prepare_radiance = INVALID_TASK_HANDLE;
+		if (r_radiance.value > 0)
+		{
+			prepare_radiance = Task_AllocateAndAssignFunc (GL_RadiancePrepareTask, NULL, 0);
+			Task_AddDependency (begin_rendering_task, prepare_radiance);
+			Task_AddDependency (before_mark, prepare_radiance);
+			Task_AddDependency (store_efrags, prepare_radiance);
+			Task_AddDependency (flush_dlights_task, prepare_radiance);
+			/* Capture eligibility reads this frame's published Radiance state. */
+			if (capture_task != INVALID_TASK_HANDLE)
+				Task_AddDependency (prepare_radiance, capture_task);
+			Task_AddDependency (prepare_radiance, draw_world_task);
+			Task_AddDependency (prepare_radiance, draw_water_task);
+			Task_AddDependency (prepare_radiance, draw_sky_task);
+			Task_AddDependency (prepare_radiance, draw_view_model_task);
+			Task_AddDependency (prepare_radiance, draw_entities_task);
+			Task_AddDependency (prepare_radiance, draw_alpha_entities_task);
+			/* Creation and material extraction touch renderer-wide pipeline and
+			 * texture state, so finish them before other recording or updates. */
+			Task_AddDependency (prepare_radiance, update_warp_textures);
+			Task_AddDependency (prepare_radiance, sort_transparents);
+			if (draw_gui_task != INVALID_TASK_HANDLE)
+				Task_AddDependency (prepare_radiance, draw_gui_task);
+		}
+
+		/* Frustum, light state, and this frame's fenced GPU buffers must all be
+		 * ready before preparing instance data. Draws only consume that data
+		 * after preparation has completed. */
+		task_handle_t prepare_ecs_gpu = INVALID_TASK_HANDLE;
+		task_handle_t fill_ecs_gpu = INVALID_TASK_HANDLE;
+		if (R_ECSGPUShouldPrepare ())
+		{
+			prepare_ecs_gpu = Task_AllocateAndAssignFunc (R_PrepareECSVisualGPU, NULL, 0);
+			fill_ecs_gpu = Task_AllocateAndAssignIndexedFunc (R_FillECSVisualGPU, NUM_ENTITIES_CBX, NULL, 0);
+			Task_AddDependency (before_mark, prepare_ecs_gpu);
+			Task_AddDependency (store_efrags, prepare_ecs_gpu);
+			Task_AddDependency (begin_rendering_task, prepare_ecs_gpu);
+			Task_AddDependency (flush_dlights_task, prepare_ecs_gpu);
+			Task_AddDependency (prepare_ecs_gpu, fill_ecs_gpu);
+			Task_AddDependency (fill_ecs_gpu, draw_entities_task);
+		}
+
+		task_handle_t update_particles_task = Task_Allocate ();
+		task_handle_t update_particles_setup_task = Task_AllocateAndAssignFunc (R_SetupParticleWorkTask, &update_particles_task, sizeof (update_particles_task));
 		Task_AddDependency (before_mark, update_particles_setup_task);
 
-		task_handle_t update_particles_task = Task_AllocateAndAssignIndexedFunc (PScript_UpdateParticlesTask, Tasks_NumWorkers (), NULL, 0);
 		Task_AddDependency (update_particles_setup_task, update_particles_task);
 
 		// layout is the first task that writes the double buffered vertex/index buffers, it
 		// must wait for begin_rendering so the GPU is done reading them from two frames ago
-		task_handle_t layout_particles_task = Task_AllocateAndAssignFunc (PScript_LayoutParticlesTask, NULL, 0);
+		task_handle_t emit_particles_task = Task_Allocate ();
+		task_handle_t layout_particles_task = Task_AllocateAndAssignFunc (R_LayoutParticleWorkTask, &emit_particles_task, sizeof (emit_particles_task));
 		Task_AddDependency (update_particles_task, layout_particles_task);
 		Task_AddDependency (begin_rendering_task, layout_particles_task);
 		Task_AddDependency (flush_dlights_task, layout_particles_task);
 
-		task_handle_t emit_particles_task = Task_AllocateAndAssignIndexedFunc (PScript_EmitParticlesTask, Tasks_NumWorkers (), NULL, 0);
 		Task_AddDependency (layout_particles_task, emit_particles_task);
 
 		task_handle_t draw_particles_task = Task_AllocateAndAssignFunc (R_DrawParticlesTask, NULL, 0);
@@ -1670,8 +1948,16 @@ void R_RenderView (
 		task_handle_t tasks[] = {
 			before_mark,		   store_efrags,		  update_warp_textures, draw_world_task,		  sort_transparents,  draw_sky_task,
 			draw_water_task,	   draw_view_model_task,  draw_entities_task,	draw_alpha_entities_task, flush_dlights_task, update_particles_setup_task,
-			update_particles_task, layout_particles_task, emit_particles_task,	draw_particles_task,	  build_tlas_task,	  update_lightmaps_task};
+			layout_particles_task, draw_particles_task, build_tlas_task, update_lightmaps_task};
 		Tasks_Submit ((sizeof (tasks) / sizeof (task_handle_t)), tasks);
+		if (capture_task != INVALID_TASK_HANDLE) Task_Submit (capture_task);
+		if (prepare_radiance != INVALID_TASK_HANDLE)
+			Task_Submit (prepare_radiance);
+		if (prepare_ecs_gpu != INVALID_TASK_HANDLE)
+		{
+			Task_Submit (prepare_ecs_gpu);
+			Task_Submit (fill_ecs_gpu);
+		}
 		if (cull_surfaces != chain_surfaces)
 		{
 			Task_Submit (cull_surfaces);
@@ -1680,9 +1966,15 @@ void R_RenderView (
 	}
 	else
 	{
+		R_DisableECSVisualGPU ();
+		R_ECSGPUReset ();
 		R_SetupViewBeforeMark (NULL);
 		R_MarkSurfaces (use_tasks, INVALID_TASK_HANDLE, NULL, NULL, NULL); // johnfitz -- create texture chains from PVS
+		PScript_FlushDlightsTask (NULL);
+		if (r_radiance.value > 0)
+			GL_RadiancePrepareTask (NULL);
 		R_UpdateWarpTextures (NULL);
+		if (r_radiance.value > 0 && (R_RadianceResolutionDivisor () > 1 || r_radiance_deferred.value > 0)) { bool task_mode=false; RCExperimentalCaptureBegin (&task_mode); }
 		R_DrawWorldTask (0, NULL);
 		R_DrawSkyTask (NULL);
 		R_DrawWaterTask (NULL);
@@ -1691,7 +1983,6 @@ void R_RenderView (
 			R_DrawSSAOTask (NULL);
 		R_SortAlphaEntitiesTask (NULL);
 		R_DrawAlphaEntitiesTask (0, NULL);
-		PScript_FlushDlightsTask (NULL); // no-op here (spawns run on the main thread), but keeps the queues drained across mode switches
 		PScript_UpdateParticlesSetupTask (NULL);
 		for (int pi = 0; pi < q_max (Tasks_NumWorkers (), 1); pi++)
 			PScript_UpdateParticlesTask (pi, NULL);

@@ -1,0 +1,73 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+#define RC_SET 1
+#define RC_SCENE_SET 1
+#define RC_SCENE_BINDING_BASE 9
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#if RC_RECEIVER_TEXTURE_FILTER
+#define RC_RECEIVER_SHADOW_EXPORT 1
+#endif
+#include "radiance_cascades.glsl"
+#include "radiance_lookup.glsl"
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D receiverPosition;
+layout(set = 0, binding = 1) uniform sampler2D receiverNormal;
+#if RC_RECEIVER_TEXTURE_FILTER
+layout(r32ui, set = 0, binding = 2) uniform uimage2D receiverStatus;
+#else
+layout(r32ui, set = 0, binding = 2) uniform readonly uimage2D receiverStatus;
+#endif
+layout(rgba16f, set = 0, binding = 3) uniform writeonly image2D indirectOutput;
+layout(rgba16f, set = 0, binding = 4) uniform writeonly image2D directOutput;
+layout(rgba16f, set = 0, binding = 5) uniform writeonly image2D minimumOutput;
+layout(push_constant) uniform RCReceiverExtent { ivec2 size; } extent;
+bool finite16(vec3 v) { return !any(isnan(v)) && !any(isinf(v)) && !any(greaterThan(abs(v),vec3(65504.0))); }
+void main() {
+ ivec2 pixel=ivec2(gl_GlobalInvocationID.xy);
+ if(any(greaterThanEqual(pixel,extent.size))) return;
+ vec3 direct=vec3(0), minimum=vec3(0), indirect=vec3(0);
+ float directValid=0.0, indirectValid=0.0;
+ uint shadowMetadata=0u; float shadowDominance=0.0;
+ uint status=imageLoad(receiverStatus,pixel).r;
+#if RC_RECEIVER_TEXTURE_FILTER
+ status&=3u;
+#endif
+ if(status==1u) {
+  vec3 p=texelFetch(receiverPosition,pixel,0).xyz;
+  vec3 n=texelFetch(receiverNormal,pixel,0).xyz;
+  bool checker=rcLighting.receiver_filter.y>0.5;
+  uint parity=uint((pixel.x+pixel.y)&1);
+  if(!checker || parity==0u) {
+   RC_EvaluateDirectComponents(p,n,direct,minimum);
+   if(finite16(direct) && finite16(minimum)) {
+    directValid=1.0;
+#if RC_RECEIVER_SHADOW_EXPORT
+    shadowMetadata=RC_ReceiverShadowMetadata(); shadowDominance=RC_ReceiverShadowDominance();
+#endif
+   }
+   else { direct=vec3(0); minimum=vec3(0); }
+  }
+  if(!checker || parity==1u) {
+#if RC_RECEIVER_TEXTURE_FILTER
+   if(RC_BounceGain()>0.0 && RC_SampleDiffuse(p,n,indirect) && finite16(indirect)) indirectValid=1.0;
+#else
+   if(RC_SampleDiffuseMode(p,n,rcLighting.receiver_filter.x,indirect) && finite16(indirect)) indirectValid=1.0;
+#endif
+   else indirect=vec3(0);
+  }
+ }
+#if RC_RECEIVER_TEXTURE_FILTER
+ /* Preserve pre-filter evidence: the vertical pass reuses indirectOutput. */
+ imageStore(receiverStatus,pixel,uvec4(status | (indirectValid>0.5?4u:0u) | shadowMetadata));
+#endif
+ imageStore(indirectOutput,pixel,vec4(indirect,indirectValid));
+ imageStore(directOutput,pixel,vec4(direct,directValid>0.5?1.0+shadowDominance:0.0));
+ imageStore(minimumOutput,pixel,vec4(minimum,directValid));
+}

@@ -68,9 +68,9 @@ static void		SV_Physics_Toss (edict_t *ent);
 static edict_t *sv_walk_support_pusher;
 static vec3_t	sv_walk_support_normal;
 
-// For usage by SV_PushMove, allocate at max possible size,
-// fine to be static because all SV_phys is only called from the main thread.
-static edict_t *pushable_ent_cache[MAX_EDICTS];
+// Reused on the main thread and grown to the current VM's configured limit.
+static edict_t **pushable_ent_cache;
+static int pushable_ent_capacity;
 static int		num_pushable_ent_cache;
 
 // Spatial hash over the pushable cache so each moving pusher only tests nearby
@@ -216,7 +216,14 @@ duplicates) into out. Returns the count, or -1 if the grid is unusable this
 tick and the caller must scan the full cache.
 ============
 */
-static int PushGrid_GatherCandidates (const vec3_t mins, const vec3_t maxs, edict_t **out)
+static int PushGrid_CompareEntities (const void *a, const void *b)
+{
+	const uintptr_t left = (uintptr_t)*(edict_t *const *)a;
+	const uintptr_t right = (uintptr_t)*(edict_t *const *)b;
+	return (left > right) - (left < right);
+}
+
+static int PushGrid_GatherCandidates (const vec3_t mins, const vec3_t maxs, edict_t **out, int capacity)
 {
 	int num = 0;
 
@@ -239,13 +246,13 @@ static int PushGrid_GatherCandidates (const vec3_t mins, const vec3_t maxs, edic
 				int32_t			*head = HashMap_Lookup (int32_t, push_grid_map, &key);
 				for (int i = head ? *head : -1; i >= 0; i = push_grid_entries[i].next)
 				{
-					if (num == MAX_EDICTS)
+					if (num == capacity)
 						return -1; // pathological duplication, let the caller scan the cache
 					out[num++] = push_grid_entries[i].ent;
 				}
 			}
 
-	if (num + push_grid_num_large + (num_pushable_ent_cache - push_grid_tail_start) > MAX_EDICTS)
+	if (num + push_grid_num_large + (num_pushable_ent_cache - push_grid_tail_start) > capacity)
 		return -1;
 
 	for (int i = 0; i < push_grid_num_large; i++)
@@ -257,7 +264,9 @@ static int PushGrid_GatherCandidates (const vec3_t mins, const vec3_t maxs, edic
 
 	// restore vanilla processing order (blocked pushers roll back everything
 	// moved so far, so order is observable) and drop multi-cell duplicates
-	for (int i = 1; i < num; i++)
+	if (num > 64)
+		qsort (out, (size_t)num, sizeof (*out), PushGrid_CompareEntities);
+	else for (int i = 1; i < num; i++)
 	{
 		edict_t *key = out[i];
 		int		 j = i - 1;
@@ -364,8 +373,8 @@ static qboolean SV_RunThink (edict_t *ent)
 								// it is possible to start that way
 								// by a trigger with a local time.
 
-	ent->oldthinktime = thinktime;
-	ent->oldframe = ent->v.frame; // johnfitz
+	ent->timing.oldthinktime = thinktime;
+	ent->timing.oldframe = ent->v.frame; // johnfitz
 
 	ent->v.nextthink = 0;
 	pr_global_struct->time = thinktime;
@@ -374,7 +383,7 @@ static qboolean SV_RunThink (edict_t *ent)
 	ED_Retain (ent);
 	PR_ExecuteProgram (ent->v.think);
 
-	ent->lastthink = 0;
+	ent->timing.lastthink = 0;
 	alive = !ent->free;
 	if (alive && ent->v.groundentity && ent->v.nextthink > 0 && ent->v.nextthink - thinktime < 0.105f &&
 		ent->v.groundentity <= (qcvm->num_edicts - 1) * qcvm->edict_size)
@@ -388,9 +397,9 @@ static qboolean SV_RunThink (edict_t *ent)
 				float time = q_min ((int)((ent->v.nextthink - qcvm->time) / host_frametime) * host_frametime, pusher_remaining);
 				for (int i = 0; i < 3; i++)
 				{
-					ent->predthinkpos[i] = ent->v.origin[i] + pusher->v.velocity[i] * time;
+					ent->timing.predthinkpos[i] = ent->v.origin[i] + pusher->v.velocity[i] * time;
 					if (pusher->v.velocity[i] != 0.0f)
-						ent->lastthink = thinktime;
+						ent->timing.lastthink = thinktime;
 				}
 			}
 		}
@@ -413,9 +422,39 @@ SV_Impact
 Two entities have touched, so run their touch functions
 ==================
 */
+/* Give native movable sector props a modest horizontal impulse when a player
+ * walks into them. The normal toss simulation still owns gravity, clipping and
+ * settling. Mods which implement their own prop_movable retain full control. */
+static qboolean SV_IsNativeMovableSectorProp (edict_t *prop)
+{
+	return qcvm == &sv.qcvm && prop->v.movetype == MOVETYPE_TOSS && prop->v.solid == SOLID_BBOX &&
+		!strcmp (PR_GetString (prop->v.classname), "prop_movable") &&
+		!ED_FindFunction ("spawnfunc_prop_movable") && !ED_FindFunction ("prop_movable");
+}
+static void SV_PushNativeSectorProp (edict_t *mover, edict_t *prop)
+{
+	if (mover->v.movetype != MOVETYPE_WALK || !SV_IsNativeMovableSectorProp (prop)) return;
+	if (mover->v.absmin[2] >= prop->v.absmax[2] - 1.0f) return;
+	vec3_t direction = {(prop->v.absmin[0] + prop->v.absmax[0]) * 0.5f - mover->v.origin[0],
+		(prop->v.absmin[1] + prop->v.absmax[1]) * 0.5f - mover->v.origin[1], 0};
+	float length = VectorLength (direction);
+	if (length < 0.001f) return;
+	VectorScale (direction, 1.0f / length, direction);
+	float speed = DotProduct (mover->v.velocity, direction);
+	if (speed <= 1.0f) return;
+	speed = q_min (speed * 0.5f, 200.0f);
+	float current = DotProduct (prop->v.velocity, direction);
+	if (current < speed)
+	{
+		VectorMA (prop->v.velocity, speed - current, direction, prop->v.velocity);
+	}
+}
+
 static void SV_Impact (edict_t *e1, edict_t *e2)
 {
 	assert (!e1->free && !e2->free);
+	SV_PushNativeSectorProp (e1, e2);
+	SV_PushNativeSectorProp (e2, e1);
 
 	int old_self, old_other, e1_prog, e2_prog;
 
@@ -1483,8 +1522,10 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 	const float	   newltime = pusher->v.ltime + movetime;
 	vec3_t		   neworigin;
 
-	// PushGrid_GatherCandidates fills this up to MAX_EDICTS before it gives up
-	TEMP_ALLOC_COND (edict_t *, push_candidates, MAX_EDICTS, push_grid_active);
+	// Duplicate grid entries can exceed this bound; then fall back to the
+	// canonical edict scan rather than allocate for the global maximum.
+	const int push_candidate_capacity = qcvm->num_edicts;
+	TEMP_ALLOC_COND (edict_t *, push_candidates, push_candidate_capacity, push_grid_active);
 
 	// everything below holds at most one entry per candidate, so it is sized once
 	// the candidate list is known
@@ -1528,7 +1569,7 @@ static void SV_PushMove (edict_t *pusher, float movetime)
 
 	if (push_grid_active)
 	{
-		fast_count = PushGrid_GatherCandidates (querymins, querymaxs, push_candidates);
+		fast_count = PushGrid_GatherCandidates (querymins, querymaxs, push_candidates, push_candidate_capacity);
 		if (fast_count >= 0)
 			fast_list = push_candidates;
 		// If the grid is unusable this tick, leave fast_list NULL and fall
@@ -2427,9 +2468,35 @@ static void SV_Physics_Toss (edict_t *ent)
 	if (!SV_RunThink (ent))
 		return;
 
-	// if onground, return without moving
+	// Ordinary tossed objects come to rest on the floor. Native movable props
+	// can also slide horizontally along it when a player pushes them; sweep the
+	// entire AABB so the prop cannot be pushed through world geometry.
 	if (((int)ent->v.flags & FL_ONGROUND))
+	{
+		if (SV_IsNativeMovableSectorProp (ent) && (ent->v.velocity[0] || ent->v.velocity[1]))
+		{
+			vec3_t slide, down;
+			VectorCopy (ent->v.origin, slide);
+			slide[0] += ent->v.velocity[0] * host_frametime;
+			slide[1] += ent->v.velocity[1] * host_frametime;
+			trace = SV_PushEntityTo (ent, slide);
+			if (ent->free) return;
+			if (trace.fraction < 1)
+				ClipVelocity (ent->v.velocity, trace.plane.normal, ent->v.velocity, 1);
+			VectorCopy (ent->v.origin, down); down[2] -= 2;
+			trace = SV_Move (ent->v.origin, ent->v.mins, ent->v.maxs, down, false, ent);
+			if (trace.fraction == 1 && !trace.startsolid)
+			{
+				ent->v.flags = (int)ent->v.flags & ~FL_ONGROUND;
+				ent->v.groundentity = 0;
+			}
+			float friction = q_max (0.0f, 1.0f - 8.0f * host_frametime);
+			ent->v.velocity[0] *= friction; ent->v.velocity[1] *= friction;
+			if (fabsf (ent->v.velocity[0]) < 0.1f) ent->v.velocity[0] = 0;
+			if (fabsf (ent->v.velocity[1]) < 0.1f) ent->v.velocity[1] = 0;
+		}
 		return;
+	}
 
 	SV_CheckVelocity (ent);
 
@@ -2548,6 +2615,8 @@ static void SV_Physics_Step (edict_t *ent)
 static void SV_Physics_Alloc_Hook (edict_t *e)
 {
 	// Keep every cached slot attached to the same edict for the rest of this physics frame.
+	if (num_pushable_ent_cache >= pushable_ent_capacity)
+		Sys_Error ("SV_Physics_Alloc_Hook: pushable cache overflow");
 	pushable_ent_cache[num_pushable_ent_cache++] = e;
 	ED_Retain (e);
 }
@@ -2573,6 +2642,14 @@ void SV_Physics (void)
 		physics_mode = (qcvm == &cl.qcvm) ? 0 : 2; // csqc doesn't run thinks by default. it was meant to simplify implementations, but we just force fields to
 												   // match ssqc so its not that large a burden.
 
+	/* Client QuakeC defaults to physics mode 0, but still owns entities. */
+	if (!qcvm->ecs_world)
+		ED_ECSReconcile ();
+
+	/* Map scripts run on the server once per live physics tick, including
+	 * nonstandard physics modes. Startup settling and client QC are excluded. */
+	SV_QuiverMapTick ();
+
 	if (physics_mode)
 		SV_BeginPusherSupportFrame ();
 
@@ -2583,10 +2660,15 @@ void SV_Physics (void)
 	}
 	else if (physics_mode == 1)
 	{ // for dp compat. note that this violates MOVETYPE_PUSH.
-		for (i = 0, ent = qcvm->edicts; i < qcvm->num_edicts; i++, ent = NEXT_EDICT (ent))
+		for (uint32_t cursor = 0; cursor < (uint32_t) qcvm->num_edicts; )
 		{
-			if (ent->free)
-				continue;
+			uint32_t slot;
+			edict_ecs_binding_t *binding = ECS_NextComponentUntil (qcvm->ecs_world, cursor,
+				(uint32_t) qcvm->num_edicts, qcvm->ecs_edict_component, &slot);
+			if (!binding)
+				break;
+			cursor = slot + 1;
+			ent = binding->edict;
 			SV_RunThink (ent);
 		}
 		qcvm->time += host_frametime;
@@ -2621,6 +2703,14 @@ void SV_Physics (void)
 	// fill the pushable entities cache and the spatial grid over it
 	if (fast_pushers)
 	{
+		if (pushable_ent_capacity < qcvm->max_edicts)
+		{
+			edict_t **cache = Mem_Realloc (pushable_ent_cache, (size_t)qcvm->max_edicts * sizeof (*cache));
+			if (!cache)
+				Sys_Error ("SV_Physics: unable to allocate pushable cache");
+			pushable_ent_cache = cache;
+			pushable_ent_capacity = qcvm->max_edicts;
+		}
 		double build_start = 0;
 		if (sv_speeds.value && qcvm == &sv.qcvm)
 			build_start = Sys_DoubleTime ();
@@ -2654,11 +2744,33 @@ void SV_Physics (void)
 		previous_alloc_hook = ED_AllocSetHook (SV_Physics_Alloc_Hook);
 	}
 
-	// for (i=0 ; i<sv.num_edicts ; i++, ent = NEXT_EDICT(ent))
-	for (i = 0; i < entity_cap; i++, ent = NEXT_EDICT (ent))
+	/* Re-query after every edict: QuakeC can spawn or free later slots in
+	 * callbacks, and the original simulation visits those changes immediately. */
+	for (uint32_t cursor = 0; cursor < (uint32_t) entity_cap; )
 	{
-		if (ent->free)
+		uint32_t slot;
+		edict_ecs_binding_t *binding = ECS_NextComponentUntil (qcvm->ecs_world, cursor,
+			(uint32_t) entity_cap, qcvm->ecs_edict_component, &slot);
+		if (!binding)
+			break;
+		cursor = slot + 1;
+		i = (int) slot;
+		ent = binding->edict;
+
+		/* On large populations, a stationary, non-client edict with no scheduled think and no
+		 * persistent pusher record has no per-tick physics work. Keep the
+		 * network interpolation flags identical to the ordinary tail below.
+		 * Check live fields on every visit: earlier QuakeC callbacks can
+		 * change later edicts or establish pusher support during this tick.
+		 * Small maps use the normal dispatch to avoid this extra work. */
+		if (entity_cap >= 8192 && qcvm == &sv.qcvm && i > svs.maxclients && !pr_global_struct->force_retouch &&
+			ent->v.movetype == MOVETYPE_NONE && ent->v.nextthink <= 0 && ent->v.nextthink <= qcvm->time &&
+			(!qcvm->pusher_support || !HashMap_Size (qcvm->pusher_support)))
+		{
+			ent->timing.sendinterval = false;
+			ent->timing.sendinterval_default = false;
 			continue;
+		}
 
 		if (pr_global_struct->force_retouch)
 		{
@@ -2696,16 +2808,16 @@ void SV_Physics (void)
 		// lerp timing; ~0.1 intervals match what the client assumes but thinks
 		// fire quantized to server ticks, so the exact value still improves
 		// lerp timing where the extra bytes are affordable
-		ent->sendinterval = false;
-		ent->sendinterval_default = false;
+		ent->timing.sendinterval = false;
+		ent->timing.sendinterval_default = false;
 		if (!ent->free && ent->v.nextthink > qcvm->time &&
-			(ent->v.movetype == MOVETYPE_STEP || ent->v.movetype == MOVETYPE_WALK || ent->v.frame != ent->oldframe))
+			(ent->v.movetype == MOVETYPE_STEP || ent->v.movetype == MOVETYPE_WALK || ent->v.frame != ent->timing.oldframe))
 		{
-			int j = Q_rint ((ent->v.nextthink - ent->oldthinktime) * 255);
+			int j = Q_rint ((ent->v.nextthink - ent->timing.oldthinktime) * 255);
 			if (j == 25 || j == 26)
-				ent->sendinterval_default = true;
+				ent->timing.sendinterval_default = true;
 			else if (j >= 0 && j < 256)
-				ent->sendinterval = true;
+				ent->timing.sendinterval = true;
 		}
 		// johnfitz
 	}

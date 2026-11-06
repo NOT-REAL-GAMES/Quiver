@@ -26,6 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 #include "cfgfile.h"
+#include "editor_ui.h"
 
 #include <setjmp.h>
 
@@ -1601,7 +1602,15 @@ static void SCR_DrawGUI (void *unused)
 
 	SDL_LockMutex (draw_qcvm_mutex);
 
-	if (scr_drawdialog) // new game confirm
+	if (EditorUI_IsActive ())
+	{
+		EditorUI_Draw (cbx);
+		if (key_dest == key_console)
+			SCR_DrawConsole (cbx);
+		if (key_dest == key_menu)
+			M_Draw (cbx);
+	}
+	else if (scr_drawdialog) // new game confirm
 	{
 		if (con_forcedup)
 			Draw_ConsoleBackground (cbx);

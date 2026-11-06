@@ -1354,6 +1354,19 @@ void MSG_WriteEntity (sizebuf_t *sb, unsigned int entnum, unsigned int pext2)
 		MSG_WriteShort (sb, entnum);
 }
 
+void MSG_WriteFTEEntityNumber (sizebuf_t *sb, unsigned int entnum, qboolean remove)
+{
+	if (entnum >= (1u << 22))
+		Host_Error ("MSG_WriteFTEEntityNumber: entity %u exceeds PEXT2 limit", entnum);
+	if (entnum >= 0x4000)
+	{
+		MSG_WriteShort (sb, (remove ? 0xc000 : 0x4000) | (entnum & 0x3fff));
+		MSG_WriteByte (sb, entnum >> 14);
+	}
+	else
+		MSG_WriteShort (sb, (remove ? 0x8000 : 0) | entnum);
+}
+
 //
 // reading functions
 //
@@ -1577,6 +1590,25 @@ unsigned int MSG_ReadEntity (unsigned int pext2)
 		}
 	}
 	return e;
+}
+
+unsigned int MSG_ReadFTEEntityNumber (qboolean *remove)
+{
+	if (remove)
+		*remove = false;
+	unsigned int encoded = (unsigned short) MSG_ReadShort ();
+	if (msg_badread)
+		return 0;
+	if (remove)
+		*remove = !!(encoded & 0x8000);
+	if (encoded & 0x4000)
+	{
+		int high = MSG_ReadByte ();
+		if (msg_badread)
+			return 0;
+		return (encoded & 0x3fff) | ((unsigned int) high << 14);
+	}
+	return encoded & 0x3fff;
 }
 
 //===========================================================================
@@ -2474,8 +2506,14 @@ static qfilesize_t COM_FindFile (const char *filename, int *handle, FILE **file,
 				else if (file)
 				{ /* open a new file on the pakfile */
 					*file = Sys_fopen (pak->filename, "rb");
-					if (*file)
-						Sys_fseek (*file, pak->files[i].filepos, SEEK_SET);
+					if (!*file)
+					{
+						/* Memory-backed packs have no filesystem path to reopen.
+						 * Callers needing those files must use COM_OpenFile. */
+						com_filesize = -1;
+						return -1;
+					}
+					Sys_fseek (*file, pak->files[i].filepos, SEEK_SET);
 					return com_filesize;
 				}
 				else /* for COM_FileExists() */

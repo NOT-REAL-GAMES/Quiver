@@ -1,0 +1,4 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+#define USE_HDR 1
+#include "ray_debug.inc"

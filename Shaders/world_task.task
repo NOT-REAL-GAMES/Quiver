@@ -1,0 +1,121 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+layout (local_size_x = 32) in;
+layout (push_constant) uniform Params
+{
+	mat4 mvp;
+	layout (offset = 88) uint first_meshlet;
+	layout (offset = 92) uint flags;
+	layout (offset = 96) float pixel_guard;
+	layout (offset = 100) uint meshlet_count;
+} pc;
+layout (std430, set = 4, binding = 0) readonly buffer Geometry { uint data[]; };
+layout (std430, set = 4, binding = 3) readonly buffer HiZ { uint hierarchy[]; };
+struct TaskPayload { uint meshlets[32]; };
+taskPayloadSharedEXT TaskPayload task_payload;
+shared uint visible_count;
+shared uint prefix[32];
+struct meshlet_t { vec3 mins; uint material; vec4 maxs; uvec4 ranges; };
+bool outside_frustum (meshlet_t m, vec4 err)
+{
+	vec3 center = 0.5 * m.mins + 0.5 * m.maxs.xyz;
+	vec3 extent = max (center - m.mins, m.maxs.xyz - center);
+	vec4 c = pc.mvp * vec4 (center, 1.0);
+	for (int axis = 0; axis < 2; ++axis)
+	{
+		vec3 a = vec3 (pc.mvp[0][axis], pc.mvp[1][axis], pc.mvp[2][axis]);
+		vec3 w = vec3 (pc.mvp[0].w, pc.mvp[1].w, pc.mvp[2].w);
+		float slack = err[axis] + err.w;
+		if (c.w + c[axis] + dot (abs (w + a), extent) < -slack ||
+			c.w - c[axis] + dot (abs (w - a), extent) < -slack)
+			return true;
+	}
+	return false;
+}
+bool footprint_hidden (ivec2 first, ivec2 last, float nearest)
+{
+	// First test every intersected cell at a level with a 2x2 footprint.
+	// Keep the immediately finer rectangle: if a coarse cell is open in the
+	// part *outside* our bounds, a bounded refinement can still reject us.
+	int side = 64;
+	ivec2 fine_first = first, fine_last = last;
+	while (any (greaterThan (last - first, ivec2 (1))))
+	{
+		fine_first = first;
+		fine_last = last;
+		side >>= 1;
+		first >>= 1;
+		last >>= 1;
+	}
+	int start = (4 * (4096 - side * side)) / 3;
+	uint farthest = min (min (hierarchy[start + first.y * side + first.x], hierarchy[start + first.y * side + last.x]),
+						 min (hierarchy[start + last.y * side + first.x], hierarchy[start + last.y * side + last.x]));
+	if (uintBitsToFloat (farthest) > nearest)
+		return true;
+	if (side == 64)
+		return false;
+	side *= 2;
+	start = (4 * (4096 - side * side)) / 3;
+	for (int y = fine_first.y; y <= fine_last.y; ++y)
+		for (int x = fine_first.x; x <= fine_last.x; ++x)
+			if (!(uintBitsToFloat (hierarchy[start + y * side + x]) > nearest))
+				return false;
+	return true;
+}
+
+bool bounds_occluded (meshlet_t m, vec4 err)
+{
+	vec4 lo = vec4 (0), hi = vec4 (0);
+	for (uint corner = 0u; corner < 8u; ++corner)
+	{
+		vec3 p = mix (m.mins, m.maxs.xyz, bvec3 ((corner & 1u) != 0u, (corner & 2u) != 0u, (corner & 4u) != 0u));
+		vec4 clip = pc.mvp * vec4 (p, 1.0);
+		bool usable = clip.w > err.w && clip.w - err.w > clip.z + err.z;
+		vec3 ndc = clip.xyz / max (clip.w, 1e-20);
+		vec3 e = (err.xyz + abs (ndc) * err.w) / max (clip.w - err.w, 1e-20) + 1e-6 * (1.0 + abs (ndc));
+		usable = usable && !any (isinf (e)) && !any (isnan (e));
+		if (!usable) return false;
+		if (corner == 0u) { lo = vec4 (ndc - e, 1.0); hi = vec4 (ndc + e, 0.0); }
+		else { lo.xyz = min (lo.xyz, ndc - e); hi.xyz = max (hi.xyz, ndc + e); }
+	}
+	vec2 uv0 = clamp (lo.xy * 0.5 + 0.5 - pc.pixel_guard, 0.0, 1.0);
+	vec2 uv1 = clamp (hi.xy * 0.5 + 0.5 + pc.pixel_guard, 0.0, 1.0);
+	ivec2 first = min (ivec2 (floor (uv0 * 64.0)), ivec2 (63));
+	ivec2 last = min (ivec2 (floor (uv1 * 64.0)), ivec2 (63));
+	return footprint_hidden (first, last, hi.z + 2e-6);
+}
+
+void main ()
+{
+	uint lane = gl_LocalInvocationIndex;
+	uint local_meshlet = gl_WorkGroupID.x * 32u + lane;
+	bool visible = false;
+	uint meshlet = pc.first_meshlet + local_meshlet;
+	if (local_meshlet < pc.meshlet_count)
+	{
+		uint h = meshlet * 12u;
+		meshlet_t m;
+		m.mins = uintBitsToFloat (uvec3 (data[h], data[h + 1u], data[h + 2u]));
+		m.maxs = uintBitsToFloat (uvec4 (data[h + 4u], data[h + 5u], data[h + 6u], data[h + 7u]));
+		vec3 magnitude = max (abs (m.mins), abs (m.maxs.xyz));
+		vec4 err = (abs (pc.mvp[0]) * magnitude.x + abs (pc.mvp[1]) * magnitude.y + abs (pc.mvp[2]) * magnitude.z + abs (pc.mvp[3])) * 2e-6;
+		visible = !outside_frustum (m, err) && ((pc.flags & 1u) == 0u || !bounds_occluded (m, err));
+	}
+	prefix[lane] = uint (visible);
+	barrier ();
+	if (lane == 0u)
+	{
+		uint count = 0u;
+		for (uint i = 0u; i < 32u; ++i)
+		{
+			uint selected = prefix[i];
+			prefix[i] = count;
+			count += selected;
+		}
+		visible_count = count;
+	}
+	barrier ();
+	if (visible) task_payload.meshlets[prefix[lane]] = meshlet;
+	barrier ();
+	EmitMeshTasksEXT (visible_count, 1u, 1u);
+}

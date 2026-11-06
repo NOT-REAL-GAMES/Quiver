@@ -1,4 +1,5 @@
 #extension GL_EXT_control_flow_attributes : enable
+#include "radiance_highlight.glsl"
 
 #define NUM_PALETTE_OCTREE_NODES 184
 
@@ -28,6 +29,7 @@ layout (push_constant) uniform PushConsts
 	float poly_blend_b;
 	float poly_blend_a;
 	float menu_alpha;
+	float hdr_contrast;
 }
 push_constants;
 
@@ -39,6 +41,7 @@ float blue_noise (ivec2 u)
 #define SCREEN_EFFECT_FLAG_WATER_WARP 0x4
 #define SCREEN_EFFECT_FLAG_PALETTIZE  0x8
 #define SCREEN_EFFECT_FLAG_MENU		  0x10
+#define SCREEN_EFFECT_FLAG_HDR        0x20
 
 layout (local_size_x = 8, local_size_y = 8) in;
 void main ()
@@ -65,9 +68,12 @@ void main ()
 	}
 	else
 		color = texelFetch (input_tex, ivec2 (min (push_constants.clamp_size.x, pos_x), min (push_constants.clamp_size.y, pos_y)), 0);
+	if ((push_constants.flags & SCREEN_EFFECT_FLAG_HDR) != 0)
+		color.rgb = RC_CompressHighlights (max (color.rgb, vec3 (0.0)), push_constants.hdr_contrast);
 
 	[[branch]] if ((push_constants.flags & SCREEN_EFFECT_FLAG_PALETTIZE) != 0)
 	{
+		color.rgb = clamp (color.rgb, vec3 (0.0), vec3 (1.0));
 		uvec3 search_color = uvec3 (color.rgb * 255.0f);
 		uint  current_node_offset = 0;
 		uint  current_shift = 7;
@@ -116,6 +122,9 @@ void main ()
 					{
 						ivec2 sample_pos = clamp (ivec2 (pos_x, pos_y) + ivec2 (x, y), ivec2 (0), ivec2 (push_constants.clamp_size));
 						vec3  rgb = texelFetch (input_tex, sample_pos, 0).rgb;
+						if ((push_constants.flags & SCREEN_EFFECT_FLAG_HDR) != 0)
+							rgb = RC_CompressHighlights (max (rgb, vec3 (0.0)), push_constants.hdr_contrast);
+						rgb = clamp (rgb, vec3 (0.0), vec3 (1.0));
 						luma[x + 1][y + 1] = (rgb.r + rgb.g + rgb.b) / 3.0f;
 					}
 				}

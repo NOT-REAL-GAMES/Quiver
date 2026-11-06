@@ -1,0 +1,159 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+#extension GL_GOOGLE_include_directive : enable
+#include "globals.inc"
+
+layout (local_size_x = 32) in;
+layout (triangles, max_vertices = 64, max_primitives = 126) out;
+layout (push_constant) uniform Params
+{
+	mat4 mvp;
+	vec3 fog_color;
+	float fog_density;
+	float alpha;
+	uint instance_base;
+	layout (offset = 88) uint first_meshlet;
+	layout (offset = 92) uint flags;
+	layout (offset = 96) float pixel_guard;
+	layout (offset = 112) vec3 vieworg;
+} pc;
+layout (std430, set = 4, binding = 0) readonly buffer Geometry { uint data[]; };
+layout (std430, set = 4, binding = 1) readonly buffer WorldVertices { float vertices[]; };
+layout (std430, set = 4, binding = 2) readonly buffer Surfaces { surface_t surfaces[]; };
+layout (std430, set = 4, binding = 3) readonly buffer HiZ { uint hierarchy[]; };
+layout (location = 0) out vec4 out_texcoords[];
+layout (location = 1) out float out_fog_frag_coord[];
+#if RADIANCE_LIGHTING
+layout (location = 2) out vec3 out_world_position[];
+#endif
+struct meshlet_t { vec3 mins; uint material; vec4 maxs; uvec4 ranges; };
+shared vec4 corners_lo[8], corners_hi[8];
+shared uint hidden;
+
+bool outside_frustum (meshlet_t m, vec4 err)
+{
+	vec3 center = 0.5 * m.mins + 0.5 * m.maxs.xyz;
+	vec3 extent = max (center - m.mins, m.maxs.xyz - center);
+	vec4 c = pc.mvp * vec4 (center, 1.0);
+	for (int axis = 0; axis < 2; ++axis)
+	{
+		vec3 a = vec3 (pc.mvp[0][axis], pc.mvp[1][axis], pc.mvp[2][axis]);
+		vec3 w = vec3 (pc.mvp[0].w, pc.mvp[1].w, pc.mvp[2].w);
+		float slack = err[axis] + err.w;
+		if (c.w + c[axis] + dot (abs (w + a), extent) < -slack ||
+			c.w - c[axis] + dot (abs (w - a), extent) < -slack)
+			return true;
+	}
+	return false;
+}
+bool footprint_hidden (ivec2 first, ivec2 last, float nearest)
+{
+	// First test every intersected cell at a level with a 2x2 footprint.
+	// Keep the immediately finer rectangle: if a coarse cell is open in the
+	// part *outside* our bounds, a bounded refinement can still reject us.
+	int side = 64;
+	ivec2 fine_first = first, fine_last = last;
+	while (any (greaterThan (last - first, ivec2 (1))))
+	{
+		fine_first = first;
+		fine_last = last;
+		side >>= 1;
+		first >>= 1;
+		last >>= 1;
+	}
+	int start = (4 * (4096 - side * side)) / 3;
+	uint farthest = min (min (hierarchy[start + first.y * side + first.x], hierarchy[start + first.y * side + last.x]),
+						 min (hierarchy[start + last.y * side + first.x], hierarchy[start + last.y * side + last.x]));
+	if (uintBitsToFloat (farthest) > nearest)
+		return true;
+	if (side == 64)
+		return false;
+	side *= 2;
+	start = (4 * (4096 - side * side)) / 3;
+	for (int y = fine_first.y; y <= fine_last.y; ++y)
+		for (int x = fine_first.x; x <= fine_last.x; ++x)
+			if (!(uintBitsToFloat (hierarchy[start + y * side + x]) > nearest))
+				return false;
+	return true;
+}
+
+bool bounds_occluded (meshlet_t m, vec4 err, uint lane)
+{
+	if (lane < 8u)
+	{
+		vec3 p = mix (m.mins, m.maxs.xyz, bvec3 ((lane & 1u) != 0u, (lane & 2u) != 0u, (lane & 4u) != 0u));
+		vec4 clip = pc.mvp * vec4 (p, 1.0);
+		// If the box crosses the near plane, contains the camera, or has an
+		// unrepresentable projection, never reject it using this hierarchy.
+		bool usable = clip.w > err.w && clip.w - err.w > clip.z + err.z;
+		vec3 ndc = clip.xyz / max (clip.w, 1e-20);
+		vec3 e = (err.xyz + abs (ndc) * err.w) / max (clip.w - err.w, 1e-20) + 1e-6 * (1.0 + abs (ndc));
+		usable = usable && !any (isinf (e)) && !any (isnan (e));
+		corners_lo[lane] = vec4 (ndc - e, usable ? 1.0 : 0.0);
+		corners_hi[lane] = vec4 (ndc + e, 0.0);
+	}
+	barrier ();
+	if (lane == 0u)
+	{
+		hidden = 0u;
+		vec4 lo = corners_lo[0], hi = corners_hi[0];
+		for (int i = 1; i < 8; ++i)
+		{
+			lo = min (lo, corners_lo[i]);
+			hi = max (hi, corners_hi[i]);
+		}
+		if (lo.w > 0.0)
+		{
+			vec2 uv0 = clamp (lo.xy * 0.5 + 0.5 - pc.pixel_guard, 0.0, 1.0);
+			vec2 uv1 = clamp (hi.xy * 0.5 + 0.5 + pc.pixel_guard, 0.0, 1.0);
+			ivec2 first = min (ivec2 (floor (uv0 * 64.0)), ivec2 (63));
+			ivec2 last = min (ivec2 (floor (uv1 * 64.0)), ivec2 (63));
+			// Strict separation keeps self-occluders and depth ties visible.
+			if (footprint_hidden (first, last, hi.z + 2e-6))
+				hidden = 1u;
+		}
+	}
+	barrier ();
+	return hidden != 0u;
+}
+
+void main ()
+{
+	uint lane = gl_LocalInvocationIndex;
+	uint h = (pc.first_meshlet + gl_WorkGroupID.x) * 12u;
+	meshlet_t m;
+	m.mins = uintBitsToFloat (uvec3 (data[h], data[h + 1u], data[h + 2u]));
+	m.material = data[h + 3u];
+	m.maxs = uintBitsToFloat (uvec4 (data[h + 4u], data[h + 5u], data[h + 6u], data[h + 7u]));
+	m.ranges = uvec4 (data[h + 8u], data[h + 9u], data[h + 10u], data[h + 11u]);
+	vec3 magnitude = max (abs (m.mins), abs (m.maxs.xyz));
+	vec4 err = (abs (pc.mvp[0]) * magnitude.x + abs (pc.mvp[1]) * magnitude.y + abs (pc.mvp[2]) * magnitude.z + abs (pc.mvp[3])) * 2e-6;
+	if (outside_frustum (m, err) || ((pc.flags & 1u) != 0u && bounds_occluded (m, err, lane)))
+	{
+		SetMeshOutputsEXT (0u, 0u);
+		return;
+	}
+	SetMeshOutputsEXT (m.ranges.y, m.ranges.w);
+	for (uint i = lane; i < m.ranges.y; i += 32u)
+	{
+		uint base = data[m.ranges.x + i] * 7u;
+		vec3 position = vec3 (vertices[base], vertices[base + 1u], vertices[base + 2u]);
+		vec4 clip = pc.mvp * vec4 (position, 1.0);
+		gl_MeshVerticesEXT[i].gl_Position = clip;
+		out_texcoords[i] = vec4 (vertices[base + 3u], vertices[base + 4u], vertices[base + 5u], vertices[base + 6u]);
+		out_fog_frag_coord[i] = clip.w;
+#if RADIANCE_LIGHTING
+		out_world_position[i] = position;
+#endif
+	}
+	for (uint i = lane; i < m.ranges.w; i += 32u)
+	{
+		uint t = m.ranges.z + 2u * i;
+		uint indices = data[t], surface = data[t + 1u];
+		gl_PrimitiveTriangleIndicesEXT[i] = uvec3 (indices & 63u, (indices >> 6u) & 63u, (indices >> 12u) & 63u);
+		vec3 n = vec3 (surfaces[surface].normal_x, surfaces[surface].normal_y, surfaces[surface].normal_z);
+		float dp = dot (n, pc.vieworg);
+		bool back = (surfaces[surface].packed_tex_edgecount & 0x8000u) != 0u;
+		gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = back ? dp > surfaces[surface].dist : dp < surfaces[surface].dist;
+	}
+}

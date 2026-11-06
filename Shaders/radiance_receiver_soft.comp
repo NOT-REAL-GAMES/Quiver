@@ -1,0 +1,36 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+#define RC_SET 1
+#define RC_SCENE_SET 1
+#define RC_SCENE_BINDING_BASE 9
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#define RC_RECEIVER_SOFT_POST 1
+#include "radiance_cascades.glsl"
+#include "radiance_lookup.glsl"
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D receiverPosition;
+layout(set=0,binding=1) uniform sampler2D receiverNormal;
+layout(r32ui,set=0,binding=2) uniform readonly uimage2D receiverStatus;
+layout(rgba16f,set=0,binding=4) uniform image2D directOutput;
+layout(push_constant) uniform RCSoftExtent { ivec2 size; } extent;
+void main()
+{
+    ivec2 pixel=ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(pixel,extent.size))) return;
+    vec4 hard=imageLoad(directOutput,pixel);
+    if(hard.a<=0.5) return; /* Unscheduled checker cells remain invalid. */
+    uint packed=imageLoad(receiverStatus,pixel).r;
+    if(rcLighting.shadow_parameters.x<=0.5 || hard.a<=1.0 || (packed&3u)!=1u ||
+        (packed>>4u)==0u || (packed>>4u)-1u>=rcLighting.counts.x) {
+        imageStore(directOutput,pixel,vec4(hard.rgb,1)); return;
+    }
+    vec3 position=texelFetch(receiverPosition,pixel,0).xyz,normal=texelFetch(receiverNormal,pixel,0).xyz;
+    imageStore(directOutput,pixel,RC_ReceiverSoftResult(packed,hard,position,normal));
+}

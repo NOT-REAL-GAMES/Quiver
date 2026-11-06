@@ -25,6 +25,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // on the same machine.
 
 #include "quakedef.h"
+#include "radiance_scene_alias.h"
+#include "bsp_vertex_weld.h"
+#include <limits.h>
 
 static void		 Mod_LoadSpriteModel (qmodel_t *mod, void *buffer);
 static void		 Mod_LoadBrushModel (qmodel_t *mod, const char *loadname, void *buffer);
@@ -36,6 +39,8 @@ static void		 Mod_FreeModelMemory (qmodel_t *mod);
 
 cvar_t external_ents = {"external_ents", "1", CVAR_ARCHIVE_GAME};
 cvar_t external_vis = {"external_vis", "1", CVAR_ARCHIVE_GAME};
+// Maximum positional correction in Quake units, applied when a BSP loads.
+static cvar_t r_bsp_weld_epsilon = {"r_bsp_weld_epsilon", "0.001", CVAR_ARCHIVE_GAME};
 
 // wad_external_textures = 1 enable loading of external WAD textures, 0 to forbid it for debug purposes.
 cvar_t wad_external_textures = {"wad_external_textures", "1", CVAR_NONE};
@@ -115,6 +120,12 @@ void Mod_RefreshSkins_f (cvar_t *var)
 Mod_EnhancedModels_f
 ===============
 */
+static qboolean Mod_IsCompiledAsset (const qmodel_t *model)
+{
+	for (int i=0;i<cl.num_statics;++i)
+		if (cl.static_entities[i]->compiled_instance && cl.static_entities[i]->model==model) return true;
+	return false;
+}
 static void Mod_EnhancedModels_f (cvar_t *var)
 {
 	int		  i;
@@ -124,7 +135,7 @@ static void Mod_EnhancedModels_f (cvar_t *var)
 
 	for (i = 0, mod = mod_known; i < mod_numknown; i++, mod++)
 	{
-		if (mod->type != mod_alias)
+		if (mod->type != mod_alias || Mod_IsCompiledAsset (mod))
 			continue;
 
 		for (int j = 0; j < PV_SIZE; ++j)
@@ -135,7 +146,7 @@ static void Mod_EnhancedModels_f (cvar_t *var)
 
 	for (i = 0, mod = mod_known; i < mod_numknown; i++, mod++)
 	{
-		if (mod->type == mod_alias)
+		if (mod->type == mod_alias && !Mod_IsCompiledAsset (mod))
 			Mod_LoadModel (mod, false);
 	}
 
@@ -153,6 +164,7 @@ void Mod_Init (void)
 {
 	Cvar_RegisterVariable (&external_vis);
 	Cvar_RegisterVariable (&external_ents);
+	Cvar_RegisterVariable (&r_bsp_weld_epsilon);
 	Cvar_RegisterVariable (&wad_external_textures);
 	Cvar_RegisterVariable (&mdl_external_textures);
 	Cvar_RegisterVariable (&r_allow_replacement_md5models);
@@ -247,6 +259,25 @@ void *Mod_Extradata_CheckSkin (qmodel_t *mod, int skinnum)
 		return mdx_extradata;
 	//
 	return mod->extradata[PV_QUAKE1];
+}
+
+/* Compiled placements name an exact asset format. Enhanced-model selection
+ * must not replace the geometry used to bake their collision and bounds. */
+void *Mod_Extradata_Exact (qmodel_t *mod, int skinnum)
+{
+	if (!mod || skinnum < 0) return NULL;
+	Mod_LoadModel (mod, true);
+	if (mod->type != mod_alias) return NULL;
+	const char *extension = COM_FileGetExtension (mod->name);
+	poseverttype_t type;
+	if (!q_strcasecmp (extension, "mdl")) type = PV_QUAKE1;
+	else if (!q_strcasecmp (extension, "md3")) type = PV_QUAKE3;
+	else if (!q_strcasecmp (extension, "md5mesh")) type = PV_MD5;
+	else return NULL;
+	aliashdr_t *header = (aliashdr_t *)mod->extradata[type];
+	for (const aliashdr_t *surface = header; surface; surface = surface->nextsurface)
+		if (surface->numskins < 1 || skinnum >= surface->numskins) return NULL;
+	return header;
 }
 
 /*
@@ -425,6 +456,19 @@ static void Mod_FreeModelMemory (qmodel_t *mod)
 {
 	if (mod->name[0] != '*')
 	{
+		/* Compiled/editor-only aliases need not be in the network precache.
+		 * Retire every known owner's GPU buffers before freeing its headers. */
+		if (mod->type == mod_alias)
+			for (int i=0;i<PV_SIZE;++i) GLMesh_DeleteMeshBuffers ((aliashdr_t *)mod->extradata[i]);
+		if (mod->static_models)
+		{
+			QSM_Free (mod->static_models);
+			free (mod->static_models);
+			mod->static_models = NULL;
+		}
+		/* Some known alias models need not occur in cl.model_precache; release
+		 * retained CPU geometry even if no GPU-buffer cleanup visited them. */
+		RCScene_DetachAliasModel (mod);
 		if ((mod->type == mod_sprite) && (mod->extradata[PV_QUAKE1]))
 			Mod_FreeSpriteMemory ((msprite_t *)mod->extradata[PV_QUAKE1]);
 		// Last two ones are dummy textures
@@ -2765,6 +2809,95 @@ static void Mod_LoadSubmodels (qmodel_t *mod, byte *mod_base, lump_t *l)
 	// johnfitz
 }
 
+/* Keep each brush model in its own coordinate space. Lightmap extents have
+ * already been calculated from the original BSP vertices at this point. */
+static void Mod_WeldBrushVertices (qmodel_t *mod)
+{
+	const float requested = r_bsp_weld_epsilon.value;
+	const float epsilon = q_min (requested, 0.01f);
+	const uint32_t unassigned = UINT32_MAX - 1;
+	const size_t count = (size_t)mod->numvertexes;
+	float (*positions)[3];
+	uint32_t *groups;
+	size_t welded = 0;
+
+	if (isDedicated || !isfinite (requested) || epsilon <= 0.f || !count || count > SIZE_MAX / sizeof (*positions) || count > SIZE_MAX / sizeof (*groups))
+		return;
+	positions = malloc (count * sizeof (*positions));
+	groups = malloc (count * sizeof (*groups));
+	if (!positions || !groups)
+		goto done;
+	for (size_t i = 0; i < count; ++i)
+	{
+		VectorCopy (mod->vertexes[i].position, positions[i]);
+		groups[i] = unassigned;
+	}
+
+	for (int model = 0; model < mod->numsubmodels; ++model)
+	{
+		const dmodel_t *sub = &mod->submodels[model];
+		if (sub->firstface < 0 || sub->numfaces < 0 || sub->firstface > mod->numsurfaces || sub->numfaces > mod->numsurfaces - sub->firstface)
+			goto done;
+		for (int f = 0; f < sub->numfaces; ++f)
+		{
+			const msurface_t *surface = &mod->surfaces[sub->firstface + f];
+			if (surface->firstedge < 0 || surface->numedges < 0 || surface->firstedge > mod->numsurfedges || surface->numedges > mod->numsurfedges - surface->firstedge)
+				goto done;
+			for (int e = 0; e < surface->numedges; ++e)
+			{
+				const int surfedge = mod->surfedges[surface->firstedge + e];
+				if (surfedge == INT_MIN || (surfedge < 0 ? -surfedge : surfedge) >= mod->numedges)
+					goto done;
+				const medge_t *edge = &mod->edges[surfedge < 0 ? -surfedge : surfedge];
+				for (int end = 0; end < 2; ++end)
+				{
+					const size_t vertex = edge->v[end];
+					if (vertex >= count)
+						goto done;
+					if (groups[vertex] == unassigned)
+						groups[vertex] = (uint32_t)model;
+					else if (groups[vertex] != (uint32_t)model)
+						groups[vertex] = UINT32_MAX;
+				}
+			}
+		}
+	}
+
+	/* Never collapse an intentionally tiny edge, even if both endpoints move. */
+	for (int e = 0; e < mod->numedges; ++e)
+	{
+		const size_t a = mod->edges[e].v[0], b = mod->edges[e].v[1];
+		if (a >= count || b >= count)
+			goto done;
+		const double dx = (double)positions[a][0] - positions[b][0];
+		const double dy = (double)positions[a][1] - positions[b][1];
+		const double dz = (double)positions[a][2] - positions[b][2];
+		if (a != b && dx * dx + dy * dy + dz * dz <= 4.0 * epsilon * epsilon)
+			groups[a] = groups[b] = UINT32_MAX;
+	}
+	for (size_t i = 0; i < count; ++i)
+		if (groups[i] == unassigned)
+			groups[i] = UINT32_MAX;
+	if (!BSPVertexWeld (positions, count, epsilon, groups, &welded) || !welded)
+		goto done;
+	for (size_t i = 0; i < count; ++i)
+		VectorCopy (positions[i], mod->vertexes[i].position);
+	/* Sky, water and missing-texture polygons were created during face loading. */
+	for (int i = 0; i < mod->numsurfaces; ++i)
+	{
+		msurface_t *surface = &mod->surfaces[i];
+		if (surface->polys)
+		{
+			Mem_Free (surface->polys);
+			Mod_PolyForUnlitSurface (mod, surface);
+		}
+	}
+	Con_DPrintf ("%s: welded %zu BSP vertices (epsilon %g)\n", mod->name, welded, epsilon);
+done:
+	free (groups);
+	free (positions);
+}
+
 /*
 =================
 Mod_BoundsFromClipNode -- johnfitz
@@ -3113,6 +3246,26 @@ static void Mod_LoadBrushModel (qmodel_t *mod, const char *loadname, void *buffe
 	int		   i;
 	int		   bsp2;
 	dheader_t *header;
+	/* Read the extension before the legacy loader endian-swaps its header or
+	 * texture loading changes com_filesize. Only the world owns this data;
+	 * submodels are set up while its pointer is still NULL. */
+	const void *static_lump = NULL;
+	size_t static_lump_bytes = 0;
+	qsm_data_t *static_models = NULL;
+	char static_error[256] = "";
+	if (com_filesize < 0 || !QSM_FindBSPXLump (buffer, (size_t)com_filesize,
+		&static_lump, &static_lump_bytes, static_error, sizeof (static_error)))
+		Host_Error ("Invalid static-model extension in %s: %s", mod->name, static_error);
+	if (static_lump)
+	{
+		static_models = calloc (1, sizeof (*static_models));
+		if (!static_models || !QSM_Decode (static_models, static_lump, static_lump_bytes, static_error, sizeof (static_error)) ||
+			!QSM_BuildCollision (static_models, static_error, sizeof (static_error)))
+		{
+			if (static_models) { QSM_Free (static_models); free (static_models); }
+			Host_Error ("Could not load compiled static models in %s: %s", mod->name, static_error);
+		}
+	}
 
 	mod->type = mod_brush;
 	mod->is_worldmodel = (sv.modelname[0] && !q_strcasecmp (loadname, sv.name));
@@ -3193,6 +3346,7 @@ visdone:
 	Mod_LoadNodes (mod, mod_base, &header->lumps[LUMP_NODES], bsp2);
 	Mod_LoadClipnodes (mod, mod_base, &header->lumps[LUMP_CLIPNODES], bsp2);
 	Mod_LoadSubmodels (mod, mod_base, &header->lumps[LUMP_MODELS]);
+	Mod_WeldBrushVertices (mod);
 
 	Mod_MakeHull0 (mod);
 
@@ -3200,6 +3354,7 @@ visdone:
 
 	Mod_CheckWaterVis (mod);
 	Mod_SetupSubmodels (mod);
+	mod->static_models = static_models;
 }
 
 /*
@@ -3258,11 +3413,12 @@ qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 	char		buf[4 * 1024];
 	char		path[MAX_QPATH];
 	const char *data;
-	FILE	   *f;
+	int			file;
 	lump_t	   *entlump;
 	dheader_t	header;
 	int			i;
 	qfileofs_t	filesize;
+	qfileofs_t	base;
 	qboolean	ret = false;
 
 	if (!maxchars)
@@ -3272,17 +3428,21 @@ qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 	if ((size_t)q_snprintf (path, sizeof (path), "maps/%s.bsp", map) >= sizeof (path))
 		return false;
 
-	filesize = COM_FOpenFile (path, &f, NULL);
+	/* COM_OpenFile duplicates a seekable handle for loose files, ordinary
+	 * pak entries and memory-backed embedded pak entries alike. The handle is
+	 * positioned at the beginning of the entry, which need not be offset 0. */
+	filesize = COM_OpenFile (path, &file, NULL);
 	if (filesize <= (qfileofs_t)sizeof (header))
 	{
-		if (filesize != -1)
-			fclose (f);
+		if (file >= 0)
+			COM_CloseFile (file);
 		return false;
 	}
+	base = Sys_FilePos (file);
 
-	if (fread (&header, sizeof (header), 1, f) != 1)
+	if (base < 0 || Sys_FileRead (file, &header, sizeof (header)) != sizeof (header))
 	{
-		fclose (f);
+		COM_CloseFile (file);
 		return false;
 	}
 
@@ -3296,7 +3456,7 @@ qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 	case BSPVERSION_QUAKE64:
 		break;
 	default:
-		fclose (f);
+		COM_CloseFile (file);
 		return false;
 	}
 
@@ -3304,9 +3464,10 @@ qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 		((int *)&header)[i] = LittleLong (((int *)&header)[i]);
 
 	entlump = &header.lumps[LUMP_ENTITIES];
-	if (entlump->filelen < 0 || entlump->filelen >= filesize || entlump->fileofs < 0 || entlump->fileofs + entlump->filelen > filesize)
+	if (entlump->filelen < 0 || entlump->fileofs < 0 || entlump->fileofs > filesize ||
+		entlump->filelen > filesize - entlump->fileofs || base > LLONG_MAX - entlump->fileofs)
 	{
-		fclose (f);
+		COM_CloseFile (file);
 		return false;
 	}
 
@@ -3318,11 +3479,15 @@ qboolean Mod_LoadMapDescription (char *desc, size_t maxchars, const char *map)
 		entlump->filelen = sizeof (buf) - 1;
 	}
 
-	Sys_fseek (f, (qfileofs_t)entlump->fileofs - sizeof (header), SEEK_CUR);
-	i = fread (buf, 1, entlump->filelen, f);
-	fclose (f);
+	if (Sys_FileSeek (file, base + entlump->fileofs) != 0)
+	{
+		COM_CloseFile (file);
+		return false;
+	}
+	i = Sys_FileRead (file, buf, entlump->filelen);
+	COM_CloseFile (file);
 
-	if (i <= 0)
+	if (i <= 0 || i != entlump->filelen)
 		return false;
 	buf[i] = '\0';
 

@@ -23,6 +23,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "in_sdl.h"
+#include "editor_ui.h"
+#include "editor_controls.h"
 
 #ifdef USE_SDL3
 
@@ -148,6 +150,7 @@ void IN_SendKeyEvents (void)
 			break;
 		case SDL_EVENT_WINDOW_FOCUS_LOST:
 			S_BlockSound ();
+			if (EditorUI_IsActive ()) { EditorUI_CancelDrag (); Key_ClearStates (); }
 			VID_FocusLost ();
 			break;
 		// data1/data2 are in pixels, matching vid.width/height, and this also
@@ -167,6 +170,11 @@ void IN_SendKeyEvents (void)
 			// SDL uses the local keyboard layout and handles modifiers
 			// (shift for uppercase, etc.) for us.
 			{
+				if (EditorUI_IsActive () && key_dest == key_game && EditorControls_WantsText ())
+				{
+					EditorControls_TextInput (event.text.text);
+					break;
+				}
 				unsigned char *ch;
 				for (ch = (unsigned char *)event.text.text; *ch; ch++)
 					if ((*ch & ~0x7F) == 0)

@@ -382,8 +382,7 @@ typedef struct entity_state_s
 	short		   velocity[3];	   // spike -- the player's velocity.
 	unsigned char  eflags;
 	unsigned char  tagindex;
-	unsigned short tagentity;
-	unsigned short pad;
+	unsigned int   tagentity; // PEXT2 entity references can exceed 16 bits
 	unsigned char  colormod[3]; // spike -- entity tints, *32
 	unsigned char  alpha;		// johnfitz -- added
 	unsigned int   solidsize;	// for csqc prediction logic.

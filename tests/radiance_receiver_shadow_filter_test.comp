@@ -1,0 +1,197 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Production visibility-only filter and query-free source math, controlled
+ * image hooks, exact checker reconstruction and poisoned unused capacity. */
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+struct Lighting { uvec4 counts; vec4 grid_origin,grid_inv_cell_size,bounce_parameters,receiver_filter,shadow_parameters; } rcLighting;
+#define RC_LIGHT_QUERY_FREE_TEST 1
+#include "radiance_light_query_free.glsl"
+RCLight rcLights[2];
+#define RC_EvaluateUnshadowedLight RC_TestUnshadowedMath
+#include "radiance_light_unshadowed.glsl"
+#undef RC_EvaluateUnshadowedLight
+uint unshadowedCalls,guideFetch;
+vec3 RC_EvaluateUnshadowedLight(RCLight light,vec3 p,vec3 n,out vec3 direction,out float distance) {
+ ++unshadowedCalls;return RC_TestUnshadowedMath(light,p,n,direction,distance);
+}
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Cascade { vec4 origin_spacing; } rcLevels[1];
+uvec2 ids[1024]; uint statuses[81]; vec3 positions[81],normals[81]; vec4 directValues[81],minimumValues[81];
+uint badFetch,minimumFetch;
+#include "radiance_receiver_scale.glsl"
+ivec2 activeExtent() { return RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z); }
+int indexOf(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,activeExtent()))) { ++badFetch; return 0; }
+ return p.y*9+p.x;
+}
+uint RC_ResolvePackedStatus(ivec2 p) { return statuses[indexOf(p)]; }
+uint RC_ResolveStatus(ivec2 p) { return RC_ResolvePackedStatus(p)&3u; }
+uvec2 RC_ResolveID(ivec2 p) {
+ ++guideFetch;
+ if(any(lessThan(p,rcReceiver.viewport.xy)) || any(greaterThanEqual(p,rcReceiver.viewport.xy+rcReceiver.viewport.zw))) { ++badFetch; return uvec2(0); }
+ return ids[p.y*32+p.x];
+}
+vec3 RC_ResolvePosition(ivec2 p) { ++guideFetch; return positions[indexOf(p)]; }
+vec3 RC_ResolveNormal(ivec2 p) { ++guideFetch; return normals[indexOf(p)]; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+ if(field==2u) { ++minimumFetch; return minimumValues[indexOf(p)]; }
+ return directValues[indexOf(p)];
+}
+#include "radiance_receiver_guides.glsl"
+#include "radiance_receiver_shadow_filter.glsl"
+/* Prior accepted, deliberately slow reference for narrow optimization parity. */
+bool RC_ShadowFilterReference(ivec2 pixel,ivec2 extent,out vec3 value)
+{
+    vec4 center=RC_ResolveValue(pixel,0u);
+    value=center.rgb;
+    if(!(center.a>0.5) || !RC_ReceiverFinite(value) || any(greaterThan(abs(value),vec3(65504)))) return false;
+    float strength=clamp(rcLighting.shadow_parameters.w,0.0,2.0);
+    if(rcLighting.shadow_parameters.x<=0.5 || strength<=0.0 ||
+        isnan(center.a) || isinf(center.a) || center.a<2.0 || center.a>3.0) return true;
+    uint source=RC_ResolvePackedStatus(pixel)>>4u;
+    if(source==0u || source-1u>=rcLighting.counts.x) return true;
+    uvec2 id; vec3 position,normal;
+    if(!RC_ReceiverGuide(pixel,extent,id,position,normal)) return true;
+    int stride=rcLighting.receiver_filter.y>0.5?2:1;
+    float visible=0.0,total=0.0;
+    for(int y=-1;y<=1;++y) for(int x=-1;x<=1;++x) {
+        ivec2 tap=pixel+ivec2(x,y)*stride;
+        if(!RC_ReceiverGuidesCompatible(pixel,tap,extent) ||
+            (RC_ResolvePackedStatus(tap)>>4u)!=source) continue;
+        /* A checker tap spans an unscheduled cell. Do not jump a visible
+         * geometry/coverage barrier merely because the endpoints agree. */
+        if(stride==2 && !RC_ReceiverGuidesCompatible(pixel,pixel+ivec2(x,y),extent)) continue;
+        vec4 sampleValue=RC_ResolveValue(tap,0u);
+        if(isnan(sampleValue.a) || isinf(sampleValue.a) || sampleValue.a<2.0 || sampleValue.a>3.0 ||
+            !RC_ReceiverFinite(sampleValue.rgb) || any(greaterThan(abs(sampleValue.rgb),vec3(65504)))) continue;
+        vec3 weights=RC_FilterKernel(vec3(abs(x),abs(y),0),strength);
+        float weight=weights.x*weights.y;
+        visible+=(sampleValue.a-2.0)*weight; total+=weight;
+    }
+    if(total<=0.0) return true;
+    float centerVisibility=center.a-2.0;
+    float filtered=clamp(visible/total,0.0,1.0);
+    if(strength<1.0) filtered=mix(centerVisibility,filtered,strength);
+    if(filtered==centerVisibility) return true;
+    vec3 direction; float distance;
+    vec3 unshadowed=RC_EvaluateUnshadowedLight(rcLights[source-1u],position,normal,direction,distance);
+    if(!RC_ReceiverFinite(unshadowed) || any(greaterThan(abs(unshadowed),vec3(65504)))) return true;
+    vec3 corrected=value+unshadowed*((filtered-centerVisibility)*.3183098861837907);
+    if(RC_ReceiverFinite(corrected) && !any(greaterThan(abs(corrected),vec3(65504)))) value=corrected;
+    return true;
+}
+
+bool RC_CheckerFetch(ivec2 p,uint field,out vec3 value) {
+ if(RC_ResolveStatus(p)!=1u) return false;
+ if(field==0u) return RC_ShadowFilterDirect(p,activeExtent(),value);
+ vec4 raw=RC_ResolveValue(p,field); value=raw.rgb; return raw.a>.5;
+}
+bool RC_CheckerCompatible(ivec2 a,ivec2 b,uint field) { return RC_ReceiverGuidesCompatible(a,b,activeExtent()); }
+#include "radiance_receiver_checkerboard.glsl"
+const vec3 baseRGB=vec3(-1,2,-3);
+void setVisibility(ivec2 p,float visibility) { directValues[p.y*9+p.x]=vec4(baseRGB+vec3(visibility,0,0),2.0+visibility); }
+void setID(ivec2 p,uvec2 id) { p=rcReceiver.viewport.xy+RC_ReceiverFirstPixel(p,rcReceiver.normalThreshold.z);ids[p.y*32+p.x]=id; }
+void reset(bool checker) {
+ rcReceiver.viewport=ivec4(3,5,13,13);rcReceiver.normalThreshold=vec4(.99,.01,2,0);
+ rcLighting.counts=uvec4(2,0,0,4);rcLighting.grid_origin=vec4(0,0,0,1);rcLighting.grid_inv_cell_size=vec4(1);
+ rcLighting.bounce_parameters=vec4(0,1,0,0);rcLighting.receiver_filter=vec4(0,checker?1:0,1,0);rcLighting.shadow_parameters=vec4(1,4,.01,1);
+ rcLevels[0].origin_spacing=vec4(0,0,0,4);badFetch=minimumFetch=guideFetch=unshadowedCalls=0u;
+ for(int i=0;i<2;++i) {
+  rcLights[i].position_radius=vec4(0,0,10000,1000000);rcLights[i].color_intensity=vec4(1,0,0,3.141592653589793);
+  rcLights[i].direction_cone=vec4(0,0,-1,0);rcLights[i].metadata=uvec4(0,0,1,3);rcLights[i].area_axis=vec4(0,0,1,0);
+ }
+ for(int i=0;i<1024;++i)ids[i]=uvec2(1);
+ for(int y=0;y<9;++y)for(int x=0;x<9;++x) {
+  int i=y*9+x;statuses[i]=21u;positions[i]=vec3(x,y,0);normals[i]=vec3(0,0,1);
+  directValues[i]=vec4(baseRGB,2);minimumValues[i]=vec4(.25,.5,.75,1);
+  if(checker && ((x+y)&1)!=0) { directValues[i].a=0;minimumValues[i].a=0;statuses[i]=5u; }
+  if(x>=7 || y>=7) { directValues[i]=vec4(1000);minimumValues[i]=vec4(1000); }
+ }
+}
+bool filterAt(ivec2 p,out vec3 value) { return RC_ShadowFilterDirect(p,activeExtent(),value); }
+bool near(vec3 a,vec3 b) { return all(lessThan(abs(a-b),vec3(.00002))); }
+void surround(ivec2 p,int stride,float visibility) {
+ for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x)if(x!=0 || y!=0)setVisibility(p+ivec2(x,y)*stride,visibility);
+}
+void main() {
+ vec3 value,minimum;bool ok,d,m;
+ reset(false);surround(ivec2(3),1,1);rcLighting.shadow_parameters.w=0;
+ result[0]=uint(filterAt(ivec2(3),value) && value==baseRGB && minimumFetch==0u && badFetch==0u);
+ rcLighting.shadow_parameters.w=1;ok=filterAt(ivec2(3),value) && value.x>baseRGB.x && value.x<0 && value.yz==baseRGB.yz;
+ ok=ok && minimumFetch==0u && badFetch==0u;
+ reset(false);for(int y=0;y<7;++y)for(int x=0;x<7;++x) {
+  setVisibility(ivec2(x,y),.371);directValues[y*9+x].a=unpackHalf2x16(packHalf2x16(vec2(directValues[y*9+x].a,0))).x;
+ }
+ vec3 original=directValues[30].rgb;
+ result[1]=uint(ok && filterAt(ivec2(3),value) && value==original && guideFetch==0u && unshadowedCalls==0u);
+ reset(false);surround(ivec2(3),1,1);
+ for(int y=2;y<=4;++y)for(int x=2;x<=4;++x)if(x!=3 || y!=3)statuses[y*9+x]=37u;
+ result[2]=uint(filterAt(ivec2(3),value) && value==baseRGB);
+ reset(false);surround(ivec2(3),1,1);
+ for(int y=2;y<=4;++y)for(int x=2;x<=4;++x)if(x!=3 || y!=3)normals[y*9+x]=vec3(1,0,0);
+ result[3]=uint(filterAt(ivec2(3),value) && value==baseRGB);
+ reset(false);surround(ivec2(3),1,1);
+ for(int y=2;y<=4;++y)for(int x=2;x<=4;++x)if(x!=3 || y!=3) { positions[y*9+x].z=1;setID(ivec2(x,y),uvec2(2)); }
+ result[4]=uint(filterAt(ivec2(3),value) && value==baseRGB);
+ reset(false);surround(ivec2(3),1,1);
+ for(int i=0;i<81;++i)normals[i]=normalize(vec3(.05,0,1));
+ result[5]=uint(filterAt(ivec2(3),value) && value.x>baseRGB.x && value.yz==baseRGB.yz);
+ reset(false);for(int i=0;i<81;++i)directValues[i]=vec4(0,0,0,2);
+ ok=filterAt(ivec2(3),value) && value==vec3(0);
+ directValues[30].a=0;ok=ok && !filterAt(ivec2(3),value);directValues[30].a=uintBitsToFloat(0x7fc00000u);
+ result[6]=uint(ok && !filterAt(ivec2(3),value));
+ reset(false);surround(ivec2(3),1,1);
+ for(int y=2;y<=4;++y)for(int x=2;x<=4;++x)if(x!=3 || y!=3)directValues[y*9+x].a=uintBitsToFloat(0x7fc00000u);
+ ok=filterAt(ivec2(3),value) && value==baseRGB;
+ directValues[29]=vec4(uintBitsToFloat(0x7f800000u),0,0,3);
+ result[7]=uint(ok && filterAt(ivec2(3),value) && value==baseRGB);
+ reset(true);surround(ivec2(3),2,1);
+ result[8]=uint(filterAt(ivec2(3),value) && value.x>baseRGB.x && value.yz==baseRGB.yz && badFetch==0u);
+ reset(true);setVisibility(ivec2(3),1);
+ RC_CheckerReconstructDirectPair(ivec2(3,4),activeExtent(),value,d,minimum,m);
+ result[9]=uint(d && m && value.x>baseRGB.x && value.x<baseRGB.x+1 && value.yz==baseRGB.yz && minimum==vec3(.25,.5,.75) && badFetch==0u);
+ ok=true;const float divisors[5]=float[5](1,1.5,2,3,4);
+ for(int i=0;i<5;++i) {
+  reset(false);rcReceiver.normalThreshold.z=divisors[i];rcReceiver.viewport.zw=ivec2(floor(7*divisors[i]));
+  if(divisors[i]>=2)rcReceiver.viewport.zw-=ivec2(1);
+  for(int y=0;y<7;++y)for(int x=0;x<7;++x) {
+   ok=ok && filterAt(ivec2(x,y),value) && value==baseRGB;
+  }
+  ok=ok && badFetch==0u;
+ }
+ result[10]=uint(ok);
+ reset(false);surround(ivec2(3),1,1);rcLighting.shadow_parameters.w=.0001;
+ ok=filterAt(ivec2(3),value) && near(value,baseRGB);rcLighting.shadow_parameters.w=1;filterAt(ivec2(3),value);float narrow=value.x;
+ rcLighting.shadow_parameters.w=2;filterAt(ivec2(3),value);result[11]=uint(ok && value.x>narrow);
+ reset(false);surround(ivec2(3),1,1);directValues[30].rgb=vec3(65504);
+ result[12]=uint(filterAt(ivec2(3),value) && value==vec3(65504));
+ reset(false);surround(ivec2(3),1,1);statuses[30]=5u;ok=filterAt(ivec2(3),value) && value==baseRGB;
+ statuses[30]=53u;ok=ok && filterAt(ivec2(3),value) && value==baseRGB;
+ statuses[30]=21u;directValues[30].a=1;ok=ok && filterAt(ivec2(3),value) && value==baseRGB;
+ directValues[30].a=4;ok=ok && filterAt(ivec2(3),value) && value==baseRGB;
+ directValues[30].a=2;rcLighting.shadow_parameters.x=0;
+ result[13]=uint(ok && filterAt(ivec2(3),value) && value==baseRGB);
+ reset(false);surround(ivec2(3),1,1);rcLights[0].metadata.w=4u;
+ result[14]=uint(filterAt(ivec2(3),value) && value==baseRGB);
+ reset(true);for(int i=0;i<81;++i)if(directValues[i].a>.5)directValues[i].a=1;
+ directValues[30].a=2;setVisibility(ivec2(5,3),1);statuses[31]=2u;
+ ok=filterAt(ivec2(3),value) && value==baseRGB && badFetch==0u;
+ for(int mode=0;mode<6;++mode) {
+  reset((mode&1)!=0);rcLighting.shadow_parameters.w=mode<2?.25:mode<4?1:2;
+  for(int y=0;y<7;++y)for(int x=0;x<7;++x) {
+   int index=y*9+x;uint code=uint(x*13+y*7+mode*5);
+   if(directValues[index].a>.5)setVisibility(ivec2(x,y),float(code%5u)*.25);
+   if(code%11u==0u)statuses[index]=2u;
+   else if(code%13u==0u)statuses[index]=37u;
+   if(code%17u==0u)directValues[index].a=0;
+   if(code%19u==0u)normals[index]=vec3(1,0,0);
+  }
+  for(int y=0;y<7;++y)for(int x=0;x<7;++x) {
+   vec3 expected;bool reference=RC_ShadowFilterReference(ivec2(x,y),activeExtent(),expected);
+   bool actual=filterAt(ivec2(x,y),value);ok=ok && actual==reference && (!actual || near(value,expected));
+  }
+  ok=ok && badFetch==0u;
+ }
+ result[15]=uint(ok);
+}

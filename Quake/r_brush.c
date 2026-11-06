@@ -24,6 +24,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // r_brush.c: brush model rendering. renamed from r_surf.c
 
 #include "quakedef.h"
+#include "radiance_graphics.h"
+#include "bsp_meshlet.h"
+#include "meshlet_hiz.h"
 
 extern cvar_t gl_fullbrights, r_drawflat, r_gpulightmapupdate, r_rtshadows;
 
@@ -329,6 +332,580 @@ static int num_worldmodel_submodels;
 
 static int current_compute_buffer_index;
 
+// Map-local read-only cluster bounds and contiguous run/index source data.
+typedef struct
+{
+	float	 mins[3];
+	uint32_t material;
+	float	 maxs[4];
+	uint32_t first_index, num_indices, first_run, num_runs;
+} gpu_meshlet_t;
+typedef struct
+{
+	VkBuffer		buffer;
+	vulkan_memory_t memory;
+	VkDescriptorSet set;
+	uint32_t		clusters, indices, runs, batches;
+	double			build_ms;
+	qboolean		attempted, active;
+	qboolean		independent, hiz_prepared, hiz_active, counter_pass;
+	const char	   *reason;
+#if defined(VK_EXT_mesh_shader)
+	VkBuffer mesh_buffer;
+	vulkan_memory_t mesh_memory;
+	VkDescriptorSet mesh_sets[DOUBLE_BUFFERED];
+	uint32_t *mesh_first, *mesh_count;
+	uint32_t mesh_eligible, indexed_clusters, mesh_batches, mesh_partial_batches;
+	qboolean mesh_attempted, mesh_active, mesh_depth, task_active;
+#endif
+} meshlet_world_t;
+static meshlet_world_t meshlet_world;
+cvar_t				   r_meshlets = {"r_meshlets", "0", CVAR_ARCHIVE};
+cvar_t				   r_meshlet_task = {"r_meshlet_task", "0", CVAR_NONE};
+cvar_t				   r_meshlet_occlusion = {"r_meshlet_occlusion", "1", CVAR_NONE};
+cvar_t				   r_meshlet_occlusion_stats = {"r_meshlet_occlusion_stats", "0", CVAR_NONE};
+
+#if defined(VK_EXT_mesh_shader)
+static void R_FreeMeshGeometry (void)
+{
+	for (int i = 0; i < DOUBLE_BUFFERED; ++i)
+	{
+		if (meshlet_world.mesh_sets[i])
+			vkFreeDescriptorSets (vulkan_globals.device, vulkan_globals.descriptor_pool, 1, &meshlet_world.mesh_sets[i]);
+		meshlet_world.mesh_sets[i] = VK_NULL_HANDLE;
+	}
+	R_FreeBuffer (meshlet_world.mesh_buffer, &meshlet_world.mesh_memory, &num_vulkan_bmodel_allocations);
+	meshlet_world.mesh_buffer = VK_NULL_HANDLE;
+	free (meshlet_world.mesh_first);
+	free (meshlet_world.mesh_count);
+	meshlet_world.mesh_first = meshlet_world.mesh_count = NULL;
+	meshlet_world.mesh_eligible = 0;
+	meshlet_world.mesh_batches = meshlet_world.mesh_partial_batches = 0;
+}
+#endif
+
+static void R_FreeMeshlets (void)
+{
+#if defined(VK_EXT_mesh_shader)
+	R_FreeMeshGeometry ();
+#endif
+	MLHiZ_Reset ();
+	if (meshlet_world.set)
+		vkFreeDescriptorSets (vulkan_globals.device, vulkan_globals.descriptor_pool, 1, &meshlet_world.set);
+	R_FreeBuffer (meshlet_world.buffer, &meshlet_world.memory, &num_vulkan_bmodel_allocations);
+	memset (&meshlet_world, 0, sizeof (meshlet_world));
+}
+
+void R_ShutdownMeshlets (void)
+{
+	if (meshlet_world.buffer)
+	{
+		GL_WaitForDeviceIdle ();
+		R_FreeMeshlets ();
+	}
+	MLHiZ_Shutdown ();
+}
+
+// This optional cache must not make a playable map fail when memory is tight.
+static qboolean R_TryMeshletBuffer (VkDeviceSize bytes, VkBuffer *out_buffer, vulkan_memory_t *out_memory)
+{
+	VkDevice device = vulkan_globals.device;
+	ZEROED_STRUCT (VkBufferCreateInfo, buffer_info);
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.size = bytes;
+	buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	VkBuffer buffer;
+	if (vkCreateBuffer (device, &buffer_info, NULL, &buffer) != VK_SUCCESS)
+		return false;
+	VkMemoryRequirements req;
+	vkGetBufferMemoryRequirements (device, buffer, &req);
+	ZEROED_STRUCT (VkMemoryAllocateInfo, alloc);
+	alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc.allocationSize = req.size;
+	alloc.memoryTypeIndex = GL_MemoryTypeFromProperties (req.memoryTypeBits, 0, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VkDeviceMemory memory;
+	if (vkAllocateMemory (device, &alloc, NULL, &memory) != VK_SUCCESS)
+	{
+		vkDestroyBuffer (device, buffer, NULL);
+		return false;
+	}
+	if (vkBindBufferMemory (device, buffer, memory, 0) != VK_SUCCESS)
+	{
+		vkDestroyBuffer (device, buffer, NULL);
+		vkFreeMemory (device, memory, NULL);
+		return false;
+	}
+	*out_buffer = buffer;
+	*out_memory = (vulkan_memory_t){memory, (size_t)req.size, VULKAN_MEMORY_TYPE_DEVICE};
+	Atomic_IncrementUInt32 (&num_vulkan_bmodel_allocations);
+	Atomic_AddUInt64 (&total_device_vulkan_allocation_size, req.size);
+	GL_SetObjectName ((uint64_t)buffer, VK_OBJECT_TYPE_BUFFER, "BSP meshlets");
+	return true;
+}
+
+#if defined(VK_EXT_mesh_shader)
+static qboolean R_MeshMaterialEligible (uint32_t material)
+{
+	if (material >= (uint32_t)used_indirect_draws || indirect_draws[material].is_bmodel)
+		return false;
+	texture_t *texture = indirect_draws[material].texture;
+	return texture && texture->type == TEXTYPE_DEFAULT &&
+		!texture->anim_total && !texture->anim_next && !texture->alternate_anims;
+}
+
+#endif
+
+static const char *R_UploadMeshletBake (const bsp_meshlet_bake_t *bake)
+{
+	COMPILE_TIME_ASSERT (
+		meshlet_gpu_abi,
+		sizeof (gpu_meshlet_t) == 48 && offsetof (gpu_meshlet_t, material) == 12 && offsetof (gpu_meshlet_t, maxs) == 16 && sizeof (bsp_meshlet_run_t) == 12);
+	if (!bake->num_meshlets || used_indirect_draws <= 0)
+		return "empty static world";
+
+	const VkDeviceSize headers = (VkDeviceSize)bake->num_meshlets * sizeof (gpu_meshlet_t);
+	const VkDeviceSize run_bytes = (VkDeviceSize)bake->num_runs * sizeof (bsp_meshlet_run_t);
+	const VkDeviceSize index_bytes = (VkDeviceSize)bake->num_indices * sizeof (uint32_t);
+	const VkDeviceSize source_bytes = run_bytes + index_bytes;
+	const VkDeviceSize alignment = q_max (16, vulkan_globals.device_properties.limits.minStorageBufferOffsetAlignment);
+	const VkDeviceSize source_offset = (headers + alignment - 1) & ~(alignment - 1);
+	const VkDeviceSize total = source_offset + source_bytes;
+	const uint32_t max_range = vulkan_globals.device_properties.limits.maxStorageBufferRange;
+	const uint32_t last = (uint32_t)used_indirect_draws - 1;
+	const VkDeviceSize output_bytes = ((VkDeviceSize)initial_indirect_buffer[last].firstIndex + indirect_draws[last].max_indices) * sizeof (uint32_t);
+	if (source_bytes > max_range || headers > max_range || output_bytes > max_range ||
+		(VkDeviceSize)num_surfaces * sizeof (lm_compute_surface_data_t) > max_range || (VkDeviceSize)dyn_visibility_offset * 2 > max_range)
+		return "meshlet buffer exceeds device storage range";
+	if (total > 128 * 1024 * 1024)
+		return "meshlet cache exceeds 128 MiB budget";
+	byte *upload = calloc (1, (size_t)total);
+	if (!upload)
+		return "meshlet staging allocation unavailable";
+	gpu_meshlet_t *clusters = (gpu_meshlet_t *)upload;
+	uint32_t previous_material = UINT32_MAX;
+	uint32_t indexed_clusters = 0;
+	for (uint32_t i = 0; i < bake->num_meshlets; ++i)
+	{
+		const bsp_meshlet_t *m = &bake->meshlets[i];
+		if (m->num_runs > 32 || m->material >= (uint32_t)used_indirect_draws)
+		{
+			free (upload);
+			return "unsupported meshlet layout";
+		}
+		if (previous_material != m->material)
+		{
+			previous_material = m->material;
+			++meshlet_world.batches;
+		}
+#if defined(VK_EXT_mesh_shader)
+		if (!R_MeshMaterialEligible (m->material))
+#endif
+			++indexed_clusters;
+	}
+	uint32_t indexed_cursor = 0, mesh_cursor = indexed_clusters;
+	for (uint32_t i = 0; i < bake->num_meshlets; ++i)
+	{
+		const bsp_meshlet_t *m = &bake->meshlets[i];
+		qboolean mesh_eligible = false;
+#if defined(VK_EXT_mesh_shader)
+		mesh_eligible = R_MeshMaterialEligible (m->material);
+#endif
+		gpu_meshlet_t *out = &clusters[mesh_eligible ? mesh_cursor++ : indexed_cursor++];
+		VectorCopy (m->mins, out->mins);
+		VectorCopy (m->maxs, out->maxs);
+		out->maxs[3] = mesh_eligible;
+		out->first_index = m->first_index;
+		out->num_indices = m->index_count;
+		out->first_run = m->first_run;
+		out->num_runs = m->num_runs;
+		out->material = m->material;
+	}
+	assert (indexed_cursor == indexed_clusters && mesh_cursor == bake->num_meshlets);
+#if defined(VK_EXT_mesh_shader)
+	meshlet_world.indexed_clusters = indexed_clusters;
+#endif
+	memcpy (upload + source_offset, bake->runs, (size_t)run_bytes);
+	memcpy (upload + source_offset + run_bytes, bake->indices, (size_t)index_bytes);
+	if (!R_TryMeshletBuffer (total, &meshlet_world.buffer, &meshlet_world.memory))
+	{
+		free (upload);
+		return "meshlet device allocation unavailable";
+	}
+	VkDescriptorSetAllocateInfo ds_alloc = {
+		VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, NULL, vulkan_globals.descriptor_pool, 1, &vulkan_globals.indirect_compute_set_layout.handle};
+	if (vkAllocateDescriptorSets (vulkan_globals.device, &ds_alloc, &meshlet_world.set) != VK_SUCCESS)
+	{
+		free (upload);
+		R_FreeMeshlets ();
+		return "meshlet descriptors unavailable";
+	}
+	R_StagingUploadBuffer (meshlet_world.buffer, (size_t)total, upload);
+	free (upload);
+	VkDescriptorBufferInfo db[6] = {
+		{indirect_buffer, 0, used_indirect_draws * sizeof (VkDrawIndexedIndirectCommand)},
+		{meshlet_world.buffer, 0, headers},
+		{dyn_visibility_buffer, 0, VK_WHOLE_SIZE},
+		{meshlet_world.buffer, source_offset, source_bytes},
+		{surface_data_buffer, 0, num_surfaces * sizeof (lm_compute_surface_data_t)},
+		{indirect_index_buffer, 0, output_bytes}};
+	ZEROED_STRUCT_ARRAY (VkWriteDescriptorSet, writes, 6);
+	for (int i = 0; i < 6; ++i)
+	{
+		writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[i].dstSet = meshlet_world.set;
+		writes[i].dstBinding = i;
+		writes[i].descriptorCount = 1;
+		writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		writes[i].pBufferInfo = &db[i];
+	}
+	vkUpdateDescriptorSets (vulkan_globals.device, 6, writes, 0, NULL);
+	meshlet_world.clusters = bake->num_meshlets;
+	meshlet_world.indices = bake->num_indices;
+	meshlet_world.runs = bake->num_runs;
+	return NULL;
+}
+
+static void R_BakeMeshlets (void)
+{
+	const double	start = Sys_DoubleTime ();
+	const qmodel_t *world = cl.worldmodel;
+	const char	   *failure = "world layout is not eligible";
+	bool			static_prefix = !world->firstmodelsurface && world->nummodelsurfaces > 0 && world->nummodelsurfaces <= world->numsurfaces;
+	// The bake and its occluders assume identity transforms for this prefix.
+	// Leave maps which share these faces with a movable inline model on stock.
+	for (int i = 1; static_prefix && i < world->numsubmodels; ++i)
+		static_prefix = world->submodels[i].firstface >= world->nummodelsurfaces;
+	if (static_prefix)
+	{
+		bsp_meshlet_face_t *faces = calloc ((size_t)world->nummodelsurfaces, sizeof (*faces));
+		if (faces)
+		{
+			for (int i = 0; i < world->nummodelsurfaces; ++i)
+			{
+				const msurface_t *s = &world->surfaces[i];
+				faces[i] = (bsp_meshlet_face_t){(uint32_t)i, s->indirect_idx, s->vbo_firstvert, s->numedges, s->polys->verts[0], VERTEXSIZE * sizeof (float)};
+			}
+			bsp_meshlet_bake_t bake;
+			if (BSPMeshlet_Build (faces, (size_t)world->nummodelsurfaces, &bake))
+			{
+				failure = R_UploadMeshletBake (&bake);
+				BSPMeshlet_Free (&bake);
+			}
+			else
+				failure = "could not partition static BSP geometry";
+			free (faces);
+		}
+		else
+			failure = "meshlet face allocation unavailable";
+	}
+	meshlet_world.attempted = true;
+	meshlet_world.reason = failure;
+	meshlet_world.build_ms = (Sys_DoubleTime () - start) * 1000.0;
+	if (failure)
+		Con_Warning ("BSP meshlets: %s; using stock renderer\n", failure);
+	else
+		Con_DPrintf ("Baked %u BSP meshlets in %.3f ms\n", meshlet_world.clusters, meshlet_world.build_ms);
+}
+
+#if defined(VK_EXT_mesh_shader)
+// Rebuild the same deterministic bake when switching from mode 1 or 2
+// after map load. The original index/run buffers remain available for every
+// non-mesh pass and for immediate fallback.
+static qboolean R_MeshPipelinesAvailable (void)
+{
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		for (int fullbright = 0; fullbright < 2; ++fullbright)
+			for (int quantized = 0; quantized < 2; ++quantized)
+				if (!vulkan_globals.world_mesh_pipelines[variant][fullbright + quantized * 8].handle)
+					return false;
+	return true;
+}
+
+static qboolean R_TaskPipelinesAvailable (void)
+{
+	if (!vulkan_globals.task_shader || !vulkan_globals.world_task_ready || !vulkan_globals.task_shader_max_workgroups)
+		return false;
+	for (int variant = 0; variant < MAIN_RENDER_PASS_VARIANT_COUNT; ++variant)
+		for (int fullbright = 0; fullbright < 2; ++fullbright)
+			for (int quantized = 0; quantized < 2; ++quantized)
+				if (!vulkan_globals.world_task_pipelines[variant][fullbright + quantized * 8].handle)
+					return false;
+	return true;
+}
+
+static void R_BakeMeshGeometry (void)
+{
+	meshlet_world.mesh_attempted = true;
+	if (!vulkan_globals.mesh_shader || !vulkan_globals.world_mesh_ready || !vulkan_globals.world_mesh_set_layout.handle ||
+		!vulkan_globals.world_mesh_pipeline_layout.handle || !MLHiZ_BufferForSlot (0) || !MLHiZ_BufferForSlot (1))
+		return;
+	const qmodel_t *world = cl.worldmodel;
+	bsp_meshlet_face_t *faces = calloc ((size_t)world->nummodelsurfaces, sizeof (*faces));
+	if (!faces)
+		return;
+	for (int i = 0; i < world->nummodelsurfaces; ++i)
+	{
+		const msurface_t *surface = &world->surfaces[i];
+		faces[i] = (bsp_meshlet_face_t){(uint32_t)i, surface->indirect_idx, surface->vbo_firstvert, surface->numedges,
+			surface->polys->verts[0], VERTEXSIZE * sizeof (float)};
+	}
+	bsp_meshlet_bake_t bake;
+	bool baked = BSPMeshlet_Build (faces, (size_t)world->nummodelsurfaces, &bake);
+	free (faces);
+	if (!baked)
+		return;
+	bsp_meshlet_mesh_data_t packed = {0};
+	if (bake.num_meshlets != meshlet_world.clusters || !BSPMeshlet_BuildMeshData (&bake, &packed))
+		goto done;
+	const VkDeviceSize bytes = (VkDeviceSize)packed.num_words * sizeof (uint32_t);
+	const VkDeviceSize vertex_bytes = (VkDeviceSize)bmodel_numverts * VERTEXSIZE * sizeof (float);
+	const VkDeviceSize surface_bytes = (VkDeviceSize)num_surfaces * sizeof (lm_compute_surface_data_t);
+	if (!bytes || bytes > vulkan_globals.device_properties.limits.maxStorageBufferRange ||
+		vertex_bytes > vulkan_globals.device_properties.limits.maxStorageBufferRange ||
+		surface_bytes > vulkan_globals.device_properties.limits.maxStorageBufferRange || bytes > 128 * 1024 * 1024)
+		goto done;
+	meshlet_world.mesh_first = calloc ((size_t)used_indirect_draws, sizeof (uint32_t));
+	meshlet_world.mesh_count = calloc ((size_t)used_indirect_draws, sizeof (uint32_t));
+	if (!meshlet_world.mesh_first || !meshlet_world.mesh_count ||
+		!R_TryMeshletBuffer (bytes, &meshlet_world.mesh_buffer, &meshlet_world.mesh_memory))
+		goto fail;
+	for (uint32_t i = 0; i < bake.num_meshlets; ++i)
+	{
+		uint32_t material = bake.meshlets[i].material;
+		if (!R_MeshMaterialEligible (material))
+			continue;
+		if (!meshlet_world.mesh_count[material])
+			meshlet_world.mesh_first[material] = i;
+		++meshlet_world.mesh_count[material];
+		++meshlet_world.mesh_eligible;
+	}
+	if (!meshlet_world.mesh_eligible)
+		goto fail;
+	for (int material = 0; material < used_indirect_draws; ++material)
+		if (meshlet_world.mesh_count[material])
+		{
+			++meshlet_world.mesh_batches;
+			meshlet_world.mesh_partial_batches += (meshlet_world.mesh_count[material] % 32u) != 0;
+		}
+	for (int slot = 0; slot < DOUBLE_BUFFERED; ++slot)
+	{
+		VkDescriptorSetAllocateInfo alloc = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, NULL, vulkan_globals.descriptor_pool, 1,
+			&vulkan_globals.world_mesh_set_layout.handle};
+		if (vkAllocateDescriptorSets (vulkan_globals.device, &alloc, &meshlet_world.mesh_sets[slot]) != VK_SUCCESS)
+			goto fail;
+		VkDescriptorBufferInfo buffers[4] = {
+			{meshlet_world.mesh_buffer, 0, bytes}, {bmodel_vertex_buffer, 0, vertex_bytes},
+			{surface_data_buffer, 0, surface_bytes}, {MLHiZ_BufferForSlot ((uint32_t)slot), 0, VK_WHOLE_SIZE}};
+		VkWriteDescriptorSet writes[4] = {{0}};
+		for (int i = 0; i < 4; ++i)
+		{
+			writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[i].dstSet = meshlet_world.mesh_sets[slot];
+			writes[i].dstBinding = i;
+			writes[i].descriptorCount = 1;
+			writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			writes[i].pBufferInfo = &buffers[i];
+		}
+		vkUpdateDescriptorSets (vulkan_globals.device, 4, writes, 0, NULL);
+	}
+	R_StagingUploadBuffer (meshlet_world.mesh_buffer, (size_t)bytes, (const byte *)packed.words);
+	goto done;
+fail:
+	R_FreeMeshGeometry ();
+done:
+	BSPMeshlet_FreeMeshData (&packed);
+	BSPMeshlet_Free (&bake);
+}
+#endif
+
+static void R_PrepareMeshletOccluders (void)
+{
+	// A map can start on the stock or hybrid backend. Build the conservative
+	// occluder pool only once, on the owning thread, when independence is used.
+	if (!meshlet_world.hiz_prepared && meshlet_world.set && r_meshlets.value >= 2 && (r_meshlets.value >= 3 || r_meshlet_occlusion.value || r_meshlet_occlusion_stats.value) &&
+		vulkan_globals.meshlet_hiz_pipeline.handle)
+	{
+		MLHiZ_Bake (cl.worldmodel);
+		meshlet_world.hiz_prepared = true;
+	}
+}
+
+// Snapshot the mode on the main thread before any draw/compute workers start.
+void R_PrepareMeshlets (void)
+{
+	meshlet_world.active = false;
+	meshlet_world.independent = false;
+	meshlet_world.hiz_active = false;
+	meshlet_world.counter_pass = false;
+#if defined(VK_EXT_mesh_shader)
+	meshlet_world.mesh_active = false;
+	meshlet_world.mesh_depth = false;
+	meshlet_world.task_active = false;
+#endif
+	if (!r_meshlets.value || !indirect || !vulkan_globals.meshlet_cull_pipeline.handle || !cl.worldmodel)
+		return;
+	if (!meshlet_world.attempted)
+	{
+		GL_SynchronizeEndRenderingTask ();
+		R_BakeMeshlets ();
+	}
+	meshlet_world.active = meshlet_world.set != VK_NULL_HANDLE;
+	meshlet_world.independent = meshlet_world.active && r_meshlets.value >= 2;
+	if (meshlet_world.independent)
+		R_PrepareMeshletOccluders ();
+#if defined(VK_EXT_mesh_shader)
+	if (meshlet_world.independent && r_meshlets.value >= 3 && !meshlet_world.mesh_attempted)
+	{
+		GL_SynchronizeEndRenderingTask ();
+		R_BakeMeshGeometry ();
+	}
+	if (meshlet_world.independent && r_meshlets.value >= 3 && !r_showtris.value && meshlet_world.mesh_sets[0] &&
+		meshlet_world.mesh_sets[1] && R_MeshPipelinesAvailable () && vulkan_globals.mesh_shader_max_workgroups)
+	{
+		meshlet_world.mesh_active = true;
+		meshlet_world.task_active = r_meshlet_task.value && R_TaskPipelinesAvailable ();
+		meshlet_world.mesh_depth = r_meshlet_occlusion.value && MLHiZ_OccluderCount () != 0;
+	}
+#endif
+}
+
+/* Called after radiance preparation and before world/indirect draw workers.
+ * Failed or disabled preparation leaves the selected classic path intact. */
+void R_SetMeshletRadianceFrame (bool active)
+{
+#if defined(VK_EXT_mesh_shader)
+	if (active)
+	{
+		meshlet_world.mesh_active = false;
+		meshlet_world.task_active = false;
+		meshlet_world.mesh_depth = false;
+	}
+#else
+	(void)active;
+#endif
+}
+
+qboolean R_MeshletsIndependent (void)
+{
+	return meshlet_world.independent;
+}
+
+void R_MeshletStats_f (void)
+{
+	GL_SynchronizeEndRenderingTask ();
+	Con_Printf (
+		"Meshlet renderer: active %u requested %u indirect %u\n", (unsigned)(meshlet_world.active && cls.state == ca_connected),
+		r_meshlets.value >= 3 ? 3u : (r_meshlets.value >= 2 ? 2u : (unsigned)(r_meshlets.value != 0)), (unsigned)indirect);
+	Con_Printf (
+		"Meshlet bake: %u meshlets, %u triangles, %u source runs, %u material batches, %zu bytes, %.3f ms\n", meshlet_world.clusters, meshlet_world.indices / 3,
+		meshlet_world.runs, meshlet_world.batches, meshlet_world.memory.size, meshlet_world.build_ms);
+	const qboolean active = meshlet_world.active && cls.state == ca_connected;
+	Con_Printf (
+		"Meshlet visibility: %s occlusion %u occluders %u of %u candidates\n", active ? (meshlet_world.independent ? "independent" : "hybrid") : "stock",
+		(unsigned)(active && meshlet_world.hiz_active), active && meshlet_world.hiz_active ? MLHiZ_ActiveOccluders () : 0, MLHiZ_OccluderCount ());
+	uint32_t counts[5] = {0};
+	const bool available = active && meshlet_world.counter_pass && MLHiZ_GetStats (counts);
+	Con_Printf (
+		"Meshlet culling: available %d tested %u frustum %u occluded %u visible %u triangles %u\n", (int)available, counts[0], counts[1], counts[2], counts[3],
+		counts[4]);
+#if defined(VK_EXT_mesh_shader)
+	Con_Printf ("Mesh shader: active %u eligible %u\n", (unsigned)(meshlet_world.mesh_active && cls.state == ca_connected),
+		meshlet_world.mesh_eligible);
+	Con_Printf ("Task shader: active %u\n", (unsigned)(meshlet_world.task_active && cls.state == ca_connected));
+	Con_Printf ("Mesh shader batches: %u partial task batches %u\n", meshlet_world.mesh_batches, meshlet_world.mesh_partial_batches);
+#endif
+	if (r_meshlets.value && !meshlet_world.active)
+		Con_Printf (
+			"Stock fallback: %s\n", meshlet_world.reason ? meshlet_world.reason
+									: !indirect			 ? "indirect BSP path inactive"
+														 : "meshlet pipeline unavailable");
+}
+
+static void R_DispatchMeshlets (cb_context_t *cbx, uint32_t vis_offset)
+{
+	const bool want_depth = meshlet_world.independent && r_meshlet_occlusion.value;
+	const bool want_stats = meshlet_world.independent && r_meshlet_occlusion_stats.value;
+	bool use_hierarchy = false;
+	if ((want_depth || want_stats) && vulkan_globals.meshlet_hiz_pipeline.handle)
+	{
+		use_hierarchy = MLHiZ_Record (cbx, want_depth, want_stats);
+		if (!use_hierarchy && want_depth && want_stats)
+			use_hierarchy = MLHiZ_Record (cbx, false, true); // Diagnostics without any guaranteed occluder.
+	}
+#if defined(VK_EXT_mesh_shader)
+	if (meshlet_world.mesh_active && meshlet_world.mesh_depth)
+	{
+		if (!use_hierarchy)
+			use_hierarchy = MLHiZ_Record (cbx, false, false);
+		if (!use_hierarchy)
+		{
+			// Each active mesh set holds this frame slot's live Hi-Z buffer.
+			// If normal recording cannot run, clear it explicitly so the mesh
+			// shader sees an entirely uncovered hierarchy.
+			VkBuffer depth = MLHiZ_BufferForSlot (GL_RenderFrameSlot ());
+			assert (depth != VK_NULL_HANDLE);
+			vkCmdFillBuffer (cbx->cb, depth, 0, ML_HIZ_WORDS * sizeof (uint32_t), 0);
+		}
+		VkMemoryBarrier barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT};
+		VkPipelineStageFlags dst_stages = VK_PIPELINE_STAGE_MESH_SHADER_BIT_EXT;
+		if (meshlet_world.task_active)
+			dst_stages |= VK_PIPELINE_STAGE_TASK_SHADER_BIT_EXT;
+		vkCmdPipelineBarrier (cbx->cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+			dst_stages, 0, 1, &barrier, 0, NULL, 0, NULL);
+	}
+#endif
+	meshlet_world.hiz_active = use_hierarchy && want_depth && MLHiZ_ActiveOccluders () != 0;
+	meshlet_world.counter_pass = use_hierarchy && want_stats;
+	vulkan_pipeline_t *pipeline = use_hierarchy ? &vulkan_globals.meshlet_hiz_pipeline : &vulkan_globals.meshlet_cull_pipeline;
+	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline);
+	VkDescriptorSet sets[2] = {meshlet_world.set, use_hierarchy ? MLHiZ_Set () : VK_NULL_HANDLE};
+	vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->layout.handle, 0, use_hierarchy ? 2 : 1, sets, 0, NULL);
+	struct
+	{
+		float	 planes[4][4], vieworg[3];
+		uint32_t vis_offset, first, index_word, flags;
+		float	 pixel_guard;
+	} pc;
+	COMPILE_TIME_ASSERT (meshlet_cull_push_size, sizeof (pc) == 96);
+	if (meshlet_world.independent)
+		memcpy (pc.planes, vulkan_globals.view_projection_matrix, sizeof (pc.planes));
+	else
+		for (int p = 0; p < 4; ++p)
+		{
+			VectorCopy (frustum[p].normal, pc.planes[p]);
+			pc.planes[p][3] = frustum[p].dist;
+		}
+	VectorCopy (r_refdef.vieworg, pc.vieworg);
+	pc.vis_offset = vis_offset;
+	// Without valid depth resources, mode 2 still culls independently. The
+	// fallback never silently reverts to BSP visibility.
+	if (use_hierarchy)
+		pc.flags = (uint32_t)meshlet_world.hiz_active | ((uint32_t)meshlet_world.counter_pass << 1);
+	else
+		pc.flags = !meshlet_world.independent;
+#if defined(VK_EXT_mesh_shader)
+	if (meshlet_world.mesh_active)
+		pc.flags |= use_hierarchy ? 4u : 2u;
+#endif
+	pc.pixel_guard = 1.0f / (float)q_max (1, q_min (r_scene_vrect.width, r_scene_vrect.height));
+	pc.index_word = meshlet_world.runs * 3u;
+	const uint32_t max_groups = vulkan_globals.device_properties.limits.maxComputeWorkGroupCount[0];
+	uint32_t dispatch_clusters = meshlet_world.clusters;
+#if defined(VK_EXT_mesh_shader)
+	if (meshlet_world.mesh_active)
+		dispatch_clusters = meshlet_world.indexed_clusters;
+#endif
+	for (pc.first = 0; pc.first < dispatch_clusters;)
+	{
+		const uint32_t groups = q_min (dispatch_clusters - pc.first, max_groups);
+		R_PushConstants (cbx, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof (pc), &pc);
+		vkCmdDispatch (cbx->cb, groups, 1, 1);
+		pc.first += groups;
+	}
+	if (meshlet_world.counter_pass)
+		MLHiZ_FinishStats (cbx);
+}
+
 static qmodel_t *bmodel_blas_models[MAX_MODELS];
 static int		 bmodel_num_blas;
 
@@ -462,6 +1039,22 @@ static void R_CalcDeps (qmodel_t *model, mleaf_t *leaf)
 		model->combined_deps = R_AllocDepsData (deps);
 	else
 		leaf->combined_deps = R_AllocDepsData (deps);
+}
+
+// Independent static geometry still needs animated lightstyles and liquid textures
+// even when none of its BSP leaves are in the entity PVS.
+static uint32_t world_lightmap_styles[MAX_SANITY_LIGHTMAPS];
+
+void R_MarkIndependentWorldDeps (void)
+{
+	const int worker = Tasks_GetWorkerIndex ();
+	for (int i = 0; i < lightmap_count; ++i)
+		lightmaps[i].modified[worker] |= world_lightmap_styles[i];
+	for (int i = cl.worldmodel->texofs[TEXTYPE_FIRSTLIQUID]; i < cl.worldmodel->texofs[TEXTYPE_LASTLIQUID + 1]; ++i)
+	{
+		texture_t *texture = cl.worldmodel->textures[cl.worldmodel->usedtextures[i]];
+		Atomic_StoreUInt32_Relaxed (&texture->update_warp, true);
+	}
 }
 
 /*
@@ -655,7 +1248,7 @@ qboolean R_IndirectBrush (entity_t *e)
 	if (!indirect || transparent_entity || fixed_alpha_water || alpha_sorted || (e->frame != 0) || (e->model->name[0] != '*'))
 		return false;
 	const qboolean transformed =
-		e->origin[0] || e->origin[1] || e->origin[2] || e->angles[0] || e->angles[1] || e->angles[2] || (ENTSCALE_DECODE (e->netstate.scale) != 1.0f);
+		e->origin[0] || e->origin[1] || e->origin[2] || e->angles[0] || e->angles[1] || e->angles[2] || (R_EntityModelScale (e) != 1.0f);
 	// sky surfaces are drawn with pipelines that don't apply instance transforms
 	if (transformed && (e->model->used_specials & SURF_DRAWSKY))
 		return false;
@@ -696,7 +1289,7 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 			e_angles[0] = -e_angles[0]; // stupid quake bug
 			float model_matrix[16];
 			IdentityMatrix (model_matrix);
-			R_RotateForEntity (model_matrix, e->origin, e_angles, e->netstate.scale);
+			R_RotateForEntityScale (model_matrix, e->origin, e_angles, R_EntityModelScale (e));
 			for (int row = 0; row < 3; ++row)
 				for (int col = 0; col < 4; ++col)
 					instance->transform[row][col] = model_matrix[(col * 4) + row];
@@ -732,7 +1325,8 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 			Atomic_OrUInt32 (&surfvis[startword], (1ull << 32) - supress_warning);
 			for (i = startword + 1; i < endword; i++)
 				Atomic_StoreUInt32 (&surfvis[i], 0xFFFFFFFF);
-			Atomic_OrUInt32 (&surfvis[endword], (1u << end % 32) - 1);
+			if (end % 32)
+				Atomic_OrUInt32 (&surfvis[endword], (1u << end % 32) - 1);
 		}
 		R_MarkDeps (clmodel->combined_deps, Tasks_GetWorkerIndex ());
 		return;
@@ -786,7 +1380,7 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 	e_angles[0] = -e_angles[0]; // stupid quake bug
 	float model_matrix[16];
 	IdentityMatrix (model_matrix);
-	R_RotateForEntity (model_matrix, e->origin, e_angles, e->netstate.scale);
+	R_RotateForEntityScale (model_matrix, e->origin, e_angles, R_EntityModelScale (e));
 
 	float mvp[16];
 	memcpy (mvp, vulkan_globals.view_projection_matrix, 16 * sizeof (float));
@@ -873,7 +1467,7 @@ void R_DrawBrushModel_ShowTris (cb_context_t *cbx, entity_t *e)
 	e->angles[0] = -e->angles[0]; // stupid quake bug
 	float model_matrix[16];
 	IdentityMatrix (model_matrix);
-	R_RotateForEntity (model_matrix, e->origin, e->angles, e->netstate.scale);
+	R_RotateForEntityScale (model_matrix, e->origin, e->angles, R_EntityModelScale (e));
 	e->angles[0] = -e->angles[0]; // stupid quake bug
 
 	float mvp[16];
@@ -901,6 +1495,69 @@ void R_DrawBrushModel_ShowTris (cb_context_t *cbx, entity_t *e)
 
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
 }
+
+#if defined(VK_EXT_mesh_shader)
+static void R_DrawMeshletBatch (cb_context_t *cbx, int material, texture_t *texture)
+{
+	const int fullbright = gl_fullbrights.value && texture->fullbright && !r_lightmap_cheatsafe;
+	const int quantized = vid_filter.value != 0 && vid_palettize.value != 0;
+	const int pipeline_index = fullbright + quantized * 8;
+	const int lm_index = indirect_draws[material].lightmap_idx;
+	gltexture_t *lightmap = (r_fullbright_cheatsafe || lm_index < 0) ? greylightmap : lightmaps[lm_index].texture;
+	VkDescriptorSet textures[3] = {
+		(r_lightmap_cheatsafe ? greytexture : texture->gltexture)->descriptor_set,
+		lightmap->descriptor_set,
+		(fullbright ? texture->fullbright : nulltexture)->descriptor_set};
+	vulkan_pipeline_t pipeline = meshlet_world.task_active ? vulkan_globals.world_task_pipelines[cbx->pipeline_variant][pipeline_index]
+																 : vulkan_globals.world_mesh_pipelines[cbx->pipeline_variant][pipeline_index];
+	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+	vkCmdSetDepthBias (cbx->cb, 0.0f, 0.0f, 0.0f);
+	vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout.handle, 0, 3, textures, 0, NULL);
+	VkDescriptorSet mesh_set = meshlet_world.mesh_sets[GL_RenderFrameSlot ()];
+	vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout.handle, 4, 1, &mesh_set, 0, NULL);
+
+	typedef struct
+	{
+		float mvp[16], fog[4], alpha;
+		uint32_t instance_base, first, flags;
+		float pixel_guard;
+		uint32_t batch_count, padding[2];
+		float vieworg[3], reserved;
+	} mesh_push_t;
+	mesh_push_t pc = {0};
+	COMPILE_TIME_ASSERT (world_mesh_push_constants, sizeof (mesh_push_t) == 128 && offsetof (mesh_push_t, first) == 88 && offsetof (mesh_push_t, batch_count) == 100 && offsetof (mesh_push_t, vieworg) == 112);
+	memcpy (pc.mvp, vulkan_globals.view_projection_matrix, sizeof (pc.mvp));
+	Fog_GetColor (pc.fog);
+	for (int i = 0; i < 3; ++i)
+		pc.fog[i] = CLAMP (0.0f, pc.fog[i], 1.0f);
+	pc.fog[3] = Fog_GetDensity () / 64.0f;
+	pc.alpha = 1.0f;
+	pc.flags = meshlet_world.mesh_depth ? 1u : 0u;
+	pc.pixel_guard = 1.0f / (float)q_max (1, q_min (r_scene_vrect.width, r_scene_vrect.height));
+	VectorCopy (r_refdef.vieworg, pc.vieworg);
+	const uint32_t end = meshlet_world.mesh_first[material] + meshlet_world.mesh_count[material];
+	const VkShaderStageFlags stages = pipeline.layout.push_constant_range.stageFlags;
+	for (pc.first = meshlet_world.mesh_first[material]; pc.first < end;)
+	{
+		uint32_t count, groups;
+		if (meshlet_world.task_active)
+		{
+			const uint32_t max_groups = q_min (vulkan_globals.task_shader_max_workgroups, UINT32_MAX / 32u);
+			count = q_min (end - pc.first, max_groups * 32u);
+			groups = 1u + (count - 1u) / 32u;
+		}
+		else
+		{
+			count = q_min (end - pc.first, vulkan_globals.mesh_shader_max_workgroups);
+			groups = count;
+		}
+		pc.batch_count = count;
+		vkCmdPushConstants (cbx->cb, pipeline.layout.handle, stages, 0, sizeof (pc), &pc);
+		vulkan_globals.vk_cmd_draw_mesh_tasks (cbx->cb, groups, 1, 1);
+		pc.first += count;
+	}
+}
+#endif
 
 /*
 =============
@@ -935,6 +1592,9 @@ void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean tra
 	gltexture_t *lasttexture = NULL;
 	float		 last_alpha = FLT_MAX;
 	float		 last_constant_factor = FLT_MAX;
+#if defined(VK_EXT_mesh_shader)
+	qboolean was_mesh = false;
+#endif
 
 	int part_size = (used_indirect_draws + NUM_WORLD_CBX - 1) / NUM_WORLD_CBX;
 	int start = index < 0 ? 0 : part_size * index;
@@ -953,6 +1613,34 @@ void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean tra
 		if (draw_sky != (texture->type == TEXTYPE_SKY))
 			continue;
 
+#if defined(VK_EXT_mesh_shader)
+		if (meshlet_world.mesh_active && r_drawworld_cheatsafe && !draw_water && !draw_sky && meshlet_world.mesh_count[i])
+		{
+			R_DrawMeshletBatch (cbx, i, texture);
+			was_mesh = true;
+			continue;
+		}
+		if (was_mesh)
+		{
+			// Switching incompatible pipeline layouts resets push constants and
+			// descriptor bindings. Restore the indexed world state.
+			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipelines[cbx->pipeline_variant][0]);
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
+			Fog_EnableGFog (cbx);
+			const uint32_t instance_base = ((uint32_t)bmodel_instances_index * MAX_MODELS) + 1;
+			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (instance_base), &instance_base);
+			vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle,
+				4, 1, &vulkan_globals.bmodel_instances_desc_set, 0, NULL);
+			vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle,
+				2, 1, &nulltexture->descriptor_set, 0, NULL);
+			if (r_lightmap_cheatsafe)
+				vkCmdBindDescriptorSets (cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle,
+					0, 1, &greytexture->descriptor_set, 0, NULL);
+			lasttexture = lastfullbright = lastlightmap = NULL;
+			last_constant_factor = FLT_MAX;
+			was_mesh = false;
+		}
+#endif
 		if (!draw_sky && !r_lightmap_cheatsafe && lasttexture != gl_texture)
 		{
 			vulkan_globals.vk_cmd_bind_descriptor_sets (
@@ -997,7 +1685,20 @@ void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean tra
 			vulkan_pipeline_t pipeline = R_PipelineForSubpassType (
 				cbx->subpass_type, vulkan_globals.world_pipelines[cbx->pipeline_variant][pipeline_index], vulkan_globals.world_wboit_pipelines[pipeline_index],
 				vulkan_globals.world_mboit_moment_pipelines[pipeline_index], vulkan_globals.world_mboit_composite_pipelines[pipeline_index]);
+			const rc_graphics_t *radiance = RCGraphics_Frame ();
+			if (radiance)
+				pipeline = RCGraphics_WorldPipeline (radiance, cbx->subpass_type, cbx->pipeline_variant, pipeline_index);
 			R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+			if (radiance)
+				RCGraphics_BindFrame (cbx);
+			if (draw_water)
+			{
+				/* Lava keeps Quake's unlit warp appearance while still using
+				 * the Radiance pipeline and its ordinary transparency paths. */
+				const uint32_t liquid_instance_base = (((uint32_t)bmodel_instances_index * MAX_MODELS) + 1) |
+					((radiance && texture->type == TEXTYPE_LAVA) ? UINT32_C (0x80000000) : 0);
+				R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (liquid_instance_base), &liquid_instance_base);
+			}
 
 			const qboolean is_decal = indirect_draws[i].is_decal;
 			qboolean	   use_zbias = INDIRECT_ZBIAS && gl_zfix.value && indirect_draws[i].is_bmodel && !is_decal;
@@ -1756,7 +2457,9 @@ static void R_InitVisibilityBuffers (uint32_t size)
 {
 	R_FreeBuffer (dyn_visibility_buffer, &dyn_visibility_buffer_memory, &num_vulkan_bmodel_allocations);
 
-	size = (size + 255) / 256 * 256 * 2;
+	// Keep the two mapped frame slots in disjoint noncoherent atoms.
+	const uint32_t alignment = q_max (256, vulkan_globals.device_properties.limits.nonCoherentAtomSize);
+	size = (size + alignment - 1) / alignment * alignment * 2;
 
 	Sys_Printf ("Allocating visibility buffers (%u KB)\n", size / 1024);
 	R_CreateBuffer (
@@ -1777,16 +2480,26 @@ static void R_InitVisibilityBuffers (uint32_t size)
 R_UploadVisibility
 ===============
 */
-static void R_UploadVisibility (byte *data, uint32_t size)
+static void R_UploadVisibility (const qmodel_t *world)
 {
-	// TODO: do we really need a read barrier for surfvis uploading ?
-	Atomic_ReadBarrier ();
+	// The independent static draw never reads BSP visibility. Only upload
+	// words that the stock brush-entity dispatch can address, including its
+	// first word if it is shared with the last static world surface.
+	const uint32_t first_surface = meshlet_world.independent ? (uint32_t)world->nummodelsurfaces : 0;
+	if (first_surface >= (uint32_t)world->numsurfaces)
+		return;
+	const uint32_t	   start = (first_surface / 32) * sizeof (uint32_t);
+	const uint32_t	   end = ((world->numsurfaces + 31) / 32) * sizeof (uint32_t);
+	const uint32_t	   slot = current_compute_buffer_index * dyn_visibility_offset;
+	const VkDeviceSize atom = vulkan_globals.device_properties.limits.nonCoherentAtomSize;
 
-	memcpy (dyn_visibility_view + current_compute_buffer_index * dyn_visibility_offset, data, size);
+	Atomic_ReadBarrier ();
+	memcpy (dyn_visibility_view + slot + start, world->surfvis + start, end - start);
 	ZEROED_STRUCT (VkMappedMemoryRange, range);
 	range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
 	range.memory = dyn_visibility_buffer_memory.handle;
-	range.size = VK_WHOLE_SIZE;
+	range.offset = slot + (start & ~(atom - 1));
+	range.size = slot + ((end + atom - 1) & ~(atom - 1)) - range.offset;
 	vkFlushMappedMemoryRanges (vulkan_globals.device, 1, &range);
 }
 
@@ -2139,6 +2852,13 @@ void GL_SetupIndirectDraws ()
 
 	vkUpdateDescriptorSets (vulkan_globals.device, countof (indirect_d), indirect_d, 0, NULL);
 
+	memset (world_lightmap_styles, 0, sizeof (world_lightmap_styles));
+	for (int i = 0; i < cl.worldmodel->nummodelsurfaces; ++i)
+	{
+		const msurface_t *surf = &cl.worldmodel->surfaces[cl.worldmodel->firstmodelsurface + i];
+		if (surf->lightmaptexturenum >= 0)
+			world_lightmap_styles[surf->lightmaptexturenum] |= surf->styles_bitmap;
+	}
 	for (int i = 0; i < cl.worldmodel->numleafs; i++)
 		R_CalcDeps (NULL, &cl.worldmodel->leafs[i + 1]); // worldmodel->leafs is 1-based
 
@@ -2832,6 +3552,7 @@ void GL_BuildBModelAccelerationStructures (void)
 void R_RebuildBrushModels (qboolean newmap)
 {
 	GL_WaitForDeviceIdle ();
+	R_FreeMeshlets ();
 	GL_DeleteBModelAccelerationStructures ();
 	GL_DeleteBModelVertexBuffer ();
 
@@ -2852,6 +3573,11 @@ void R_RebuildBrushModels (qboolean newmap)
 	GL_BuildBModelVertexBuffer ();
 	GL_BuildBModelAccelerationStructures ();
 	GL_SetupIndirectDraws ();
+	if (r_meshlets.value && indirect_ready && vulkan_globals.meshlet_cull_pipeline.handle)
+	{
+		R_BakeMeshlets ();
+		R_PrepareMeshletOccluders ();
+	}
 	GL_SetupLightmapCompute ();
 	GL_UpdateLightmapDescriptorSets ();
 }
@@ -2867,6 +3593,15 @@ void R_BuildTopLevelAccelerationStructure (void *unused)
 		return;
 
 	cb_context_t *cbx = &vulkan_globals.primary_cb_contexts[PCBX_BUILD_ACCELERATION_STRUCTURES];
+
+	/* Animated BLAS and TLAS builds share the same scratch allocation across
+	 * frame slots. Queue order alone does not make a previous frame's writes
+	 * available to this frame's build or allow the scratch range to be reused. */
+	const VkMemoryBarrier scratch_reuse = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT};
+	vkCmdPipelineBarrier (cbx->cb, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+		VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &scratch_reuse, 0, NULL, 0, NULL);
 
 	// Update animated entity BLASes first
 	R_UpdateAnimatedBLASes (cbx);
@@ -2936,12 +3671,12 @@ void R_BuildTopLevelAccelerationStructure (void *unused)
 		float model_matrix[16];
 		IdentityMatrix (model_matrix);
 		if (e->model != cl.worldmodel)
-			R_RotateForEntity (model_matrix, lerped_origin, lerped_angles, e->netstate.scale);
+			R_RotateForEntityScale (model_matrix, lerped_origin, lerped_angles, R_EntityModelScale (e));
 
 		// For alias models, apply scale_origin translation and scale
 		if (is_alias)
 		{
-			aliashdr_t *hdr = (aliashdr_t *)Mod_Extradata (e->model);
+			aliashdr_t *hdr = e->compiled_instance ? Mod_Extradata_Exact (e->model, e->skinnum) : Mod_Extradata (e->model);
 			if (hdr)
 			{
 				float translation_matrix[16];
@@ -3572,7 +4307,20 @@ static void R_IndirectComputeDispatch (cb_context_t *cbx)
 
 	R_BeginDebugUtilsLabel (cbx, "Indirect Compute");
 
-	R_UploadVisibility (cl.worldmodel->surfvis, (cl.worldmodel->numsurfaces + 31) / 8);
+	static qboolean prior_meshlet_dispatch;
+	if (meshlet_world.active || prior_meshlet_dispatch)
+	{
+		VkBufferMemoryBarrier reuse[2] = {
+			{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER, NULL, VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+			 VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, indirect_buffer, 0, VK_WHOLE_SIZE},
+			{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER, NULL, VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+			 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, indirect_index_buffer, 0, VK_WHOLE_SIZE}};
+		vkCmdPipelineBarrier (
+			cbx->cb, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 2, reuse, 0, NULL);
+	}
+	prior_meshlet_dispatch = meshlet_world.active;
+	R_UploadVisibility (cl.worldmodel);
 
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_COMPUTE, vulkan_globals.indirect_clear_pipeline);
 	VkDescriptorSet sets[1] = {vulkan_globals.indirect_compute_desc_set};
@@ -3591,24 +4339,34 @@ static void R_IndirectComputeDispatch (cb_context_t *cbx)
 	R_BindPipeline (cbx, VK_PIPELINE_BIND_POINT_COMPUTE, vulkan_globals.indirect_draw_pipeline);
 	char push_constants[7 * 4];
 	memcpy (push_constants, &cl.model_precache[1]->numsurfaces, sizeof (int));
-	memset (push_constants + 4, 0, sizeof (uint32_t));
+	const uint32_t first_surface = meshlet_world.active ? (uint32_t)cl.worldmodel->nummodelsurfaces : 0;
+	memcpy (push_constants + 4, &first_surface, sizeof (first_surface));
 	uint32_t offset = current_compute_buffer_index * dyn_visibility_offset / 4;
 	memcpy (push_constants + 8, &offset, sizeof (uint32_t));
 	memcpy (push_constants + 12, r_refdef.vieworg, sizeof (vec3_t));
 	const uint32_t instance_base = (uint32_t)bmodel_instances_index * MAX_MODELS;
 	memcpy (push_constants + 24, &instance_base, sizeof (uint32_t));
 	R_PushConstants (cbx, VK_SHADER_STAGE_COMPUTE_BIT, 0, 7 * 4, push_constants);
-	const uint32_t num_workgroups = (cl.worldmodel->numsurfaces + 63) / 64;
+	const uint32_t num_workgroups = ((uint32_t)cl.worldmodel->numsurfaces - first_surface + 63) / 64;
 	const uint32_t max_dispatch = vulkan_globals.device_properties.limits.maxComputeWorkGroupCount[0];
 	uint32_t	   start_workgroup = 0;
-	while (true)
+	while (start_workgroup < num_workgroups)
 	{
 		vkCmdDispatch (cbx->cb, q_min (max_dispatch, num_workgroups - start_workgroup), 1, 1);
 		start_workgroup += max_dispatch;
 		if (start_workgroup >= num_workgroups)
 			break;
-		const uint32_t start_offset = start_workgroup * 64;
+		const uint32_t start_offset = first_surface + start_workgroup * 64;
 		R_PushConstants (cbx, VK_SHADER_STAGE_COMPUTE_BIT, 4, sizeof (uint32_t), &start_offset);
+	}
+
+	if (meshlet_world.active && r_drawworld_cheatsafe)
+	{
+		// Stock submodels and static meshlets can reserve from the same command.
+		// Keep both reservations and all output writes ordered if both dispatch.
+		if (num_workgroups != 0)
+			vkCmdPipelineBarrier (cbx->cb, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memory_barrier, 0, NULL, 0, NULL);
+		R_DispatchMeshlets (cbx, offset);
 	}
 
 	memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
@@ -3627,6 +4385,32 @@ static void R_IndirectComputeDispatch (cb_context_t *cbx)
 R_UpdateLightmapsAndIndirect
 =============
 */
+// A previously invisible atlas can retain stale dynamic-light blocks even
+// after the global list has become empty. Check those blocks as well as the
+// folded style mask before skipping the full per-block update.
+static qboolean R_IndependentLightmapUnchanged (const struct lightmap_s *lm, uint32_t modified)
+{
+	while (modified)
+	{
+		const int bit = FindFirstBitNonZero (modified);
+		modified &= modified - 1;
+		if (bit < 16)
+		{
+			if (lm->cached_light[bit] != d_lightstylevalue[bit])
+				return false;
+		}
+		else
+		{
+			// Styles 16..63 are folded onto bits 16..31.
+			for (int i = bit; i < MAX_LIGHTSTYLES; i += 16)
+				if (lm->cached_light[i] != d_lightstylevalue[i])
+					return false;
+		}
+	}
+	static const byte no_active_lights[sizeof (lm->active_dlights)] = {0};
+	return memcmp (lm->active_dlights, no_active_lights, sizeof (lm->active_dlights)) == 0;
+}
+
 void R_UpdateLightmapsAndIndirect (void *unused)
 {
 	cb_context_t *cbx = &vulkan_globals.primary_cb_contexts[PCBX_UPDATE_LIGHTMAPS];
@@ -3693,7 +4477,7 @@ void R_UpdateLightmapsAndIndirect (void *unused)
 			angles[0] = -angles[0]; // stupid quake bug
 			float model_matrix[16];
 			IdentityMatrix (model_matrix);
-			R_RotateForEntity (model_matrix, e->origin, angles, e->netstate.scale);
+			R_RotateForEntityScale (model_matrix, e->origin, angles, R_EntityModelScale (e));
 
 			float *transform_rows = transforms + (submodel * 12);
 			for (int row = 0; row < 3; ++row)
@@ -3721,6 +4505,8 @@ void R_UpdateLightmapsAndIndirect (void *unused)
 			lm->modified[i] = 0;
 		}
 		if (modified == 0)
+			continue;
+		if (R_MeshletsIndependent () && !any_dlight_updates && R_IndependentLightmapUnchanged (lm, modified))
 			continue;
 
 		qboolean any_needs_dlight_update = false;

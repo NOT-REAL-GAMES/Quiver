@@ -1778,6 +1778,48 @@ void PR_spawnfunc_misc_model (edict_t *self)
 	PF_sv_makestatic ();
 }
 
+/* Fallback for editor-authored sector props when the active progs.dat does not
+ * implement these classnames itself. Brush submodels are already precached by
+ * SV_SpawnServer. Keep static/kinematic geometry in the BSP collision path;
+ * movable props use Quake's axis-aligned toss hull. */
+qboolean PR_spawnfunc_sector_prop (edict_t *self)
+{
+	const char *classname = PR_GetString (self->v.classname);
+	qboolean is_static = !strcmp (classname, "prop_static");
+	qboolean is_dynamic = !strcmp (classname, "prop_dynamic");
+	qboolean is_movable = !strcmp (classname, "prop_movable");
+	if (!is_static && !is_dynamic && !is_movable) return false;
+
+	const char *name = PR_GetString (self->v.model);
+	int index;
+	for (index = 1; index < MAX_MODELS && sv.model_precache[index]; ++index)
+		if (!strcmp (sv.model_precache[index], name)) break;
+	if (!name || name[0] != '*' || index >= MAX_MODELS || !sv.model_precache[index] ||
+		!sv.models[index] || sv.models[index]->type != mod_brush)
+	{
+		Con_Warning ("%s requires a compiled brush submodel\n", classname);
+		ED_Free (self);
+		return true;
+	}
+
+	self->v.modelindex = index;
+	self->v.solid = is_movable ? SOLID_BBOX : SOLID_BSP;
+	self->v.movetype = is_movable ? MOVETYPE_TOSS : MOVETYPE_PUSH;
+	if (is_dynamic) self->v.nextthink = 1.0e9f; /* keep the Quake pusher advancing */
+	if (is_static) VectorCopy (vec3_origin, self->v.velocity);
+	/* The Quake pusher does not rotate and toss collision is an AABB. Do not
+	 * render a rotated prop with a collision shape that does not match it. */
+	if (self->v.angles[0] || self->v.angles[1] || self->v.angles[2] ||
+		self->v.avelocity[0] || self->v.avelocity[1] || self->v.avelocity[2])
+	{
+		Con_Warning ("%s: native sector props do not support rotation\n", classname);
+		VectorCopy (vec3_origin, self->v.angles);
+		VectorCopy (vec3_origin, self->v.avelocity);
+	}
+	SetModelSize (self, sv.models[index]);
+	return true;
+}
+
 /*
 ==============
 2021 re-release

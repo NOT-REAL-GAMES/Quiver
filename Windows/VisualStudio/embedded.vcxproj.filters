@@ -10,6 +10,32 @@
     <CustomBuild Include="..\..\Shaders\alias.vert">
       <Filter>Shaders\Alias</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\alias_instanced.vert">
+      <Filter>Shaders\Alias</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\alias_ecs_cull.comp">
+      <Filter>Shaders\Alias</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_trace_sw.comp">
+      <Filter>Shaders\World</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_trace_rt.comp">
+      <Filter>Shaders\World</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_diagnostics.comp"><Filter>Shaders\World</Filter></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_model.frag"><Filter>Shaders\Alias</Filter></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_filter.comp"><Filter>Shaders\World</Filter></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_soft.comp"><Filter>Shaders\World</Filter></CustomBuild>
+    <None Include="..\..\Shaders\radiance_receiver_scale.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_receiver_shadows.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_receiver_shadow_metadata.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_receiver_shadow_source.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_light_unshadowed.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_light_query_free.glsl"><Filter>Shaders\World</Filter></None>
+    <None Include="..\..\Shaders\radiance_receiver_shadow_filter.glsl"><Filter>Shaders\World</Filter></None>
+    <CustomBuild Include="..\..\Shaders\radiance_merge.comp">
+      <Filter>Shaders\World</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\basic.frag">
       <Filter>Shaders\World</Filter>
     </CustomBuild>
@@ -139,6 +165,27 @@
     <CustomBuild Include="..\..\Shaders\indirect_clear.comp">
       <Filter>Shaders\Indirect</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_mesh.mesh">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_task.task">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_task_mesh.mesh">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_cull.comp">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz.comp">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz_raster.comp">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz_reduce.comp">
+      <Filter>Shaders\Indirect</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\indirect.comp">
       <Filter>Shaders\Indirect</Filter>
     </CustomBuild>
@@ -251,5 +298,10 @@
     <None Include="..\..\Shaders\fte_particles.inc">
       <Filter>Shaders\Particles</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="..\..\Shaders\radiance_lookup.glsl"><Filter>Shaders</Filter></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_camera.glsl"><Filter>Shaders</Filter></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_model_normal.glsl"><Filter>Shaders</Filter></CustomBuild>
   </ItemGroup>
 </Project>

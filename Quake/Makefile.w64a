@@ -91,8 +91,11 @@ all: $(BINTOC_EXE) .WAIT $(DEFAULT_TARGET) .WAIT dll
 %.res: ../Windows/%.rc
 	$(WINDRES) -I../Windows -I../Quake --output-format=coff --target=pe-aarch64-little -o $@ $<
 
-vkQuake.exe: $(SHADER_OBJS) $(OBJS)
+include quiverscript-windows.make
+
+vkQuake.exe: $(SHADER_OBJS) $(OBJS) ../Misc/editor_defaults.wad quiver_ripple/progs.dat
 	$(LINKER) $(SHADER_OBJS) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
+	cp -f ../Misc/editor_defaults.wad ./editor_defaults.wad
 # Never strip
 #	$(call DO_STRIP,$@)
 
@@ -116,6 +119,8 @@ debug:
 
 clean:
 	make -C ../Misc/vq_pak clean
+	$(RM) -r .editor-tools id1-quakec quiver_ripple
+	$(RM) quiverscript.exe fteqcc.exe
 	$(RM) *.o *.d *.res *.dll $(DEFAULT_TARGET) \
 	$(BINTOC_EXE) \
 	../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/*.c \

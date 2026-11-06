@@ -1,0 +1,164 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Production selection/sampling with analytic half-plane ray visibility. */
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+const uint RC_LIGHT_POINT=0u,RC_LIGHT_SPOT=1u,RC_LIGHT_DIRECTIONAL=2u,RC_LIGHT_EMISSIVE=3u;
+struct RCLight { vec4 position_radius,color_intensity,direction_cone; uvec4 metadata; vec4 area_axis; };
+RCLight rcLights[16]; uint rcLightGridOffsets[2],rcLightGridIndices[16];
+struct Lighting { uvec4 counts; vec4 grid_origin,grid_inv_cell_size; uvec4 grid_dimensions; vec4 bounce_parameters,shadow_parameters; } rcLighting;
+uint queries; int queryMode; float blockerHeight; bool targetBounds;
+bool RC_IsLocalMinLight(RCLight light) { return (light.metadata.z&17u)==1u && (light.metadata.w&7u)==4u; }
+bool RC_EmissiveBasis(RCLight light,out vec3 axis,out vec3 tangent,out vec3 bitangent) {
+ axis=vec3(0,0,-1); tangent=vec3(1,0,0); bitangent=vec3(0,1,0);
+ return light.area_axis.w>0 && light.direction_cone.w>0;
+}
+bool RC_LightVisible(vec3 p,vec3 n,vec3 direction,float distance,bool sun) {
+ ++queries;
+ if(queryMode==1) return true;
+ if(queryMode==2) return (p+direction*distance).x>0;
+ if(queryMode==3) {
+  vec3 target=p+direction*distance;
+  targetBounds=targetBounds && abs(target.x)<=4.001 && abs(target.y)<=2.001;
+  return true;
+ }
+ if(direction.z<=0) return true;
+ float t=(blockerHeight-p.z)/direction.z;
+ return t<=0 || t>=distance || (p+direction*t).x>=0;
+}
+float RC_EmissiveVisibility(RCLight light,vec3 p,vec3 n) {
+ vec3 source=light.position_radius.xyz+vec3(0,0,-.1);
+ if(rcLighting.bounce_parameters.y>=.5 || light.area_axis.w<=0 || light.direction_cone.w<=0) {
+  source.xy=clamp(p.xy,-vec2(light.area_axis.w,light.direction_cone.w),vec2(light.area_axis.w,light.direction_cone.w));
+  vec3 delta=source-p; return float(RC_LightVisible(p,n,normalize(delta),length(delta),false));
+ }
+ float value=0;
+ for(int i=0;i<4;++i) {
+  vec3 target=source+vec3((i&1)==0?-.5:.5,(i&2)==0?-.5:.5,0)*vec3(light.area_axis.w,light.direction_cone.w,0);
+  vec3 delta=target-p; value+=.25*float(RC_LightVisible(p,n,normalize(delta),length(delta),false));
+ }
+ return value;
+}
+vec3 RC_EvaluateOneLightMode(RCLight light,vec3 p,vec3 n,bool unshadowed,out vec3 direction,out float distance) {
+ vec3 delta=light.position_radius.xyz-p; direction=normalize(delta); distance=length(delta);
+ if(light.metadata.x==RC_LIGHT_DIRECTIONAL) { direction=-light.direction_cone.xyz; distance=1e30; }
+ vec3 value=light.color_intensity.rgb*light.color_intensity.w;
+ if(light.color_intensity.w==0) return vec3(0);
+ if(unshadowed) return value;
+ float visible=light.metadata.x==RC_LIGHT_EMISSIVE?RC_EmissiveVisibility(light,p,n):float(RC_LightVisible(p,n,direction,distance,light.metadata.x==RC_LIGHT_DIRECTIONAL));
+ return value*visible;
+}
+vec3 RC_EvaluateOneLight(RCLight light,vec3 p,vec3 n) {
+ vec3 direction; float distance; return RC_EvaluateOneLightMode(light,p,n,false,direction,distance);
+}
+vec3 RC_EvaluateUnshadowedLight(RCLight light,vec3 p,vec3 n,out vec3 direction,out float distance) {
+ vec3 delta=light.position_radius.xyz-p; direction=normalize(delta); distance=length(delta);
+ if(light.metadata.x==RC_LIGHT_DIRECTIONAL) { direction=-light.direction_cone.xyz; distance=1e30; }
+ return light.color_intensity.rgb*light.color_intensity.w;
+}
+#include "radiance_receiver_shadow_source.glsl"
+#include "radiance_receiver_shadow_metadata.glsl"
+#include "radiance_receiver_shadows.glsl"
+float RC_ReceiverHardVisibility(RCLight light,vec3 p,vec3 n,vec3 direction,float distance) {
+ return light.metadata.x==RC_LIGHT_EMISSIVE?RC_EmissiveVisibility(light,p,n):float(RC_LightVisible(p,n,direction,distance,light.metadata.x==RC_LIGHT_DIRECTIONAL));
+}
+void reset() {
+ queries=0u; queryMode=1; blockerHeight=10; targetBounds=true;
+ rcLighting.counts=uvec4(1,0,0,0); rcLighting.grid_origin=vec4(0); rcLighting.grid_inv_cell_size=vec4(1);
+ rcLighting.grid_dimensions=uvec4(1,1,1,16); rcLighting.bounce_parameters=vec4(0,1,0,0); rcLighting.shadow_parameters=vec4(1,4,.05,0);
+ rcLightGridOffsets[0]=0u; rcLightGridOffsets[1]=1u;
+ for(int i=0;i<16;++i) {
+  rcLights[i].position_radius=vec4(0,0,100,1); rcLights[i].color_intensity=vec4(1);
+  rcLights[i].direction_cone=vec4(0,0,-1,2); rcLights[i].metadata=uvec4(0,0,1,0); rcLights[i].area_axis=vec4(0,0,0,4);
+  rcLightGridIndices[i]=uint(i);
+ }
+}
+/* Mirror the small image-entry guards around the production sampler. This
+ * lets invalid checker cells and signed hard RGB be exercised without new
+ * Vulkan image fixtures. Metadata/eligibility/outer rays are production code. */
+vec4 post(uint metadata,vec4 hard) {
+ return RC_ReceiverSoftResult(metadata,hard,vec3(0),vec3(0,0,1));
+}
+/* Model the production's two distinct stages: original hard RGB plus
+ * query-free metadata, then only three optional outer queries/delta. */
+void evaluate(out vec3 direct,out vec3 minimum) {
+ vec3 p=vec3(0),n=vec3(0,0,1); direct=vec3(0); minimum=vec3(0); RC_ReceiverShadowReset();
+ for(uint j=0u;j<rcLighting.counts.x;++j) {
+  uint index=(rcLighting.counts.w&1u)!=0u?rcLightGridIndices[j]:j;
+  RCLight light=rcLights[index]; vec3 value=RC_EvaluateOneLight(light,p,n);
+  RC_ReceiverShadowSelect(index,light,p,n,value);
+  if(RC_IsLocalMinLight(light)) minimum=max(minimum,value); else direct+=value;
+ }
+ direct*=.3183098861837907; minimum*=.3183098861837907;
+ uint metadata=RC_ReceiverShadowMetadata()|5u;
+ direct=post(metadata,vec4(direct,1.0+RC_ReceiverShadowDominance())).rgb;
+}
+bool near(vec3 a,float b) { return all(lessThan(abs(a-vec3(b)),vec3(.00001))); }
+int partialCount(bool sun,float height) {
+ blockerHeight=height; int partial=0;
+ RCLight light=rcLights[0]; light.metadata.x=sun?RC_LIGHT_DIRECTIONAL:RC_LIGHT_POINT;
+ for(int i=-80;i<=80;++i) {
+  vec3 p=vec3(float(i)*.1,0,0),direction; float distance;
+  RC_EvaluateOneLightMode(light,p,vec3(0,0,1),true,direction,distance);
+  float center=RC_ReceiverHardVisibility(light,p,vec3(0,0,1),direction,distance);
+  float value=RC_ReceiverSoftVisibility(light,p,vec3(0,0,1),direction,distance,center,1);
+  if(value>0 && value<1) ++partial;
+ }
+ return partial;
+}
+void main() {
+ vec3 d,m; bool ok;
+ reset(); rcLighting.shadow_parameters.y=0; evaluate(d,m); result[0]=uint(queries==1u && near(d,.3183098861837907));
+ reset(); rcLights[0].metadata.x=RC_LIGHT_DIRECTIONAL; rcLighting.shadow_parameters.z=0; evaluate(d,m); result[1]=uint(queries==1u && near(d,.3183098861837907));
+ reset(); queryMode=3; rcLights[0].metadata.x=RC_LIGHT_EMISSIVE; evaluate(d,m); result[2]=uint(queries==4u && targetBounds && near(d,.3183098861837907));
+ reset(); rcLights[0].metadata.x=RC_LIGHT_EMISSIVE; rcLighting.bounce_parameters.y=0; evaluate(d,m); result[3]=uint(queries==4u && near(d,.3183098861837907));
+ reset(); evaluate(d,m); ok=queries==4u && near(d,.3183098861837907);
+ reset(); queryMode=2; rcLights[0].position_radius.x=-2; evaluate(d,m);
+ ok=ok && queries==4u && near(d,.25*.3183098861837907);
+ reset(); queryMode=2; rcLights[0].position_radius.x=1; evaluate(d,m);
+ result[4]=uint(ok && queries==4u && near(d,.5*.3183098861837907));
+ reset(); rcLighting.counts.x=10u;
+ for(int i=0;i<10;++i) rcLights[i].color_intensity.w=float(i+1);
+ evaluate(d,m); result[5]=uint(queries==13u && near(d,55*.3183098861837907));
+ reset(); queryMode=2; rcLighting.counts.x=2u; rcLights[0].position_radius.x=-2; rcLights[1].position_radius.x=2;
+ evaluate(d,m); result[6]=uint(queries==2u && near(d,.3183098861837907));
+ vec3 a,b; rcLights[0].color_intensity.w=1.0001; evaluate(a,m); rcLights[0].color_intensity.w=.9999; evaluate(b,m);
+ result[7]=uint(all(lessThan(abs(a-b),vec3(.001))));
+ reset(); queryMode=0; int nearPoint=partialCount(false,.01),farPoint=partialCount(false,50);
+ result[8]=uint(farPoint>nearPoint+20);
+ int nearSun=partialCount(true,.01),farSun=partialCount(true,50); result[9]=uint(farSun>nearSun+10);
+ reset(); rcLighting.counts.x=0u; evaluate(d,m); ok=queries==0u && d==vec3(0) && m==vec3(0);
+ rcLighting.counts.x=1u;
+ vec4 invalid=post(25u,vec4(3,2,1,0));
+ ok=ok && queries==0u && invalid==vec4(3,2,1,0);
+ vec4 mixed=post(26u,vec4(-1,-2,-3,2));
+ result[10]=uint(ok && queries==0u && mixed==vec4(-1,-2,-3,1));
+ reset(); rcLighting.counts.x=3u; rcLights[0].color_intensity.w=2;
+ rcLights[1].color_intensity.w=3; rcLights[1].metadata.w=4u; rcLights[2].color_intensity.w=-.5;
+ evaluate(d,m); ok=queries==6u && near(d,1.5*.3183098861837907) && near(m,3*.3183098861837907);
+ queryMode=2; queries=0u; for(int i=0;i<3;++i) rcLights[i].position_radius.x=2;
+ rcLights[0].position_radius.x=1; rcLights[2].color_intensity.w=-4;
+ evaluate(d,m); result[11]=uint(ok && queries==6u && near(d,-3*.3183098861837907) && near(m,3*.3183098861837907));
+ reset(); rcLights[0].metadata.x=4u; evaluate(d,m); result[12]=uint(queries==1u && near(d,.3183098861837907));
+ reset(); rcLights[0].metadata.x=RC_LIGHT_EMISSIVE; rcLights[0].area_axis.w=0; evaluate(d,m); result[13]=uint(queries==1u && near(d,.3183098861837907));
+ reset(); rcLighting.counts.x=4u; for(int i=0;i<4;++i) rcLights[i].color_intensity.w=float(i+1);
+ evaluate(a,m); queries=0u; rcLighting.counts.w=1u; rcLightGridOffsets[1]=4u;
+ rcLightGridIndices[0]=3u; rcLightGridIndices[1]=1u; rcLightGridIndices[2]=2u; rcLightGridIndices[3]=0u;
+ evaluate(b,m); result[14]=uint(queries==7u && all(lessThan(abs(a-b),vec3(.00001))));
+ reset(); rcLights[0].metadata.x=RC_LIGHT_SPOT; evaluate(d,m); ok=queries==4u && near(d,.3183098861837907);
+ uint beforeSelection=queries;
+ RC_ReceiverShadowReset(); RC_ReceiverShadowSelect(0x0ffffffeu,rcLights[0],vec3(0),vec3(0,0,1),vec3(1));
+ uint packed=RC_ReceiverShadowMetadata()|5u;
+ ok=ok && (packed>>4u)==0x0fffffffu && (packed&3u)==1u && (packed&4u)!=0u && (packed&8u)!=0u;
+ RC_ReceiverShadowReset(); RC_ReceiverShadowSelect(0x0fffffffu,rcLights[0],vec3(0),vec3(0,0,1),vec3(1));
+ ok=ok && RC_ReceiverShadowMetadata()==0u && queries==beforeSelection;
+ reset(); queryMode=2; rcLights[0].position_radius.x=-2;
+ vec4 unfiltered=post(17u,vec4(-1,2,3,2)); uint oldQueries=queries;
+ rcLighting.shadow_parameters.w=1; queries=0u;
+ vec4 tagged=post(17u,vec4(-1,2,3,2));
+ ok=ok && queries==3u && oldQueries==3u && tagged.rgb==unfiltered.rgb && abs(tagged.a-2.25)<.00001 && unfiltered.a==1;
+ queries=0u; vec4 unchanged=post(17u,vec4(4,5,6,0));
+ ok=ok && unchanged==vec4(4,5,6,0) && queries==0u;
+ vec4 tie=post(17u,vec4(4,5,6,1));
+ result[15]=uint(ok && tie==vec4(4,5,6,1) && queries==0u);
+}

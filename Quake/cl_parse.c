@@ -26,6 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "bgmusic.h"
 #include "steam.h"
+#include "radiance_alias.h"
 
 const char *svc_strings[128] = {
 	"svc_bad", "svc_nop", "svc_disconnect", "svc_updatestat",
@@ -116,6 +117,7 @@ entity_t *CL_EntityNum (int num)
 		while (cl.num_entities <= num)
 		{
 			cl.entities[cl.num_entities].baseline = nullentitystate;
+			CL_ECSBindNetworkEntity (cl.num_entities);
 			cl.num_entities++;
 		}
 	}
@@ -519,6 +521,9 @@ static void CL_EntityLerpUpdated (entity_t *ent, int oldframe, qboolean forcelin
 
 static qboolean CL_UpdateEntityModel (entity_t *ent, int entnum)
 {
+	/* BSPX placements have direct asset references rather than protocol
+	 * model slots. A late network-precache refresh must not clear slot0. */
+	if (ent->compiled_instance) return false;
 	qmodel_t *model = cl.model_precache[ent->netstate.modelindex];
 	if (model == ent->model)
 		return false;
@@ -620,6 +625,9 @@ static void CL_EntitiesDeltaed (void)
 
 		if (forcelink)
 		{ // didn't have an update last message
+			// A discontinuity must invalidate cached render geometry even when
+			// this slot returns with the same model, transform and animation.
+			++ent->render_generation;
 			VectorCopy (ent->msg_origins[0], ent->msg_origins[1]);
 			VectorCopy (ent->msg_origins[0], ent->origin);
 			VectorCopy (ent->msg_angles[0], ent->msg_angles[1]);
@@ -686,12 +694,7 @@ static void CLFTE_ParseEntitiesUpdate (void)
 
 	for (;;)
 	{
-		newnum = (unsigned short)(short)MSG_ReadShort ();
-		removeflag = !!(newnum & 0x8000);
-		if (newnum & 0x4000)
-			newnum = (newnum & 0x3fff) | (MSG_ReadByte () << 14);
-		else
-			newnum &= ~0x8000;
+		newnum = MSG_ReadFTEEntityNumber (&removeflag);
 
 		if ((!newnum && !removeflag) || msg_badread)
 			break;
@@ -710,6 +713,7 @@ static void CLFTE_ParseEntitiesUpdate (void)
 					Con_SafePrintf ("%3i:     Reset all\n", msg_readcount);
 				for (newnum = 1; newnum < cl.num_entities; newnum++)
 				{
+					++CL_EntityNum (newnum)->render_generation;
 					CL_EntityNum (newnum)->netstate.pmovetype = 0;
 					CL_EntityNum (newnum)->model = NULL;
 					CL_EntityNum (newnum)->update_type = false;
@@ -717,6 +721,7 @@ static void CLFTE_ParseEntitiesUpdate (void)
 				cl.requestresend = false; // we got it.
 				continue;
 			}
+			++ent->render_generation;
 			ent->update_type = false; // no longer valid
 			ent->model = NULL;
 			InvalidateTraceLineCache ();
@@ -724,7 +729,8 @@ static void CLFTE_ParseEntitiesUpdate (void)
 		}
 		else if (ent->update_type)
 		{ // simple update
-			CLFTE_ReadDelta (newnum, &ent->netstate, &ent->netstate, &ent->baseline);
+			unsigned int delta_bits = CLFTE_ReadDelta (newnum, &ent->netstate, &ent->netstate, &ent->baseline);
+			if (delta_bits & UF_RESET) ++ent->render_generation;
 			if (ent->msgtime == cl.mtime[0])
 				// we did get an update for this entity, force processing by CL_EntitiesDeltaed
 				// even if qcvm time is frozen (sv_freezenonclients support)
@@ -732,6 +738,7 @@ static void CLFTE_ParseEntitiesUpdate (void)
 		}
 		else
 		{ // we had no previous copy of this entity...
+			++ent->render_generation;
 			ent->update_type = true;
 			CLFTE_ReadDelta (newnum, &ent->netstate, NULL, &ent->baseline);
 			ent->msgtime = 0; // the slot's stale msgtime must not defeat the forcelink check in CL_EntitiesDeltaed
@@ -839,7 +846,7 @@ static void CL_ParseStartSoundPacket (void)
 	// johnfitz -- PROTOCOL_FITZQUAKE
 	if (field_mask & SND_LARGEENTITY)
 	{
-		ent = (unsigned short)MSG_ReadShort ();
+		ent = MSG_ReadEntity (cl.protocol_pext2);
 		channel = MSG_ReadByte ();
 	}
 	else
@@ -860,7 +867,7 @@ static void CL_ParseStartSoundPacket (void)
 		Host_Error ("CL_ParseStartSoundPacket: %i > MAX_SOUNDS", sound_num);
 	// johnfitz
 
-	if (ent > cl.max_edicts) // johnfitz -- no more MAX_EDICTS
+	if (ent >= cl.max_edicts) // entity indices stop one below capacity
 		Host_Error ("CL_ParseStartSoundPacket: ent = %i", ent);
 
 	for (i = 0; i < 3; i++)
@@ -956,6 +963,74 @@ static void CL_KeepaliveMessage (void)
 CL_ParseServerInfo
 ==================
 */
+static entity_t *CL_NewStaticEntity (void)
+{
+	if (cl.num_statics >= cl.max_static_entities)
+	{
+		const int count=64;
+		entity_t **statics=Mem_Realloc(cl.static_entities,sizeof(*statics)*(cl.max_static_entities+count));
+		entity_t *entities=Mem_Alloc(sizeof(*entities)*count);
+		if (!statics || !entities) Host_Error("Too many static entities");
+		cl.static_entities=statics;
+		for (int i=0;i<count;++i) cl.static_entities[cl.max_static_entities++]=&entities[i];
+	}
+	entity_t *entity=cl.static_entities[cl.num_statics++];
+	entity->is_static=true;
+	return entity;
+}
+
+static void CL_LoadCompiledStaticModels (void)
+{
+	const qsm_data_t *data=cl.worldmodel ? cl.worldmodel->static_models : NULL;
+	if (!data) return;
+	for (uint32_t i=0;i<data->instance_count;++i)
+	{
+		const qsm_instance_t *instance=&data->instances[i];
+		if (!isfinite(instance->modelscale) || instance->modelscale<=0 || instance->modelscale>1024 || instance->skin>INT_MAX)
+			Host_Error("Compiled static model %s has invalid instance parameters",instance->model);
+		if (!instance->triangle_count || instance->first_triangle>data->triangle_count ||
+			instance->triangle_count>data->triangle_count-instance->first_triangle)
+			Host_Error("Compiled static model %s has invalid bounds geometry",instance->model);
+		qmodel_t *model=Mod_ForName(instance->model,false);
+		aliashdr_t *header=model && model->type==mod_alias ? Mod_Extradata_Exact(model,(int)instance->skin) : NULL;
+		if (!header) Host_Error("Compiled static model %s is missing or unsupported",instance->model);
+		uint64_t retained_triangles=0;
+		for (const aliashdr_t *surface=header;surface;surface=surface->nextsurface)
+		{
+			if (surface->numframes!=1 || surface->numposes!=1 || !surface->radiance_mesh)
+				Host_Error("Compiled static model %s must retain one mesh frame",instance->model);
+			if (surface->numskins<1 || instance->skin>=(uint32_t)surface->numskins)
+				Host_Error("Compiled static model %s changed skins; recompile the map",instance->model);
+			retained_triangles+=RCAlias_TriangleCount(surface->radiance_mesh);
+		}
+		if (retained_triangles!=instance->triangle_count)
+			Host_Error("Compiled static model %s changed geometry; recompile the map",instance->model);
+		entity_t *entity=CL_NewStaticEntity();
+		entity->compiled_instance=instance;entity->compiled_instance_index=i;
+		entity->modelscale_override=instance->modelscale;
+		entity->baseline=nullentitystate;
+		entity->baseline.scale=ENTSCALE_DEFAULT;entity->baseline.alpha=ENTALPHA_DEFAULT;
+		entity->baseline.skin=(unsigned char)q_min(instance->skin,255u);
+		VectorCopy(instance->origin,entity->baseline.origin);VectorCopy(instance->angles,entity->baseline.angles);
+		entity->netstate=entity->baseline;entity->model=model;entity->skinnum=(int)instance->skin;
+		entity->alpha=ENTALPHA_DEFAULT;entity->colormap=vid.colormap;entity->render_generation=1;
+		entity->frame=entity->lerp.prev_frame=0;entity->visframe=-1;
+		VectorCopy(instance->origin,entity->origin);VectorCopy(instance->angles,entity->angles);
+		for (uint32_t t=0;t<instance->triangle_count;++t)
+			for (unsigned vertex=0;vertex<3;++vertex)
+				for (unsigned axis=0;axis<3;++axis)
+				{
+					float coordinate=data->triangles[instance->first_triangle+t].position[vertex][axis];
+					if (!t && !vertex) entity->compiled_mins[axis]=entity->compiled_maxs[axis]=coordinate;
+					else {entity->compiled_mins[axis]=q_min(entity->compiled_mins[axis],coordinate);
+						entity->compiled_maxs[axis]=q_max(entity->compiled_maxs[axis],coordinate);}
+				}
+		entity->compiled_bounds_valid=true;
+		R_AddEfrags(entity);
+	}
+	InvalidateTraceLineCache();
+}
+
 static void CL_ParseServerInfo (void)
 {
 	const char *str;
@@ -1143,6 +1218,7 @@ static void CL_ParseServerInfo (void)
 	cl.entities[0].model = cl.worldmodel = cl.model_precache[1];
 
 	R_NewMap ();
+	CL_LoadCompiledStaticModels ();
 
 	// johnfitz -- clear out string; we don't consider identical
 	// messages to be duplicates if the map has changed in between
@@ -1223,6 +1299,7 @@ static void CL_ParseUpdate (int bits)
 		forcelink = true; // no previous frame to lerp from
 	else
 		forcelink = false;
+	if (forcelink) ++ent->render_generation;
 
 	// johnfitz -- lerping
 	if (ent->msgtime + 0.2 < cl.mtime[0]) // more than 0.2 seconds since the last message (most entities think every 0.1 sec)
@@ -1574,25 +1651,7 @@ CL_ParseStatic
 */
 static void CL_ParseStatic (int version) // johnfitz -- added a parameter
 {
-	entity_t *ent;
-	int		  i;
-
-	i = cl.num_statics;
-	if (i >= cl.max_static_entities)
-	{
-		int		   ec = 64;
-		entity_t **newstatics = Mem_Realloc (cl.static_entities, sizeof (*newstatics) * (cl.max_static_entities + ec));
-		entity_t  *newents = Mem_Alloc (sizeof (*newents) * ec);
-		if (!newstatics || !newents)
-			Host_Error ("Too many static entities");
-		cl.static_entities = newstatics;
-		while (ec--)
-			cl.static_entities[cl.max_static_entities++] = newents++;
-	}
-
-	ent = cl.static_entities[i];
-	cl.num_statics++;
-	ent->is_static = true;
+	entity_t *ent=CL_NewStaticEntity();
 	CL_ParseBaseline (ent, version); // johnfitz -- added second parameter
 
 	// copy it to the current state

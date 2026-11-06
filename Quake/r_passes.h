@@ -67,11 +67,13 @@ typedef struct end_rendering_parms_s
 	bool		 polyblend	   : 1;
 	bool		 menu		   : 1;
 	bool		 ray_debug	   : 1;
+	bool         hdr_tonemap   : 1;
 	uint32_t	 vid_height	   : 20;
 	uint32_t	 render_width;
 	uint32_t	 render_height;
 	float		 time;
 	float		 menu_alpha;
+	float        hdr_contrast;
 	VkClearValue color_clear_value;
 	uint8_t		 v_blend[4];
 	float		 origin[3];
@@ -85,7 +87,7 @@ typedef struct
 	uint32_t		   width, height;
 	uint32_t		   render_width;
 	uint32_t		   render_height;
-	VkImageView		   ui_color;
+	VkImageView		   ui_color, ui_depth;
 	VkImageView		   color[2];
 	VkImageView		   depth, msaa_color;
 	VkImageView		   oit_accum, oit_reveal;
@@ -95,6 +97,7 @@ typedef struct
 } render_framebuffer_images_t;
 
 void	 R_CreateFrameBuffers (const render_framebuffer_images_t *images);
+VkResult R_TryCreateFrameBuffers (const render_framebuffer_images_t *images);
 void	 R_DestroyFrameBuffers (void);
 uint32_t R_RecordFrame (
 	end_rendering_parms_t *parms, bool swapchain_acquired, uint32_t swapchain_index, VkCommandBuffer *submit_buffers, uint32_t submit_capacity,
@@ -102,6 +105,7 @@ uint32_t R_RecordFrame (
 
 bool R_SetupRenderPasses (void);
 void R_CreateRenderPasses (void);
+VkResult R_TryCreateRenderPasses (void);
 void R_DestroyRenderPasses (void);
 
 struct cb_context_s;

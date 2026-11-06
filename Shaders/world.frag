@@ -2,6 +2,9 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_ARB_shading_language_420pack : enable
 #extension GL_GOOGLE_include_directive : enable
+#if RADIANCE_LIGHTING && defined(RC_HARDWARE_RAY_QUERY)
+#extension GL_EXT_ray_query : require
+#endif
 
 // Compiled in multiple variants: WBOIT writes weighted blended OIT accumulation,
 // MBOIT writes power moments, MBOIT + MBOIT_COMPOSITE reconstructs transmittance
@@ -17,6 +20,12 @@ layout (push_constant) uniform PushConsts
 	vec3  fog_color;
 	float fog_density;
 	float alpha;
+#if RADIANCE_LIGHTING
+	uint  instance_base;
+#endif
+#if RC_RECEIVER_REUSE
+	uint  receiver_token;
+#endif
 }
 push_constants;
 
@@ -26,6 +35,23 @@ layout (set = 2, binding = 0) uniform sampler2D fullbright_tex;
 
 layout (location = 0) in vec4 in_texcoords;
 layout (location = 1) in float in_fog_frag_coord;
+#if RADIANCE_LIGHTING
+layout (location = 2) in vec3 in_world_position;
+#define RC_SET 5
+#define RC_SCENE_SET 5
+#define RC_SCENE_BINDING_BASE 9
+#define RC_LIGHT_SET 5
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#include "radiance_cascades.glsl"
+#include "radiance_lookup.glsl"
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+#include "radiance_world_normal.glsl"
+#if RC_RECEIVER_REUSE
+#include "radiance_receiver_resolve.glsl"
+#endif
+#endif
 
 layout (constant_id = 0) const bool use_fullbright = false;
 layout (constant_id = 1) const bool use_alpha_test = false;

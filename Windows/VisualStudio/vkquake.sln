@@ -20,6 +20,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "embedded", "embedded.vcxpro
 		{91D0ED02-D4DB-4CD4-A232-9F0ACC573048} = {91D0ED02-D4DB-4CD4-A232-9F0ACC573048}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "fteqcc", "fteqcc.vcxproj", "{3D1BDAF3-C4BC-4C74-A187-38D061CDE271}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "quiverscript", "quiverscript.vcxproj", "{384A0AAB-7CBB-4531-9DF4-7D9D364FE363}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -42,6 +46,14 @@ Global
 		{50420275-BAE3-4FDB-8A26-F2E07737FCD6}.Debug|x64.Build.0 = Debug|x64
 		{50420275-BAE3-4FDB-8A26-F2E07737FCD6}.Release|x64.ActiveCfg = Release|x64
 		{50420275-BAE3-4FDB-8A26-F2E07737FCD6}.Release|x64.Build.0 = Release|x64
+		{3D1BDAF3-C4BC-4C74-A187-38D061CDE271}.Debug|x64.ActiveCfg = Debug|x64
+		{3D1BDAF3-C4BC-4C74-A187-38D061CDE271}.Debug|x64.Build.0 = Debug|x64
+		{3D1BDAF3-C4BC-4C74-A187-38D061CDE271}.Release|x64.ActiveCfg = Release|x64
+		{3D1BDAF3-C4BC-4C74-A187-38D061CDE271}.Release|x64.Build.0 = Release|x64
+		{384A0AAB-7CBB-4531-9DF4-7D9D364FE363}.Debug|x64.ActiveCfg = Debug|x64
+		{384A0AAB-7CBB-4531-9DF4-7D9D364FE363}.Debug|x64.Build.0 = Debug|x64
+		{384A0AAB-7CBB-4531-9DF4-7D9D364FE363}.Release|x64.ActiveCfg = Release|x64
+		{384A0AAB-7CBB-4531-9DF4-7D9D364FE363}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

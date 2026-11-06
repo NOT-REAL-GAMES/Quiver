@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -13,6 +13,198 @@
   <ItemGroup>
     <CustomBuild Include="..\..\Shaders\alias.vert">
       <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\alias_instanced.vert">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\alias_ecs_cull.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_trace_sw.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\radiance_trace_impl.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_trace_rt.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\radiance_trace_impl.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_model.frag">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\alias.frag;$(SolutionDir)..\..\Shaders\alias_common.inc;$(SolutionDir)..\..\Shaders\radiance_model_normal.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_resolve.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_guides.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_trace_impl.glsl;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard.glsl;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1  "$(SolutionDir)..\..\Shaders\radiance_receiver_model.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model.frag.spv" radiance_receiver_model_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_model.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model_alphatest.frag.spv" radiance_receiver_model_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw.frag.spv" alias_receiver_forward_fast_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw_alphatest.frag.spv" alias_receiver_forward_fast_sw_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt.frag.spv" alias_receiver_forward_fast_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt_alphatest.frag.spv" alias_receiver_forward_fast_rt_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt_alphatest.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_model_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_sw_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_receiver_forward_fast_rt_alphatest.frag.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1  "$(SolutionDir)..\..\Shaders\radiance_receiver_model.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.spv" radiance_receiver_model_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_model.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.spv" radiance_receiver_model_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.spv" alias_receiver_forward_fast_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.spv" alias_receiver_forward_fast_sw_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.spv" alias_receiver_forward_fast_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.spv" alias_receiver_forward_fast_rt_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_model_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_sw_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_receiver_forward_fast_rt_alphatest.frag.c</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_world.frag"><FileType>Document</FileType></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_half.comp"><FileType>Document</FileType><AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_classify.glsl;%(AdditionalInputs)</AdditionalInputs></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_reconstruct.comp"><FileType>Document</FileType><AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard_batched.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_visibility.glsl;%(AdditionalInputs)</AdditionalInputs></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_diagnostics.comp"><FileType>Document</FileType><AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_resolve.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_guides.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard.glsl;%(AdditionalInputs)</AdditionalInputs></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_filter.comp"><FileType>Document</FileType><AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_filter_axis.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_guides.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_texture_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;%(AdditionalInputs)</AdditionalInputs></CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_soft.comp"><FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 "$(SolutionDir)..\..\Shaders\radiance_receiver_soft.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_sw.comp.spv" radiance_receiver_soft_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_soft.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_rt.comp.spv" radiance_receiver_soft_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_rt.comp.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_soft_rt.comp.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 "$(SolutionDir)..\..\Shaders\radiance_receiver_soft.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.spv" radiance_receiver_soft_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_soft.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.spv" radiance_receiver_soft_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_soft_rt.comp.c</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_direct.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_half.comp;$(SolutionDir)..\..\Shaders\radiance_receiver_classify.glsl;$(SolutionDir)..\..\Shaders\world.frag;$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\radiance_receiver_resolve.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_visibility.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_checkerboard.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_schedule.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_guides.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_texture_filter.glsl;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_half.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_half_fast.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_half_fast.comp.spv" radiance_receiver_half_fast_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_half_fast.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1  "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_sw.comp.spv" radiance_receiver_direct_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_rt.comp.spv" radiance_receiver_direct_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_rt.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_sw.frag.spv" world_receiver_forward_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_rt.frag.spv" world_receiver_forward_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_sw.comp.spv" radiance_receiver_direct_fast_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_rt.comp.spv" radiance_receiver_direct_fast_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_rt.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_sw.frag.spv" world_receiver_forward_fast_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_rt.frag.spv" world_receiver_forward_fast_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_rt.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_half_fast.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_rt.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\radiance_receiver_direct_fast_rt.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_receiver_forward_fast_rt.frag.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_half.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_half_fast.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_half_fast.comp.spv" radiance_receiver_half_fast_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_half_fast.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1  "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_sw.comp.spv" radiance_receiver_direct_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_rt.comp.spv" radiance_receiver_direct_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_rt.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_sw.frag.spv" world_receiver_forward_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_rt.frag.spv" world_receiver_forward_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_sw.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_sw.comp.spv" radiance_receiver_direct_fast_sw_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_sw.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\radiance_receiver_direct.comp" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_rt.comp.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_rt.comp.spv" radiance_receiver_direct_fast_rt_comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_rt.comp.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_sw.frag.spv" world_receiver_forward_fast_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_rt.frag.spv" world_receiver_forward_fast_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_rt.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_half_fast.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_rt.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_sw.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\radiance_receiver_direct_fast_rt.comp.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_receiver_forward_fast_rt.frag.c</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_merge.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\fte_particles.frag">
       <FileType>Document</FileType>
@@ -59,11 +251,56 @@
     <CustomBuild Include="..\..\Shaders\indirect_clear.comp">
       <FileType>Document</FileType>
     </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_mesh.mesh">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(EnableMeshShaders)'=='false'">true</ExcludedFromBuild>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\globals.inc;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).c"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).c"</Command>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_task.task">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(EnableMeshShaders)'=='false' Or '$(EnableTaskShaders)'=='false'">true</ExcludedFromBuild>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\globals.inc;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).c"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).c"</Command>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\world_task_mesh.mesh">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(EnableMeshShaders)'=='false' Or '$(EnableTaskShaders)'=='false'">true</ExcludedFromBuild>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\globals.inc;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\%(Filename)%(Extension).c"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 --target-env spirv1.4 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv"
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).spv" %(Filename)%(Extension)_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\%(Filename)%(Extension).c"</Command>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_cull.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\meshlet_cull.inc;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\meshlet_cull.inc;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz_raster.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\meshlet_hiz_reduce.comp">
+      <FileType>Document</FileType>
+    </CustomBuild>
     <CustomBuild Include="..\..\Shaders\postprocess.frag">
       <FileType>Document</FileType>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\scene_upscale.frag">
       <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\ssao_composite.frag">
       <FileType>Document</FileType>
@@ -179,6 +416,7 @@ $(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(Solution
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\world.frag">
       <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_receiver_scale.glsl;%(AdditionalInputs)</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\mboit.inc;$(SolutionDir)..\..\Shaders\wboit.inc;%(AdditionalInputs)</AdditionalInputs>
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\mboit.inc;$(SolutionDir)..\..\Shaders\wboit.inc;%(AdditionalInputs)</AdditionalInputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world.frag.spv"
@@ -318,8 +556,8 @@ $(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(Solution
     </CustomBuild>
     <CustomBuild Include="..\..\Shaders\screen_effects.comp">
       <FileType>Document</FileType>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\screen_effects.inc;%(AdditionalInputs)</AdditionalInputs>
-      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\screen_effects.inc;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\screen_effects.inc;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;%(AdditionalInputs)</AdditionalInputs>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\screen_effects.inc;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;%(AdditionalInputs)</AdditionalInputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\screen_effects_8bit.comp.spv"
 "$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\screen_effects_8bit.comp.spv" screen_effects_8bit.comp_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\screen_effects_8bit.comp.c"
 $(VULKAN_SDK)\bin\glslangValidator.exe -g -V -DUSE_10BIT=1 "%(FullPath)" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\screen_effects_10bit.comp.spv"
@@ -453,6 +691,15 @@ $(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(Solution
     <None Include="..\..\Shaders\world_common.inc" />
     <CustomBuild Include="..\..\Shaders\ray_debug.comp">
       <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\ray_debug.inc;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\ray_debug_hdr.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\ray_debug.inc;%(AdditionalInputs)</AdditionalInputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\screen_effects_hdr.comp">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\screen_effects.inc;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;%(AdditionalInputs)</AdditionalInputs>
     </CustomBuild>
     <CustomBuild Include="..\..\Misc\vq_pak\vq_pak_contents.txt">
       <FileType>Document</FileType>
@@ -566,10 +813,489 @@ $(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(Solution
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="..\..\Shaders\radiance_lookup.glsl">
+      <FileType>Document</FileType>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\world.vert;$(SolutionDir)..\..\Shaders\world.frag;$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\alias.vert;$(SolutionDir)..\..\Shaders\alias_instanced.vert;$(SolutionDir)..\..\Shaders\alias.frag;$(SolutionDir)..\..\Shaders\alias_common.inc;$(SolutionDir)..\..\Shaders\md5.vert;$(SolutionDir)..\..\Shaders\skinning.inc;$(SolutionDir)..\..\Shaders\globals.inc;$(SolutionDir)..\..\Shaders\mboit.inc;$(SolutionDir)..\..\Shaders\wboit.inc;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_camera.glsl;$(SolutionDir)..\..\Shaders\radiance_model_normal.glsl;$(SolutionDir)..\..\Shaders\radiance_world_normal.glsl;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance.vert.spv" world_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance.vert.spv" alias_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias_instanced.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_instanced_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_instanced_radiance.vert.spv" alias_instanced_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_instanced_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\md5.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance.vert.spv" md5_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DEIGHT_WEIGHT_SKINNING "$(SolutionDir)..\..\Shaders\md5.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_8_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_8_radiance.vert.spv" md5_8_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_8_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw.frag.spv" world_radiance_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_oit.frag.spv" world_radiance_sw_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_moment.frag.spv" world_radiance_sw_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite.frag.spv" world_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite_msaa.frag.spv" world_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw.frag.spv" alias_radiance_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest.frag.spv" alias_radiance_sw_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_oit.frag.spv" alias_radiance_sw_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_oit.frag.spv" alias_radiance_sw_alphatest_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_moment.frag.spv" alias_radiance_sw_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_moment.frag.spv" alias_radiance_sw_alphatest_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite.frag.spv" alias_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite.frag.spv" alias_radiance_sw_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite_msaa.frag.spv" alias_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" alias_radiance_sw_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite.frag.spv" md5_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite.frag.spv" md5_radiance_sw_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite_msaa.frag.spv" md5_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" md5_radiance_sw_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt.frag.spv" world_radiance_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_oit.frag.spv" world_radiance_rt_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_moment.frag.spv" world_radiance_rt_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite.frag.spv" world_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite_msaa.frag.spv" world_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt.frag.spv" alias_radiance_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest.frag.spv" alias_radiance_rt_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_oit.frag.spv" alias_radiance_rt_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_oit.frag.spv" alias_radiance_rt_alphatest_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_moment.frag.spv" alias_radiance_rt_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_moment.frag.spv" alias_radiance_rt_alphatest_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite.frag.spv" alias_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite.frag.spv" alias_radiance_rt_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite_msaa.frag.spv" alias_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" alias_radiance_rt_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite.frag.spv" md5_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite.frag.spv" md5_radiance_rt_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite_msaa.frag.spv" md5_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" md5_radiance_rt_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_instanced_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_8_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\world_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Debug\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.spv" world_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.spv" alias_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias_instanced.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.spv" alias_instanced_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\md5.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.spv" md5_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DEIGHT_WEIGHT_SKINNING "$(SolutionDir)..\..\Shaders\md5.vert" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.spv" md5_8_radiance_vert_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.spv" world_radiance_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.spv" world_radiance_sw_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.spv" world_radiance_sw_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.spv" world_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.spv" world_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.spv" alias_radiance_sw_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.spv" alias_radiance_sw_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.spv" alias_radiance_sw_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.spv" alias_radiance_sw_alphatest_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.spv" alias_radiance_sw_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.spv" alias_radiance_sw_alphatest_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.spv" alias_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.spv" alias_radiance_sw_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.spv" alias_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" alias_radiance_sw_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.spv" md5_radiance_sw_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.spv" md5_radiance_sw_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.spv" md5_radiance_sw_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.spv" md5_radiance_sw_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.spv" world_radiance_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.spv" world_radiance_rt_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.spv" world_radiance_rt_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.spv" world_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\world.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.spv" world_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.spv" alias_radiance_rt_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.spv" alias_radiance_rt_alphatest_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.spv" alias_radiance_rt_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DWBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.spv" alias_radiance_rt_alphatest_oit_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.spv" alias_radiance_rt_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.spv" alias_radiance_rt_alphatest_mboit_moment_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.spv" alias_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.spv" alias_radiance_rt_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.spv" alias_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" alias_radiance_rt_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.spv" md5_radiance_rt_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.spv" md5_radiance_rt_alphatest_mboit_composite_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.spv" md5_radiance_rt_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 -DRADIANCE_LIGHTING=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1 -DMBOIT=1 -DMBOIT_COMPOSITE=1 -DMSAA=1 -DMBOIT_INPUT_SET=4 "$(SolutionDir)..\..\Shaders\alias.frag" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.spv" md5_radiance_rt_alphatest_mboit_composite_msaa_frag_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_instanced_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_8_radiance.vert.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_sw_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_sw_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\world_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_oit.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_moment.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\alias_radiance_rt_alphatest_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_mboit_composite_msaa.frag.c;$(SolutionDir)..\..\Shaders\Compiled\Release\md5_radiance_rt_alphatest_mboit_composite_msaa.frag.c</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_receiver_camera.glsl">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(EnableMeshShaders)'=='false'">true</ExcludedFromBuild>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\world.vert;$(SolutionDir)..\..\Shaders\world.frag;$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\alias.vert;$(SolutionDir)..\..\Shaders\alias_instanced.vert;$(SolutionDir)..\..\Shaders\alias.frag;$(SolutionDir)..\..\Shaders\alias_common.inc;$(SolutionDir)..\..\Shaders\md5.vert;$(SolutionDir)..\..\Shaders\skinning.inc;$(SolutionDir)..\..\Shaders\globals.inc;$(SolutionDir)..\..\Shaders\mboit.inc;$(SolutionDir)..\..\Shaders\wboit.inc;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_camera.glsl;$(SolutionDir)..\..\Shaders\radiance_model_normal.glsl;$(SolutionDir)..\..\Shaders\radiance_world_normal.glsl;$(SolutionDir)..\..\Shaders\world_mesh.mesh;$(SolutionDir)..\..\Shaders\world_task_mesh.mesh;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 --target-env spirv1.4 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world_mesh.mesh" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_mesh_radiance.mesh.spv" world_mesh_radiance_mesh_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_mesh_radiance.mesh.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\world_mesh_radiance.mesh.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 --target-env spirv1.4 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world_mesh.mesh" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.spv" world_mesh_radiance_mesh_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\world_mesh_radiance.mesh.c</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Shaders\radiance_model_normal.glsl">
+      <FileType>Document</FileType>
+      <ExcludedFromBuild Condition="'$(EnableMeshShaders)'=='false' Or '$(EnableTaskShaders)'=='false'">true</ExcludedFromBuild>
+      <AdditionalInputs>$(SolutionDir)..\..\Shaders\radiance_light_query_free.glsl;$(SolutionDir)..\..\Shaders\radiance_parameters.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadows.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_metadata.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_shadow_source.glsl;$(SolutionDir)..\..\Shaders\radiance_light_unshadowed.glsl;$(SolutionDir)..\..\Shaders\world.vert;$(SolutionDir)..\..\Shaders\world.frag;$(SolutionDir)..\..\Shaders\world_common.inc;$(SolutionDir)..\..\Shaders\alias.vert;$(SolutionDir)..\..\Shaders\alias_instanced.vert;$(SolutionDir)..\..\Shaders\alias.frag;$(SolutionDir)..\..\Shaders\alias_common.inc;$(SolutionDir)..\..\Shaders\md5.vert;$(SolutionDir)..\..\Shaders\skinning.inc;$(SolutionDir)..\..\Shaders\globals.inc;$(SolutionDir)..\..\Shaders\mboit.inc;$(SolutionDir)..\..\Shaders\wboit.inc;$(SolutionDir)..\..\Shaders\radiance_cascades.glsl;$(SolutionDir)..\..\Shaders\radiance_lookup.glsl;$(SolutionDir)..\..\Shaders\radiance_filter.glsl;$(SolutionDir)..\..\Shaders\radiance_scene_trace.glsl;$(SolutionDir)..\..\Shaders\radiance_lighting.glsl;$(SolutionDir)..\..\Shaders\radiance_highlight.glsl;$(SolutionDir)..\..\Shaders\radiance_receiver_camera.glsl;$(SolutionDir)..\..\Shaders\radiance_model_normal.glsl;$(SolutionDir)..\..\Shaders\radiance_world_normal.glsl;$(SolutionDir)..\..\Shaders\world_mesh.mesh;$(SolutionDir)..\..\Shaders\world_task_mesh.mesh;%(AdditionalInputs)</AdditionalInputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -g -V --target-env vulkan1.1 --target-env spirv1.4 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world_task_mesh.mesh" -o "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_task_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_task_mesh_radiance.mesh.spv" world_task_mesh_radiance_mesh_spv "$(SolutionDir)..\..\Shaders\Compiled\Debug\world_task_mesh_radiance.mesh.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(SolutionDir)..\..\Shaders\Compiled\Debug\world_task_mesh_radiance.mesh.c</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\bin\glslangValidator.exe -V --target-env vulkan1.1 --target-env spirv1.4 -DRADIANCE_LIGHTING=1 "$(SolutionDir)..\..\Shaders\world_task_mesh.mesh" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+$(VULKAN_SDK)\bin\spirv-opt.exe -Os --canonicalize-ids --strip-debug "$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.spv" -o "$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.spv"
+if errorlevel 1 exit /b 1
+"$(SolutionDir)\Build-bintoc\$(PlatformShortName)\$(Configuration)\bintoc.exe" "$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.spv" world_task_mesh_radiance_mesh_spv "$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.c"
+if errorlevel 1 exit /b 1</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(SolutionDir)..\..\Shaders\Compiled\Release\world_task_mesh_radiance.mesh.c</Outputs>
+    </CustomBuild>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
   <ItemGroup>
+    <None Include="..\..\Shaders\radiance_receiver_scale.glsl" />
+    <None Include="..\..\Shaders\radiance_receiver_shadows.glsl" />
+    <None Include="..\..\Shaders\radiance_receiver_shadow_metadata.glsl" />
+    <None Include="..\..\Shaders\radiance_receiver_shadow_source.glsl" />
+    <None Include="..\..\Shaders\radiance_light_unshadowed.glsl" />
+    <None Include="..\..\Shaders\radiance_light_query_free.glsl" />
+    <None Include="..\..\Shaders\radiance_receiver_shadow_filter.glsl" />
     <None Include="..\..\Shaders\fte_particles.inc" />
   </ItemGroup>
 </Project>

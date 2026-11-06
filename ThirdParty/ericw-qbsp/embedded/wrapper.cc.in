@@ -1,0 +1,5 @@
+#include "@PREINCLUDE@"
+@DEFINES@
+namespace @NAMESPACE@ {
+#include "@SOURCE@"
+}

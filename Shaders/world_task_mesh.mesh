@@ -1,0 +1,60 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+#extension GL_GOOGLE_include_directive : enable
+#include "globals.inc"
+
+layout (local_size_x = 32) in;
+layout (triangles, max_vertices = 64, max_primitives = 126) out;
+layout (push_constant) uniform Params
+{
+	mat4 mvp;
+	vec3 fog_color;
+	float fog_density;
+	float alpha;
+	uint instance_base;
+	layout (offset = 88) uint first_meshlet;
+	layout (offset = 92) uint flags;
+	layout (offset = 96) float pixel_guard;
+	layout (offset = 112) vec3 vieworg;
+} pc;
+layout (std430, set = 4, binding = 0) readonly buffer Geometry { uint data[]; };
+layout (std430, set = 4, binding = 1) readonly buffer WorldVertices { float vertices[]; };
+layout (std430, set = 4, binding = 2) readonly buffer Surfaces { surface_t surfaces[]; };
+layout (std430, set = 4, binding = 3) readonly buffer HiZ { uint hierarchy[]; };
+struct TaskPayload { uint meshlets[32]; };
+taskPayloadSharedEXT TaskPayload task_payload;
+layout (location = 0) out vec4 out_texcoords[];
+layout (location = 1) out float out_fog_frag_coord[];
+#if RADIANCE_LIGHTING
+layout (location = 2) out vec3 out_world_position[];
+#endif
+
+void main ()
+{
+	uint lane = gl_LocalInvocationIndex;
+	uint h = task_payload.meshlets[gl_WorkGroupID.x] * 12u;
+	uvec4 ranges = uvec4 (data[h + 8u], data[h + 9u], data[h + 10u], data[h + 11u]);
+	SetMeshOutputsEXT (ranges.y, ranges.w);
+	for (uint i = lane; i < ranges.y; i += 32u)
+	{
+		uint base = data[ranges.x + i] * 7u;
+		vec3 position = vec3 (vertices[base], vertices[base + 1u], vertices[base + 2u]);
+		vec4 clip = pc.mvp * vec4 (position, 1.0);
+		gl_MeshVerticesEXT[i].gl_Position = clip;
+		out_texcoords[i] = vec4 (vertices[base + 3u], vertices[base + 4u], vertices[base + 5u], vertices[base + 6u]);
+		out_fog_frag_coord[i] = clip.w;
+#if RADIANCE_LIGHTING
+		out_world_position[i] = position;
+#endif
+	}
+	for (uint i = lane; i < ranges.w; i += 32u)
+	{
+		uint t = ranges.z + 2u * i;
+		uint indices = data[t], surface = data[t + 1u];
+		gl_PrimitiveTriangleIndicesEXT[i] = uvec3 (indices & 63u, (indices >> 6u) & 63u, (indices >> 12u) & 63u);
+		vec3 n = vec3 (surfaces[surface].normal_x, surfaces[surface].normal_y, surfaces[surface].normal_z);
+		float dp = dot (n, pc.vieworg);
+		bool back = (surfaces[surface].packed_tex_edgecount & 0x8000u) != 0u;
+		gl_MeshPrimitivesEXT[i].gl_CullPrimitiveEXT = back ? dp > surfaces[surface].dist : dp < surfaces[surface].dist;
+	}
+}

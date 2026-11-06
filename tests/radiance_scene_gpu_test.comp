@@ -1,0 +1,314 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) buffer Results { vec4 result[]; };
+void traceRay(uint slot, vec3 origin, float tmin)
+{
+    RCSceneHit hit;
+    bool found = RC_SceneTrace(origin, vec3(0, 0, -1), tmin, 100, hit);
+    result[slot] = found ? vec4(hit.distance, float(hit.material), float(hit.flags), float(hit.triangle)) : vec4(-1);
+}
+void traceSkyPair(uint slot, vec3 origin, vec3 direction)
+{
+    RCSceneHit sky;
+    bool found = RC_SceneTrace(origin, direction, 0.01, 2.0, sky);
+    result[slot] = vec4(float(found && (sky.flags & RC_SCENE_SKY) != 0u),
+        found ? RC_ShadeHit(sky, direction).r : -1.0,
+        float(RC_LightVisible(origin, direction, direction, 2.0, true)),
+        float(RC_LightVisible(origin, direction, direction, 2.0, false)));
+}
+void main()
+{
+    RCSceneHit batchHit;
+    vec3 batchStart=vec3(3.25,3.25,10), batchDown=vec3(0,0,-1);
+    result[99]=vec4(float(RC_SceneOccluded(batchStart,batchDown,.01,8)),
+                    float(RC_SceneTrace(batchStart,batchDown,.01,8,batchHit)),0,0);
+    traceRay(0, vec3(.5, .5, 10), 0);
+    traceRay(1, vec3(1.5, .25, 10), 0);
+    traceRay(2, vec3(3, 3, 10), 0);
+    traceRay(3, vec3(1.5, .25, 10), 2.5);
+    traceRay(4, vec3(.5, .5, 3.5), 0);
+    /* Begins above the dynamic half of the scene, beyond the static planes. */
+    traceRay(29, vec3(.5, .5, -4), 0);
+    /* Local light is blocked by sky; directional light can terminate there. */
+    result[30]=vec4(float(RC_LightVisible(vec3(.5,.5,6),vec3(0,0,-1),vec3(0,0,-1),10,false)),
+                    float(RC_LightVisible(vec3(.5,.5,6),vec3(0,0,-1),vec3(0,0,-1),10,true)),0,0);
+    /* A directional source has no finite position: an opaque roof farther
+     * than 8192 units must still block it, while open sky remains lit. */
+    RCLight distantSun = RCLight(vec4(0), vec4(1), vec4(0,0,1,-1), uvec4(RC_LIGHT_DIRECTIONAL,0,0,0), vec4(0));
+    result[97] = vec4(RC_EvaluateOneLight(distantSun, vec3(.5,.5,10000), vec3(0,0,-1)).r,
+                      RC_EvaluateOneLight(distantSun, vec3(3,3,10000), vec3(0,0,-1)).r, 0, 0);
+    /* KEX uses linear distance and cone attenuation; its map metadata must
+     * not accidentally select a compiler delay mode. Dynamic KEX lights use
+     * the same response while ordinary synthetic spots retain their curve. */
+    RCLight kex = RCLight(vec4(100,100,200,400), vec4(1),
+                          vec4(sqrt(7.0)/4.0,0,-.75,.5), uvec4(RC_LIGHT_SPOT,0,17,3), vec4(0));
+    vec3 kexPoint=vec3(100,100,100), kexNormal=vec3(0,0,1);
+    float kexFalloff = RC_LightFalloff(kex,100);
+    float kexMap = RC_EvaluateOneLight(kex,kexPoint,kexNormal).r;
+    kex.metadata.z=18; kex.metadata.w=0;
+    float kexDynamic = RC_EvaluateOneLight(kex,kexPoint,kexNormal).r;
+    kex.metadata.z=2;
+    float nonKex = RC_EvaluateOneLight(kex,kexPoint,kexNormal).r;
+    result[98]=vec4(kexFalloff,kexMap,kexDynamic,nonKex);
+    result[6] = vec4(RC_AtlasNearest(vec2(.25, .2), 0, uvec4(1,1,2,1)).a,
+                     RC_AtlasNearest(vec2(1.25, -.8), 0, uvec4(1,1,2,1)).a,
+                     RC_AtlasNearest(vec2(.75, .2), 0, uvec4(1,1,2,1)).a,
+                     RC_AtlasNearest(vec2(-.25, 1.2), 0, uvec4(1,1,2,1)).a);
+    result[5] = vec4(float(RC_SceneAnyGeometryAABB(vec3(0,0,3.9), vec3(1,1,4.1))),
+                     float(RC_SceneAnyGeometryAABB(vec3(10), vec3(11))), 0, 0);
+    /* The downward ray hits the sky portal. Local lights behind the portal
+     * are blocked; a directional/environment light may see through it. */
+    result[7] = vec4(float(RC_LightVisible(vec3(.5,.5,3.5), vec3(0,0,-1), vec3(0,0,-1), 10, false)),
+                     float(RC_LightVisible(vec3(.5,.5,3.5), vec3(0,0,-1), vec3(0,0,-1), 10, true)),
+                     float(RC_LightVisible(vec3(3,3,10), vec3(0,0,-1), vec3(0,0,-1), 10, false)),
+                     float(RC_LightVisible(vec3(1.5,.25,10), vec3(0,0,-1), vec3(0,0,-1), 10, true)));
+    RCLight light; light.position_radius = vec4(0,0,0,40000); light.color_intensity=vec4(1);
+    light.direction_cone=vec4(0,0,0,-1); light.metadata=uvec4(0,0,1,floatBitsToUint(1.0)); light.area_axis=vec4(0);
+    float linearFalloff=RC_LightFalloff(light,10000);
+    light.metadata.w=floatBitsToUint(1.0)|1u; float inverse=RC_LightFalloff(light,256);
+    light.metadata.w=floatBitsToUint(1.0)|2u; float inverse2=RC_LightFalloff(light,256);
+    light.metadata.w=floatBitsToUint(1.0)|3u; float infinite=RC_LightFalloff(light,80000);
+    result[8]=vec4(linearFalloff,inverse,inverse2,infinite);
+    light.metadata.w=floatBitsToUint(1.0)|5u; float inverse2a=RC_LightFalloff(light,256);
+    light.metadata.w=floatBitsToUint(2.0)|1u; float doubledWait=RC_LightFalloff(light,256);
+    light.metadata.w=floatBitsToUint(1.0)|4u; float localMin=RC_LightFalloff(light,80000);
+    light.metadata.x=RC_LIGHT_EMISSIVE; light.position_radius.w=100;
+    float emissiveNear=RC_LightFalloff(light,25), emissiveMiddle=RC_LightFalloff(light,50), emissiveEdge=RC_LightFalloff(light,100);
+    result[9]=vec4(inverse2a,doubledWait,localMin,emissiveNear);
+    result[10]=vec4(emissiveMiddle,emissiveEdge,RC_LightFalloff(light,0),RC_LightFalloff(light,99.9));
+    float beyond=RC_LightFalloff(light,101);
+    light.position_radius.w=0; float zeroRadius=RC_LightFalloff(light,0);
+    light.position_radius.w=-1; float negativeRadius=RC_LightFalloff(light,0);
+    result[31]=vec4(beyond,zeroRadius,negativeRadius,0);
+    RCLight emitter = RCLight(vec4(1.5,.4,6,100), vec4(1), vec4(0,0,1,.2), uvec4(RC_LIGHT_EMISSIVE,0,0,0), vec4(1,0,0,1));
+    float partial = RC_EmissiveVisibility(emitter, vec3(.5,.4,10), vec3(0,0,-1));
+    float clear = RC_EmissiveVisibility(emitter, vec3(3,3,10), vec3(0,0,-1));
+    emitter.position_radius.xyz = vec3(1.6,.1,6);
+    emitter.area_axis.w = .3; emitter.direction_cone.w = .1;
+    float blocked = RC_EmissiveVisibility(emitter, vec3(1.6,.1,10), vec3(0,0,-1));
+    result[11] = vec4(partial, clear, blocked, 0);
+    float singleBlocked = RC_EmissiveVisibilitySamples(emitter, vec3(1.6,.1,10), vec3(0,0,-1), true);
+    emitter.position_radius.xyz = vec3(1.5,.4,6);
+    emitter.area_axis.w = 1; emitter.direction_cone.w = .2;
+    float singlePartial = RC_EmissiveVisibilitySamples(emitter, vec3(.5,.4,10), vec3(0,0,-1), true);
+    float singleClear = RC_EmissiveVisibilitySamples(emitter, vec3(3,3,10), vec3(0,0,-1), true);
+    result[20] = vec4(singlePartial, singleClear, singleBlocked, 0);
+    /* The cutout at z=8 has a transparent left half and an opaque right
+     * half. These long horizontal emitters deliberately put the center and
+     * closest-point rays on opposite sides of that boundary. */
+    emitter.position_radius.xyz = vec3(1.8,.1,6);
+    emitter.direction_cone = vec4(0,0,1,.1);
+    emitter.area_axis = vec4(1,0,0,2);
+    vec3 edgeReceiver = vec3(.4,.1,10);
+    float edgeVisible = RC_EmissiveVisibilitySamples(emitter, edgeReceiver, vec3(0,0,-1), true);
+    vec3 deltaToCenter = emitter.position_radius.xyz + vec3(0,0,.1) - edgeReceiver;
+    float hiddenCenter = float(RC_LightVisible(edgeReceiver, vec3(0,0,-1), normalize(deltaToCenter), length(deltaToCenter), false));
+    emitter.area_axis.xyz = vec3(-1,0,0);
+    float edgeVisibleReversed = RC_EmissiveVisibilitySamples(emitter, edgeReceiver, vec3(0,0,-1), true);
+    emitter.position_radius.x = .2;
+    emitter.area_axis.xyz = vec3(1,0,0);
+    vec3 blockedReceiver = vec3(1.6,.1,10);
+    float edgeBlocked = RC_EmissiveVisibilitySamples(emitter, blockedReceiver, vec3(0,0,-1), true);
+    deltaToCenter = emitter.position_radius.xyz + vec3(0,0,.1) - blockedReceiver;
+    float visibleCenter = float(RC_LightVisible(blockedReceiver, vec3(0,0,-1), normalize(deltaToCenter), length(deltaToCenter), false));
+    emitter.area_axis.xyz = vec3(-1,0,0);
+    float edgeBlockedReversed = RC_EmissiveVisibilitySamples(emitter, blockedReceiver, vec3(0,0,-1), true);
+    result[28] = vec4(edgeVisible, hiddenCenter, edgeBlocked, visibleCenter);
+    result[96] = vec4(edgeVisibleReversed, edgeBlockedReversed, 0, 0);
+    /* Elongated emitters: rotating the actual source plane changes which
+     * samples are behind the cutout's vertical shadow boundary. */
+    emitter.position_radius.xyz = vec3(1.3,.3,6);
+    emitter.direction_cone = vec4(0,0,1,.1);
+    emitter.area_axis = vec4(1,0,0,2);
+    float wideX = RC_EmissiveVisibility(emitter, vec3(.5,.3,10), vec3(0,0,-1));
+    emitter.area_axis = vec4(0,1,0,2);
+    float wideY = RC_EmissiveVisibility(emitter, vec3(.5,.3,10), vec3(0,0,-1));
+    emitter.position_radius.xyz = vec3(.5,.5,3);
+    emitter.direction_cone = vec4(0,0,1,.2); emitter.area_axis = vec4(1,0,0,.2);
+    float selfFront = RC_EmissiveVisibility(emitter, vec3(.5,.5,3.5), vec3(0,0,-1));
+    emitter.direction_cone.xyz = vec3(0,0,-1);
+    float selfBack = RC_EmissiveVisibility(emitter, vec3(.5,.5,3.5), vec3(0,0,-1));
+    result[12] = vec4(wideX, wideY, selfFront, selfBack);
+    RCSceneHit hit; hit.position=vec3(3,3,10); hit.normal=vec3(0,0,-1); hit.uv=vec2(0); hit.material=1; hit.flags=0;
+    vec3 unrepresented=RC_ShadeHit(hit,vec3(0,0,1));
+    hit.flags=RC_SCENE_EMISSIVE_PROXY;
+    vec3 represented=RC_ShadeHit(hit,vec3(0,0,1));
+    result[13] = vec4(unrepresented, length(represented));
+    emitter.position_radius = vec4(0,0,0,100);
+    emitter.direction_cone = vec4(0,0,1,2); emitter.area_axis = vec4(1,0,0,10);
+    vec3 centerPoint=vec3(0,0,4), endPoint=vec3(9,0,4), outsidePoint=vec3(12,0,4);
+    float centerFalloff=RC_LightFalloff(emitter, length(centerPoint-RC_ClosestEmissionPoint(emitter,centerPoint)));
+    float endFalloff=RC_LightFalloff(emitter, length(endPoint-RC_ClosestEmissionPoint(emitter,endPoint)));
+    float outsideFalloff=RC_LightFalloff(emitter, length(outsidePoint-RC_ClosestEmissionPoint(emitter,outsidePoint)));
+    emitter.area_axis.xyz=vec3(0,1,0); vec3 rotatedPoint=vec3(0,9,4);
+    float rotatedFalloff=RC_LightFalloff(emitter, length(rotatedPoint-RC_ClosestEmissionPoint(emitter,rotatedPoint)));
+    result[14]=vec4(centerFalloff,endFalloff,outsideFalloff,rotatedFalloff);
+    light.metadata=uvec4(0,floatBitsToUint(0.0),8,0); light.position_radius.w=350;
+    float dynamicNear=RC_LightFalloff(light,100), dynamicFar=RC_LightFalloff(light,300);
+    light.metadata.y=floatBitsToUint(32.0);
+    result[15]=vec4(dynamicNear,dynamicFar,RC_LightFalloff(light,317),RC_LightFalloff(light,318));
+    /* Any-hit must exactly match closest-hit acceptance for local visibility. */
+    result[16]=vec4(float(RC_SceneOccluded(vec3(.5,.5,10),vec3(0,0,-1),0,1)),
+                    float(RC_SceneOccluded(vec3(.5,.5,10),vec3(0,0,-1),0,3)),
+                    float(RC_SceneOccluded(vec3(1.5,.25,10),vec3(0,0,-1),0,3.1)),
+                    float(RC_SceneOccluded(vec3(.5,.5,3.5),vec3(0,0,-1),0,1)));
+    result[17]=vec4(RC_EvaluateDirect(vec3(100,100,100),vec3(0,0,1)) * 0.3183098861837907,0);
+    uint mismatches=0u;
+    for(uint i=0u; i<256u; ++i)
+    {
+        vec3 o=vec3(float((i*17u)%400u)*.01-1.0,float((i*29u)%300u)*.01-1.0,10);
+        vec3 d=normalize(vec3((float(i%9u)-4.0)*.02,(float(i%7u)-3.0)*.02,-1));
+        float farDistance=.5+float(i%24u)*.5;
+        RCSceneHit reference;
+        bool nearest=RC_SceneTrace(o,d,.01,farDistance,reference);
+        bool any=RC_SceneOccluded(o,d,.01,farDistance);
+        if(nearest!=any) ++mismatches;
+    }
+    result[18]=vec4(float(mismatches),0,0,0);
+    /* Front, back and exactly grazing local lights preserve Lambertian output. */
+    light.position_radius=vec4(100,100,200,400);
+    light.color_intensity=vec4(1);
+    light.metadata=uvec4(RC_LIGHT_POINT,0,0,0);
+    vec3 p=vec3(100,100,100);
+    result[19]=vec4(RC_EvaluateOneLight(light,p,vec3(0,0,1)).r,
+                    RC_EvaluateOneLight(light,p,vec3(0,0,-1)).r,
+                    RC_EvaluateOneLight(light,p,vec3(1,0,0)).r,0);
+    light.metadata=uvec4(RC_LIGHT_POINT,0,1,0);
+    float mapLinear=RC_LightFalloff(light,100);
+    light.color_intensity.w=-.5;
+    float subtract=RC_EvaluateOneLight(light,p,vec3(0,0,1)).r;
+    light.color_intensity.w=.6; light.metadata.w=4;
+    float minimumBack=RC_EvaluateOneLight(light,p,vec3(0,0,-1)).r;
+    result[21]=vec4(mapLinear,subtract,minimumBack,0);
+    result[22]=vec4(RC_EvaluateLighting(p,vec3(0,0,1),vec3(0)).r,
+                    RC_EvaluateLighting(p,vec3(0,0,1),vec3(.4)).r,
+                    RC_EvaluateLighting(p,vec3(0,0,-1),vec3(0)).r,0);
+    light.metadata=uvec4(RC_LIGHT_POINT,0,17,0); light.color_intensity.w=-1;
+    result[23]=vec4(RC_LightFalloff(light,100), RC_EvaluateOneLight(light,p,vec3(0,0,1)).r,0,0);
+    /* Compiler-style lights use an angle sensitivity rather than a pure
+     * cosine. KEX/dynamic lights and unmarked legacy fixtures keep Lambert. */
+    light.metadata=uvec4(RC_LIGHT_POINT,0,1,0); light.color_intensity.w=1;
+    light.area_axis=vec4(.5,0,1,0);
+    vec3 oblique=normalize(vec3(.8660254,0,.5));
+    float compilerOblique=RC_EvaluateOneLight(light,p,oblique).r;
+    float compilerGrazing=RC_EvaluateOneLight(light,p,vec3(1,0,0)).r;
+    float compilerBack=RC_EvaluateOneLight(light,p,vec3(0,0,-1)).r;
+    light.metadata.z=17;
+    float kexOblique=RC_EvaluateOneLight(light,p,oblique).r;
+    result[24]=vec4(compilerOblique,compilerGrazing,compilerBack,kexOblique);
+    /* Reconstructed derivative normals straddle zero at vertical sunlit
+     * walls. Tiny perturbations must preserve compiler grazing light for
+     * local and directional sources; real backfaces stay dark. */
+    light.metadata.z=1;
+    vec3 nearFront=normalize(vec3(1,0,5e-4));
+    vec3 nearBack=normalize(vec3(1,0,-5e-4));
+    vec3 realBack=normalize(vec3(1,0,-.01));
+    result[107]=vec4(RC_EvaluateOneLight(light,p,nearFront).r,
+                     RC_EvaluateOneLight(light,p,nearBack).r,
+                     RC_EvaluateOneLight(light,p,realBack).r,
+                     RC_EvaluateOneLight(light,p,vec3(0,0,-1)).r);
+    RCLight grazingSun=light;
+    grazingSun.metadata.x=RC_LIGHT_DIRECTIONAL;
+    grazingSun.direction_cone=vec4(0,0,-1,-1);
+    result[108]=vec4(RC_EvaluateOneLight(grazingSun,p,nearFront).r,
+                     RC_EvaluateOneLight(grazingSun,p,nearBack).r,
+                     RC_EvaluateOneLight(grazingSun,p,realBack).r,
+                     RC_EvaluateOneLight(grazingSun,p,vec3(0,0,-1)).r);
+    /* The tolerance belongs to compiler angular lighting only. KEX, dynamic
+     * and ordinary Lambertian fixtures still reject negative cosines. */
+    light.metadata.z=17;
+    grazingSun.metadata.z=0;
+    float kexNearBack=RC_EvaluateOneLight(light,p,nearBack).r;
+    light.metadata.z=2;
+    float dynamicNearBack=RC_EvaluateOneLight(light,p,nearBack).r;
+    light.metadata.z=0;
+    result[109]=vec4(kexNearBack,dynamicNearBack,
+                     RC_EvaluateOneLight(light,p,nearBack).r,
+                     RC_EvaluateOneLight(grazingSun,p,nearBack).r);
+    /* Default cone is hard; _softangle interpolates linearly in cosine. */
+    light.metadata=uvec4(RC_LIGHT_SPOT,0,1,0);
+    light.direction_cone=vec4(0,0,-1,cos(radians(30.0)));
+    vec3 spot20=light.position_radius.xyz+vec3(sin(radians(20.0)),0,-cos(radians(20.0)))*100.0;
+    vec3 spot31=light.position_radius.xyz+vec3(sin(radians(31.0)),0,-cos(radians(31.0)))*100.0;
+    light.area_axis.y=light.direction_cone.w;
+    float hardInside=RC_EvaluateOneLight(light,spot20,normalize(light.position_radius.xyz-spot20)).r;
+    float hardOutside=RC_EvaluateOneLight(light,spot31,normalize(light.position_radius.xyz-spot31)).r;
+    light.area_axis.y=cos(radians(15.0));
+    float softInside=RC_EvaluateOneLight(light,spot20,normalize(light.position_radius.xyz-spot20)).r;
+    result[25]=vec4(hardInside,hardOutside,softInside,0);
+    /* Oriented brush emitters light their front but never the rear of the
+     * plane. Unoriented model emitters preserve two-sided compatibility. */
+    emitter.position_radius=vec4(100,100,200,100);
+    emitter.color_intensity=vec4(1);
+    emitter.direction_cone=vec4(0,0,1,1);
+    emitter.area_axis=vec4(1,0,0,1);
+    emitter.metadata=uvec4(RC_LIGHT_EMISSIVE,0,32,0);
+    float front=RC_EvaluateOneLight(emitter,vec3(100,100,210),vec3(0,0,-1)).r;
+    float back=RC_EvaluateOneLight(emitter,vec3(100,100,190),vec3(0,0,1)).r;
+    emitter.metadata.z=0;
+    float unorientedBack=RC_EvaluateOneLight(emitter,vec3(100,100,190),vec3(0,0,1)).r;
+    result[26]=vec4(front,back,unorientedBack,0);
+    hit.position=vec3(100,100,100); hit.normal=vec3(0,0,1); hit.material=1;
+    hit.flags=RC_SCENE_ORIENTED;
+    vec3 frontHit=RC_ShadeHit(hit,vec3(0,0,-1));
+    vec3 backHit=RC_ShadeHit(hit,vec3(0,0,1));
+    hit.flags=RC_SCENE_ORIENTED|RC_SCENE_EMISSIVE_PROXY;
+    vec3 frontNoEmission=RC_ShadeHit(hit,vec3(0,0,-1));
+    vec3 backNoEmission=RC_ShadeHit(hit,vec3(0,0,1));
+    result[27]=vec4(length(frontHit-frontNoEmission),length(backHit-backNoEmission),0,0);
+    /* Compiled BSPs may contain coincident, oppositely oriented sky faces.
+     * Either one can be returned first, so both sides must admit skylight. */
+    hit.normal=vec3(0,0,1); hit.flags=RC_SCENE_SKY|RC_SCENE_ORIENTED;
+    float skyFront=RC_ShadeHit(hit,vec3(0,0,-1)).r;
+    float skyBack=RC_ShadeHit(hit,vec3(0,0,1)).r;
+    hit.flags=RC_SCENE_SKY;
+    result[100]=vec4(skyFront,skyBack,RC_ShadeHit(hit,vec3(0,0,1)).r,0);
+    result[101]=vec4(float(RC_LightVisible(vec3(.5,.5,3.5),vec3(0,0,-1),vec3(0,0,-1),1,true)),
+                     float(RC_LightVisible(vec3(.5,.5,2.5),vec3(0,0,1),vec3(0,0,1),1,true)),0,0);
+    /* Exact BSP-style duplicate portals, with opposite insertion orders.
+     * Both sides remain terminal sky for either tied BVH intersection. */
+    traceSkyPair(102u, vec3(10.5,.5,1), vec3(0,0,-1));
+    traceSkyPair(103u, vec3(10.5,.5,-1), vec3(0,0,1));
+    traceSkyPair(104u, vec3(20.5,.5,1), vec3(0,0,-1));
+    traceSkyPair(105u, vec3(20.5,.5,-1), vec3(0,0,1));
+    /* Dense receiver samples on a duplicated sky surface exercise the ray
+     * origin bias at subpixel-sized position changes. Separately check that
+     * an intervening alpha-tested roof only blocks its opaque half. */
+    vec4 skyGrid = vec4(0);
+    for (uint y = 0u; y < 8u; ++y)
+    for (uint x = 0u; x < 8u; ++x)
+    {
+        vec3 portal = vec3(10.1 + float(x)*.1, .1 + float(y)*.1, 0);
+        vec3 up = normalize(vec3(.25,.125,1));
+        skyGrid.x += float(!RC_LightVisible(portal, vec3(0,0,1), up, 1, true));
+        skyGrid.y += float(!RC_LightVisible(portal, vec3(0,0,-1), -up, 1, true));
+        vec3 roof = vec3(.1 + float(x)*.2, .05 + float(y)*.01, 10);
+        bool visible = RC_LightVisible(roof, vec3(0,0,-1), vec3(0,0,-1), 2.5, true);
+        skyGrid.z += float(visible != (roof.x < 1.0));
+        skyGrid.w += float(visible);
+    }
+    result[106] = skyGrid;
+    /* These rays are checked against the CPU BVH, not just another GPU query.
+     * Vary the segment endpoint across the liquid, cutout, opaque and sky
+     * planes; avoid exact triangle and alpha-texel boundaries. */
+    for (uint i=0u; i<64u; ++i)
+    {
+        float x=.2+float((i*17u)%120u)*.01;
+        float y=.2+float((i*29u)%60u)*.01;
+        if (abs(x-1.0)<.02) x+=.037;
+        if (abs(x+y-2.0)<.015) y-=.04;
+        vec3 origin=vec3(x,y,10), direction=vec3(0,0,-1);
+        float end=1.25+float(i%10u)*1.25;
+        RCSceneHit sampleHit;
+        bool found=RC_SceneTrace(origin,direction,0,end,sampleHit);
+        bool occluded=RC_SceneOccluded(origin,direction,0,end);
+        result[32u+i]=found ? vec4(sampleHit.distance,float(sampleHit.triangle),float(sampleHit.flags),float(occluded)) :
+            vec4(-1,-1,0,float(occluded));
+    }
+}

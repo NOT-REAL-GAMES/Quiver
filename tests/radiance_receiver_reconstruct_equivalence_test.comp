@@ -1,0 +1,99 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+uvec2 ids[64]; uint statuses[16]; vec3 positions[16], normals[16]; vec4 resolved[48]; bool visible; uint scenario; bool precomputed;
+int fullindex(ivec2 p) { return p.y*8+p.x; }
+int halfindex(ivec2 p) { return p.y*4+p.x; }
+uvec2 RC_ResolveID(ivec2 p) { return ids[fullindex(p)]; }
+uint RC_ResolveStatus(ivec2 p) { return statuses[halfindex(p)]; }
+vec3 RC_ResolvePosition(ivec2 p) { return positions[halfindex(p)]; }
+vec3 RC_ResolveNormal(ivec2 p) { return normals[halfindex(p)]; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+ if(precomputed) return resolved[field*16u+uint(halfindex(p))];
+ uint parity=uint((p.x+p.y)&1); bool sampled=parity==(field&1u);
+ if(scenario==4u && field==1u && p==ivec2(1,0)) sampled=false;
+ if(scenario==8u && field==0u && p==ivec2(1,1)) sampled=false;
+ if(scenario==9u && field==2u && p==ivec2(1,1)) sampled=false;
+ if(scenario==10u && field==0u && p==ivec2(1,1)) return vec4(uintBitsToFloat(0x7fc00000u),0,0,1);
+ if(scenario==11u && field==2u && p==ivec2(1,1)) return vec4(uintBitsToFloat(0x7f800000u),0,0,1);
+ return vec4(vec3(float(halfindex(p))+float(field)*10),sampled?1:0);
+}
+bool RC_ReceiverVisibilityCompatible(vec3 p,vec3 q,float s) { return visible; }
+#define RC_RECEIVER_RESOLVE_TEST 1
+#include "radiance_receiver_resolve.glsl"
+bool RC_ReceiverVisibilityCompatibleAll(vec3 p,vec3 q[4],int count,float s) { return visible; }
+#include "radiance_receiver_checkerboard_batched.glsl"
+bool RC_ReferenceField(ivec2 pixel, uvec2 id, vec3 position, vec3 normal, uint field, out vec3 result)
+{
+    result=vec3(0);
+    ivec2 localPixel=pixel-rcReceiver.viewport.xy;
+    if (any(lessThan(localPixel,ivec2(0))) || any(greaterThanEqual(localPixel,rcReceiver.viewport.zw)) ||
+        any(notEqual(RC_ResolveID(pixel),id)) || any(equal(id,uvec2(0))) ||
+        any(isnan(position)) || any(isinf(position)) || any(isnan(normal)) || any(isinf(normal))) return false;
+    vec2 coord=vec2(localPixel)*0.5;
+    ivec2 base=ivec2(floor(coord)); vec2 f=fract(coord);
+    ivec2 extent=(rcReceiver.viewport.zw+1)/2;
+    for(int y=0;y<2;y++) for(int x=0;x<2;x++) {
+        float weight=(x==0?1-f.x:f.x)*(y==0?1-f.y:f.y);
+        if(weight<=1e-7)continue;
+        ivec2 p=base+ivec2(x,y);
+        if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,extent)) || RC_ResolveStatus(p)!=1u) return false;
+        ivec2 representative=rcReceiver.viewport.xy+p*2;
+        if(any(notEqual(RC_ResolveID(representative),id)))return false;
+        vec3 q=RC_ResolvePosition(p), n=RC_ResolveNormal(p);
+        if(any(isnan(q)) || any(isinf(q)) || any(isnan(n)) || any(isinf(n)) ||
+            dot(n,normal)<rcReceiver.normalThreshold.x ||
+            abs(dot(q-position,normal))>rcReceiver.normalThreshold.y ||
+            (field==1u && !RC_ReceiverVisibilityCompatible(position,q,rcLighting.receiver_filter.x))) return false;
+        vec3 value;
+        if(rcLighting.receiver_filter.y>0.5) {
+            if(!RC_CheckerReconstruct(p,extent,field,value)) return false;
+        } else if(!RC_CheckerFetch(p,field,value)) return false;
+        result+=weight*value;
+    }
+    return !(any(isnan(result)) || any(isinf(result)));
+}
+
+void main() {
+ rcReceiver.viewport=ivec4(0,0,8,8); rcReceiver.normalThreshold=vec4(.99,.01,2,0);
+ rcLighting.receiver_filter=vec4(0,1,0,0);
+ for(scenario=0u;scenario<16u;scenario++) {
+  visible=scenario!=5u; precomputed=false;
+  for(int i=0;i<64;i++) ids[i]=uvec2(1);
+  for(int i=0;i<16;i++) { statuses[i]=1; positions[i]=vec3(0); normals[i]=vec3(0,0,1); }
+  if(scenario==1u) ids[2]=uvec2(2);
+  if(scenario==2u) statuses[1]=2u;
+  if(scenario==3u) normals[1]=vec3(1,0,0);
+  if(scenario==6u) positions[1]=vec3(0,0,0.1);
+  if(scenario==7u) rcReceiver.viewport.zw=ivec2(7); else rcReceiver.viewport.zw=ivec2(8);
+  ivec2 extent=(rcReceiver.viewport.zw+1)/2;
+  bool matched=true;
+  for(int y=0;y<4;y++) for(int x=0;x<4;x++) {
+   vec3 d,m,rd,rm; bool dv,mv;
+   vec3 oldIndirect,newIndirect;
+   bool oldIndirectValid=RC_CheckerReconstruct(ivec2(x,y),extent,1u,oldIndirect);
+   bool newIndirectValid=RC_ReconstructIndirect(ivec2(x,y),extent,newIndirect);
+   if(oldIndirectValid!=newIndirectValid || (oldIndirectValid &&
+       any(greaterThan(abs(oldIndirect-newIndirect),vec3(.0001))))) matched=false;
+   RC_CheckerReconstructDirectPair(ivec2(x,y),extent,d,dv,m,mv);
+   bool drv=RC_CheckerReconstruct(ivec2(x,y),extent,0u,rd);
+   bool mrv=RC_CheckerReconstruct(ivec2(x,y),extent,2u,rm);
+   if(dv!=drv || mv!=mrv || (dv && any(greaterThan(abs(d-rd),vec3(.0001)))) ||
+      (mv && any(greaterThan(abs(m-rm),vec3(.0001))))) matched=false;
+  }
+  for(uint f=0u;f<3u;f++) for(int y=0;y<4;y++) for(int x=0;x<4;x++) {
+   vec3 v; bool valid=RC_CheckerReconstruct(ivec2(x,y),extent,f,v);
+   resolved[f*16u+uint(y*4+x)]=vec4(valid?v:vec3(0),valid?1:0);
+  }
+  for(uint f=0u;f<3u;f++) for(int y=0;y<rcReceiver.viewport.w;y++) for(int x=0;x<rcReceiver.viewport.z;x++) {
+   ivec2 p=ivec2(x,y); vec3 oldValue,newValue;
+   precomputed=false; bool oldOk=RC_ReferenceField(p,uvec2(1),vec3(0),vec3(0,0,1),f,oldValue);
+   precomputed=true; bool newOk=RC_ReceiverField(p,uvec2(1),vec3(0),vec3(0,0,1),f,newValue);
+   if(oldOk!=newOk || (oldOk && any(greaterThan(abs(oldValue-newValue),vec3(.0001))))) matched=false;
+  }
+  result[scenario]=uint(matched);
+ }
+}

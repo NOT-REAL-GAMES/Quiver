@@ -2700,6 +2700,9 @@ static void PF_sv_te_lightning1 (void)
 	edict_t *ed = G_EDICT (OFS_PARM0);
 	float	*start = G_VECTOR (OFS_PARM1);
 	float	*end = G_VECTOR (OFS_PARM2);
+	/* This datagram is shared by peers with different protocol extensions. */
+	if ((unsigned int) NUM_FOR_EDICT (ed) > 0x7fff)
+		return;
 	MSG_WriteByte (&sv.datagram, svc_temp_entity);
 	MSG_WriteByte (&sv.datagram, TE_LIGHTNING1);
 	MSG_WriteShort (&sv.datagram, NUM_FOR_EDICT (ed));
@@ -2724,6 +2727,8 @@ static void PF_sv_te_lightning2 (void)
 	edict_t *ed = G_EDICT (OFS_PARM0);
 	float	*start = G_VECTOR (OFS_PARM1);
 	float	*end = G_VECTOR (OFS_PARM2);
+	if ((unsigned int) NUM_FOR_EDICT (ed) > 0x7fff)
+		return;
 	MSG_WriteByte (&sv.datagram, svc_temp_entity);
 	MSG_WriteByte (&sv.datagram, TE_LIGHTNING2);
 	MSG_WriteShort (&sv.datagram, NUM_FOR_EDICT (ed));
@@ -2784,6 +2789,8 @@ static void PF_sv_te_lightning3 (void)
 	edict_t *ed = G_EDICT (OFS_PARM0);
 	float	*start = G_VECTOR (OFS_PARM1);
 	float	*end = G_VECTOR (OFS_PARM2);
+	if ((unsigned int) NUM_FOR_EDICT (ed) > 0x7fff)
+		return;
 	MSG_WriteByte (&sv.datagram, svc_temp_entity);
 	MSG_WriteByte (&sv.datagram, TE_LIGHTNING3);
 	MSG_WriteShort (&sv.datagram, NUM_FOR_EDICT (ed));
@@ -2871,6 +2878,8 @@ static void PF_sv_te_beam (void)
 	edict_t *ed = G_EDICT (OFS_PARM0);
 	float	*start = G_VECTOR (OFS_PARM1);
 	float	*end = G_VECTOR (OFS_PARM2);
+	if ((unsigned int) NUM_FOR_EDICT (ed) > 0x7fff)
+		return;
 	MSG_WriteByte (&sv.multicast, svc_temp_entity);
 	MSG_WriteByte (&sv.multicast, TE_BEAM);
 	MSG_WriteShort (&sv.multicast, NUM_FOR_EDICT (ed));
@@ -3686,8 +3695,8 @@ static void PF_copyentity (void)
 		Con_Printf ("PF_copyentity: entity is free\n");
 	memcpy (&dst->v, &src->v, qcvm->edict_size - sizeof (entvars_t));
 	dst->alpha = src->alpha;
-	dst->sendinterval = src->sendinterval;
-	dst->sendinterval_default = src->sendinterval_default;
+	dst->timing.sendinterval = src->timing.sendinterval;
+	dst->timing.sendinterval_default = src->timing.sendinterval_default;
 	SV_LinkEdict (dst, false);
 
 	G_INT (OFS_RETURN) = EDICT_TO_PROG (dst);
@@ -4527,7 +4536,7 @@ static void PF_sv_trailparticles (void)
 	float *end = G_VECTOR (OFS_PARM3);
 
 	/*DP gets this wrong, lets try to be compatible*/
-	if ((unsigned int)G_INT (OFS_PARM1) >= MAX_EDICTS * (unsigned int)qcvm->edict_size)
+	if ((uint64_t)(unsigned int)G_INT (OFS_PARM1) >= (uint64_t)qcvm->max_edicts * (uint64_t)qcvm->edict_size)
 	{
 		ednum = G_EDICTNUM (OFS_PARM0);
 		efnum = G_FLOAT (OFS_PARM1);
@@ -4539,6 +4548,10 @@ static void PF_sv_trailparticles (void)
 	}
 
 	if (efnum <= 0)
+		return;
+	/* svcdp_trailparticles has a fixed signed-short owner on the wire, even
+	 * for PEXT2 peers; do not wrap a high edict into a negative client ID. */
+	if ((unsigned int)ednum > 0x7fff)
 		return;
 
 	MSG_WriteByte (&sv.multicast, svcdp_trailparticles);
@@ -4661,7 +4674,7 @@ static void PF_cl_trailparticles (void)
 	float	*start = G_VECTOR (OFS_PARM2);
 	float	*end = G_VECTOR (OFS_PARM3);
 
-	if ((unsigned int)G_INT (OFS_PARM1) >= MAX_EDICTS * (unsigned int)qcvm->edict_size)
+	if ((uint64_t)(unsigned int)G_INT (OFS_PARM1) >= (uint64_t)qcvm->max_edicts * (uint64_t)qcvm->edict_size)
 	{ /*DP gets this wrong, lets try to be compatible*/
 		ent = G_EDICT (OFS_PARM0);
 		efnum = G_FLOAT (OFS_PARM1);

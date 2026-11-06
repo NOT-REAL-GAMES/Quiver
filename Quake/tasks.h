@@ -51,6 +51,7 @@ void		  Task_AssignFunc (task_handle_t handle, task_func_t func, void *payload, 
 // 0 to limit - 1. Workers split the items, so calls can run at the same time
 // and in any order. All calls share one copy of the input data.
 // The whole loop counts as one task and finishes when every call is done.
+// A zero limit still completes the task and releases its dependents.
 void		  Task_AssignIndexedFunc (task_handle_t handle, task_indexed_func_t func, uint32_t limit, void *payload, size_t payload_size);
 // Makes the task ready to run once its dependencies finish. Called once by the
 // caller, after setting the function and adding dependencies.

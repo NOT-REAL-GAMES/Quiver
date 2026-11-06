@@ -1,0 +1,77 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Optional opaque-world coverage estimate. These are compute-only counters;
+ * enabling them changes the workload and invalidates performance samples. */
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D fullDepth;
+layout(set=0,binding=1) uniform sampler2D fullNormal;
+layout(set=0,binding=2) uniform usampler2D fullID;
+layout(set=0,binding=3) uniform sampler2D halfPosition;
+layout(set=0,binding=4) uniform sampler2D halfNormal;
+layout(set=0,binding=5) uniform usampler2D halfStatus;
+layout(set=0,binding=6) uniform sampler2D rawIndirect;
+layout(set=0,binding=7) uniform sampler2D selectedIndirect;
+layout(set=0,binding=8) uniform sampler2D selectedDirect;
+layout(set=0,binding=9) uniform sampler2D selectedMinimum;
+layout(std430,set=0,binding=10) buffer DiagnosticCounters { uint counter[16]; };
+layout(push_constant) uniform DiagnosticParams {
+    mat4 inverseViewProjection;
+    ivec4 viewport;
+    vec4 ndcTransform;
+    vec4 threshold; /* cosine, symmetric plane tolerance, divisor, spacing */
+} params;
+struct ReceiverViewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct ReceiverCascade { vec4 origin_spacing; } rcLevels[1];
+uint RC_ResolveStatus(ivec2 p) { return texelFetch(halfStatus,p,0).r&3u; }
+uvec2 RC_ResolveID(ivec2 p) { return texelFetch(fullID,p,0).rg; }
+vec3 RC_ResolvePosition(ivec2 p) { return texelFetch(halfPosition,p,0).xyz; }
+vec3 RC_ResolveNormal(ivec2 p) { return texelFetch(halfNormal,p,0).xyz; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+    if(field==1u) return texelFetch(selectedIndirect,p,0);
+    if(field==2u) return texelFetch(selectedMinimum,p,0);
+    return texelFetch(selectedDirect,p,0);
+}
+#define RC_RECEIVER_RESOLVE_TEST 1
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#include "radiance_receiver_resolve.glsl"
+bool validGI(vec4 value) {
+    return value.a>0.5 && RC_ReceiverFinite(value.rgb) && !any(greaterThan(abs(value.rgb),vec3(65504)));
+}
+void main() {
+    ivec2 localPixel=ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(localPixel,params.viewport.zw))) return;
+    rcReceiver.viewport=params.viewport; rcReceiver.normalThreshold=params.threshold;
+    rcLevels[0].origin_spacing=vec4(0,0,0,params.threshold.w);
+    ivec2 block=RC_ReceiverPixelBlock(localPixel,params.threshold.z);
+    if(all(equal(localPixel,RC_ReceiverFirstPixel(block,params.threshold.z)))) {
+        uint status=RC_ResolveStatus(block);
+        atomicAdd(counter[11],1u);
+        atomicAdd(counter[status==0u?0:status==1u?1:2],1u);
+        if(status==1u) {
+            /* Raw irradiance is scratch storage after the vertical pass. */
+            if((texelFetch(halfStatus,block,0).r&4u)!=0u) atomicAdd(counter[3],1u);
+            if(validGI(RC_ResolveValue(block,1u))) atomicAdd(counter[4],1u);
+        }
+    }
+    ivec2 pixel=params.viewport.xy+localPixel;
+    uvec2 id=RC_ResolveID(pixel);
+    if(any(equal(id,uvec2(0)))) return;
+    atomicAdd(counter[5],1u);
+    float depth=texelFetch(fullDepth,pixel,0).r;
+    vec3 normal=texelFetch(fullNormal,pixel,0).xyz;
+    vec2 ndc=(vec2(pixel)+.5)*params.ndcTransform.xy+params.ndcTransform.zw;
+    vec4 world=params.inverseViewProjection*vec4(ndc,depth,1);
+    bool geometry=!isnan(depth) && !isinf(depth) && RC_ReceiverFinite(normal) && dot(normal,normal)>1e-16 &&
+        !any(isnan(world)) && !any(isinf(world)) && abs(world.w)>1e-8;
+    vec3 position=geometry?world.xyz/world.w:vec3(0);
+    geometry=geometry && RC_ReceiverFinite(position);
+    bool gi=false,direct=false;
+    if(geometry) {
+        normal=normalize(normal);
+        vec3 value,minimum;
+        gi=RC_ReceiverIndirect(pixel,id,position,normal,value);
+        direct=RC_ReceiverDirect(pixel,id,position,normal,value,minimum);
+    } else atomicAdd(counter[10],1u);
+    atomicAdd(counter[gi?6:7],1u);
+    atomicAdd(counter[direct?8:9],1u);
+}

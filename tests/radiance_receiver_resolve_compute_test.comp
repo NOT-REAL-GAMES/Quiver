@@ -1,0 +1,9 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define RC_RECEIVER_SET 0
+#include "radiance_receiver_resolve.glsl"
+layout(local_size_x=1) in;
+layout(set=1,binding=0,std430) writeonly buffer Results { vec4 results[]; };
+void main(){ivec2 pixel=ivec2(gl_GlobalInvocationID.xy);vec3 position=vec3((vec2(pixel)+0.5)*0.5-1.0,0.5);vec3 indirect;
+ bool valid=RC_ReceiverIndirect(pixel,uvec2(1,1),position,vec3(0,0,1),indirect);
+ results[pixel.y*4+pixel.x]=vec4(indirect,valid?1.0:0.0);}

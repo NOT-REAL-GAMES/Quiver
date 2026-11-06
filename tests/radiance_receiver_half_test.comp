@@ -1,0 +1,40 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "radiance_receiver_classify.glsl"
+#include "radiance_checkerboard.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) buffer Results { uint result[16]; };
+void main()
+{
+	RCReceiverSample p[16];
+	for (uint i = 0; i < 4; ++i)
+	{
+		p[i].position = vec3(float(i % 2), float(i / 2), 0);
+		p[i].normal = vec3(0, 0, 1); p[i].id = uvec2(0); p[i].valid = true;
+	}
+	vec3 pos, normal;
+	result[0] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	for (uint i = 0; i < 4; ++i) p[i].id = uvec2(7, 1);
+	result[1] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	result[9] = uint(pos == vec3(0) && normal == vec3(0,0,1));
+	p[3].id = uvec2(0);
+	result[2] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	p[3].id = uvec2(7, 2);
+	result[3] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	p[3].id = uvec2(7, 1); p[3].normal = vec3(0,1,0);
+	result[4] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	p[3].normal = vec3(0,0,1); p[3].position.z = 1;
+	result[5] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	p[3].position.z = 0; p[3].valid = false;
+	result[6] = RC_ClassifyReceivers(p, 4, .01, .99, pos, normal);
+	/* A partial block at an odd viewport edge considers only present pixels. */
+	result[7] = RC_ClassifyReceivers(p, 3, .01, .99, pos, normal);
+	p[2].id = uvec2(0);
+	result[8] = RC_ClassifyReceivers(p, 3, .01, .99, pos, normal);
+	result[10] = uint(RC_CheckerShadow(ivec2(0,0),0));
+	result[11] = uint(RC_CheckerBounce(ivec2(0,0),0));
+	result[12] = uint(RC_CheckerShadow(ivec2(0,0),1));
+	result[13] = uint(RC_CheckerBounce(ivec2(0,0),1));
+	result[14] = uint(RC_CheckerShadow(ivec2(1,0),0));
+	result[15] = uint(RC_CheckerBounce(ivec2(1,0),0));
+}

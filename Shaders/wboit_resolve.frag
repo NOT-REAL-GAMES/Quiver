@@ -14,6 +14,7 @@ layout (input_attachment_index = 0, set = 0, binding = 0) uniform OIT_SUBPASS_IN
 layout (input_attachment_index = 1, set = 0, binding = 1) uniform OIT_SUBPASS_INPUT reveal_input;
 
 layout (location = 0) out vec4 out_frag_color;
+layout (constant_id = 0) const bool hdr_scene = false;
 
 void main ()
 {
@@ -22,5 +23,5 @@ void main ()
 	if (isinf (max (max (abs (accumulation.r), abs (accumulation.g)), abs (accumulation.b))))
 		accumulation.rgb = vec3 (accumulation.a);
 	vec3 average_color = accumulation.rgb / max (accumulation.a, 1e-5f);
-	out_frag_color = vec4 (clamp (average_color, 0.0f, 1.0f), 1.0f - revealage);
+	out_frag_color = vec4 (hdr_scene ? max (average_color, vec3 (0.0)) : clamp (average_color, 0.0f, 1.0f), 1.0f - revealage);
 }

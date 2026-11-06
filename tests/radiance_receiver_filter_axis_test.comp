@@ -1,0 +1,226 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Cooperative cache, bitset segments and nine-tap kernel are the production
+ * functions. Procedural world guides expose large footprints without images. */
+layout(local_size_x=128) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+#include "radiance_receiver_scale.glsl"
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+struct Cascade { vec4 origin_spacing; } rcLevels[1];
+int target,obstruction,barrierKind,lightMode;
+float worldStep;
+bool verticalInput;
+uint badFetch;
+shared uint testFailures;
+ivec2 activeExtent() { return RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z); }
+int axisOf(ivec2 p) { return verticalInput?p.y:p.x; }
+bool bounds(ivec2 p) { return all(greaterThanEqual(p,ivec2(0))) && all(lessThan(p,activeExtent())); }
+bool scheduled(ivec2 p) { return rcLighting.receiver_filter.y<=.5 || ((p.x+p.y)&1)==1; }
+uint RC_ResolvePackedStatus(ivec2 p) {
+    if(!bounds(p)) { ++badFetch; return 0u; }
+    int axis=axisOf(p);
+    if(axis==obstruction && barrierKind==1) return 2u;
+    if(barrierKind==8 && abs(axis-target)==1) return 2u;
+    if(axis==obstruction && barrierKind==2) return 0u;
+    bool known=scheduled(p) && !(axis==obstruction && barrierKind==5);
+    return 1u|(known?4u:0u);
+}
+uint RC_ResolveStatus(ivec2 p) { return RC_ResolvePackedStatus(p)&3u; }
+uvec2 RC_ResolveID(ivec2 p) {
+    ivec2 q=RC_ReceiverPixelBlock(p-rcReceiver.viewport.xy,rcReceiver.normalThreshold.z);
+    if(!bounds(q)) { ++badFetch; return uvec2(0); }
+    if(axisOf(q)==obstruction && barrierKind==6) return uvec2(0);
+    return uvec2(q/3+1); /* Deliberately cross many primitive/draw IDs. */
+}
+vec3 RC_ResolvePosition(ivec2 p) {
+    if(!bounds(p)) ++badFetch;
+    float z=axisOf(p)==obstruction && barrierKind==4?1:0;
+    vec2 coordinates=rcReceiver.normalThreshold.z==1.5?vec2(RC_ReceiverFirstPixel(p,1.5)):vec2(p);
+    return vec3(coordinates*worldStep,z);
+}
+vec3 RC_ResolveNormal(ivec2 p) {
+    if(!bounds(p)) ++badFetch;
+    if(axisOf(p)==obstruction && barrierKind==3) return vec3(1,0,0);
+    if(axisOf(p)==obstruction && barrierKind==7) return normalize(vec3(.1,0,1));
+    return vec3(0,0,1);
+}
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+    if(!bounds(p)) { ++badFetch; return vec4(0); }
+    int axis=axisOf(p);
+    float distance=abs(float(axis-target)*worldStep);
+    if(rcReceiver.normalThreshold.z==1.5) {
+        ivec2 delta=RC_ReceiverFirstPixel(p,1.5)-RC_ReceiverFirstPixel(verticalInput?ivec2(p.x,target):ivec2(target,p.y),1.5);
+        distance=abs(float(verticalInput?delta.y:delta.x)*worldStep);
+    }
+    float light=2;
+    if(lightMode==1) light=0;
+    if(lightMode==2) light=axis>obstruction?100:0;
+    if(lightMode==3) light=distance>6 && distance<17?1:0;
+    if(lightMode==4) light=axis==target?0:1;
+    if(lightMode==5) light=float(axis)*.01;
+    bool valid=(verticalInput || scheduled(p)) && !(axis==obstruction && barrierKind==5 && !verticalInput);
+    return vec4(vec3(light),valid?1:0);
+}
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#include "radiance_receiver_guides.glsl"
+bool RC_CheckerFetch(ivec2 p,uint field,out vec3 value) {
+    vec4 v=RC_ResolveValue(p,field); value=v.rgb; return v.a>.5;
+}
+bool RC_CheckerCompatible(ivec2 a,ivec2 b,uint field) { return RC_ReceiverGuidesCompatible(a,b,activeExtent()); }
+#include "radiance_receiver_checkerboard.glsl"
+#include "radiance_receiver_texture_filter.glsl"
+#include "radiance_receiver_filter_axis.glsl"
+#include "radiance_receiver_classify.glsl"
+void reset(float strength,bool checker) {
+    rcReceiver.viewport=ivec4(3,1,1917,69); rcReceiver.normalThreshold=vec4(.99,.01,2,0);
+    rcLighting.receiver_filter=vec4(strength,checker?1:0,1,0); rcLevels[0].origin_spacing=vec4(0,0,0,8);
+    target=320; obstruction=-1; barrierKind=0; lightMode=0; worldStep=.125; verticalInput=false; badFetch=0u;
+}
+vec3 evaluate(out bool valid) {
+    int base=(target/RC_AXIS_GROUP)*RC_AXIS_GROUP,line=2;
+    RC_TextureAxisLoad(base,line,verticalInput,activeExtent());
+    ivec2 p=RC_AxisPixel(target,line,verticalInput);
+    vec3 value;
+    valid=RC_TextureFilterAxis(p,activeExtent(),base,line,verticalInput,value);
+    /* No lane may start the next cache load until every reader is done. */
+    barrier();
+    return value;
+}
+bool near(vec3 a,vec3 b) { return all(lessThan(abs(a-b),vec3(.0003))); }
+void store(int index,bool success) {
+    if(gl_LocalInvocationID.x==0u) testFailures=0u;
+    barrier();
+    if(!success || badFetch!=0u) atomicOr(testFailures,1u);
+    barrier();
+    if(gl_LocalInvocationID.x==0u) result[index]=uint(testFailures==0u);
+    barrier();
+}
+void main() {
+    bool valid,ok; vec3 value,a,b;
+    reset(2,false); value=evaluate(valid); ok=valid && near(value,vec3(2));
+    barrierKind=8; value=evaluate(valid); store(0,ok && valid && near(value,vec3(2)));
+    reset(2,false); lightMode=1; value=evaluate(valid); store(1,valid && value==vec3(0));
+    reset(2,false); obstruction=target; barrierKind=5; value=evaluate(valid); store(2,!valid);
+    reset(2,false); lightMode=3; value=evaluate(valid); store(3,valid && value.x>.05);
+
+    reset(2,false); obstruction=target+3; barrierKind=3; lightMode=2;
+    value=evaluate(valid); store(4,valid && value==vec3(0));
+    reset(2,false); obstruction=target+3; barrierKind=4; lightMode=2;
+    value=evaluate(valid); store(5,valid && value==vec3(0));
+    reset(2,false); obstruction=target+3; barrierKind=5; lightMode=2;
+    value=evaluate(valid); store(6,valid && value==vec3(0));
+    reset(2,false); obstruction=target+3; barrierKind=1; lightMode=2;
+    value=evaluate(valid); ok=valid && value==vec3(0);
+    barrierKind=2; value=evaluate(valid); store(7,ok && valid && value==vec3(0));
+
+    /* Radius160 generates even offsets; a checker hole still gets known raw
+     * neighbors after phase alignment, rather than falling back everywhere. */
+    reset(2,true); value=evaluate(valid); store(8,valid && near(value,vec3(2)));
+    reset(.00001,true); value=evaluate(valid); ok=valid && near(value,vec3(2));
+    vec3 cardinal; ok=ok && RC_TextureFilterIndirect(ivec2(target,2),activeExtent(),cardinal) && near(cardinal,value);
+    rcLighting.receiver_filter.y=0; lightMode=4; value=evaluate(valid);
+    ok=ok && valid && value.x<.0001;
+    rcLighting.receiver_filter.x=1; value=evaluate(valid);
+    store(9,ok && valid && value.x>.1);
+
+    /* Identical world field at divisors1/1.5/2/3/4 keeps a comparable world blur.
+     * The bright band is dozens of texels away, beyond the old radius2. */
+    reset(2,false); lightMode=3; a=evaluate(valid); ok=valid && a.x>.05;
+    rcReceiver.normalThreshold.z=3; worldStep=.1875; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.04;
+    rcReceiver.normalThreshold.z=4; worldStep=.25; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.04;
+    rcReceiver.normalThreshold.z=1; worldStep=.0625; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.04;
+    rcReceiver.normalThreshold.z=1.5; worldStep=.0625; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.04;
+    rcLighting.receiver_filter.y=1; b=evaluate(valid); store(10,ok && valid && abs(a.x-b.x)<.04);
+    reset(2,false); lightMode=3; worldStep=.0625; a=evaluate(valid); ok=valid && a.x>.05;
+    worldStep=.5; b=evaluate(valid); store(11,ok && valid && abs(a.x-b.x)<.04);
+
+    reset(2,false); target=958; worldStep=.001; value=evaluate(valid);
+    ok=valid && near(value,vec3(2)); /* Odd edge, radius cap, last tile. */
+    reset(2,false); obstruction=100; barrierKind=1; lightMode=5;
+    target=140; a=evaluate(valid); ok=ok && valid;
+    target=141; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.02;
+    /* When a clipped side first acquires four crowded nodes, its measure
+     * must approach zero rather than abruptly adding four full weights. */
+    target=101; a=evaluate(valid); ok=ok && valid;
+    target=102; b=evaluate(valid); ok=ok && valid && abs(a.x-b.x)<.02;
+    /* A fractional radius change must interpolate, not round a tap across
+     * a nonconstant field. The clipped asymmetric segment remains fixed. */
+    worldStep=.12499; a=evaluate(valid); ok=ok && valid;
+    worldStep=.12501; b=evaluate(valid);
+    store(12,ok && valid && abs(a.x-b.x)<.0003);
+    reset(2,false); verticalInput=true; rcReceiver.viewport.zw=rcReceiver.viewport.wz;
+    obstruction=target; barrierKind=5; value=evaluate(valid); ok=!valid;
+    obstruction=target+3; lightMode=2; value=evaluate(valid); store(13,ok && valid && value==vec3(0));
+    reset(2,false); obstruction=target+3; barrierKind=7; lightMode=2;
+    value=evaluate(valid); store(14,valid && value==vec3(0));
+
+    RCReceiverSample points[16];
+    for(int i=0;i<16;++i) { points[i].position=vec3(i%4,i/4,0); points[i].normal=vec3(0,0,1); points[i].id=uvec2(i+1); points[i].valid=true; }
+    vec3 position,normal;
+    ok=RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==1u;
+    points[15].id=uvec2(0); ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
+    points[15].id=uvec2(16); points[15].normal=normalize(vec3(.1,0,1));
+    ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
+    points[15].normal=vec3(0,0,1); points[15].position.z=1;
+    ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
+    points[15].valid=false; ok=ok && RC_ClassifyReceivers(points,15u,.01,.99,position,normal)==1u;
+    /* Exercise segment masks around word boundaries and both cache edges. */
+    const int edges[8]=int[8](0,31,32,447,448,510,958,RC_AXIS_CELLS-2);
+    for(int edgeIndex=0;edgeIndex<8;++edgeIndex) {
+        if(gl_LocalInvocationID.x<uint(RC_AXIS_WORDS)) rcAxisBarrier[gl_LocalInvocationID.x]=0u;
+        barrier();
+        int edge=edges[edgeIndex];
+        if(gl_LocalInvocationID.x==0u) atomicOr(rcAxisBarrier[edge>>5],1u<<uint(edge&31));
+        barrier();
+        /* The interpolation endpoints are always inside this segment, so
+         * its endpoints must have clear paths even at word/cache limits. */
+        int center=RC_AXIS_RADIUS+int(gl_LocalInvocationID.x);
+        ivec2 segment=RC_TextureAxisSegment(center);
+        ok=ok && RC_TextureAxisClear(center,segment.x) && RC_TextureAxisClear(center,segment.y);
+        for(int step=0;step<=8;++step) {
+            float coordinate=mix(float(segment.x),float(segment.y),float(step)/8.0);
+            int a=int(floor(coordinate)),b=min(a+1,segment.y);
+            ok=ok && RC_TextureAxisClear(center,a) && RC_TextureAxisClear(center,b);
+        }
+        int from=int(gl_LocalInvocationID.x)*8;
+        for(int to=0;to<RC_AXIS_CELLS;to+=17) {
+            bool crosses=min(from,to)<=edge && max(from,to)>edge;
+            ok=ok && RC_TextureAxisClear(from,to)!=crosses;
+        }
+        barrier();
+    }
+    /* Packed codec preserves cardinal world planes exactly and stays well
+     * below the0.01 plane tolerance over the80-unit widest world support. */
+    const vec3 axes[6]=vec3[6](vec3(1,0,0),vec3(-1,0,0),vec3(0,1,0),vec3(0,-1,0),vec3(0,0,1),vec3(0,0,-1));
+    for(int i=0;i<6;++i) ok=ok && RC_AxisDecodeNormal(RC_AxisPackNormal(axes[i]))==axes[i];
+    /* Read another lane's stored bits after a shared-memory barrier. These
+     * valid normal codes would be NaN float payloads; sentinels would be
+     * denormals. Integer storage preserves both and the position xyz bits. */
+    const uint bitCodes[10]=uint[10](0x00007fffu,0x00008001u,0x7fff0000u,0x80010000u,
+        0x00000000u,0x7fff7fffu,RC_AXIS_INVALID,RC_AXIS_UNKNOWN,0x7fff0001u,0xffff0001u);
+    uint lane=gl_LocalInvocationID.x,next=(lane+1u)%128u;
+    for(uint i=0u;i<10u;++i) {
+        uint code=bitCodes[(lane+i)%10u];
+        rcAxisData[lane]=uvec4(floatBitsToUint(vec3(1.25,-2.5,3.75)),code);
+        barrier();
+        uint expected=bitCodes[(next+i)%10u];
+        ok=ok && rcAxisData[next].w==expected && RC_AxisPosition(int(next))==vec3(1.25,-2.5,3.75);
+        ok=ok && RC_AxisState(int(next))==(expected==RC_AXIS_INVALID?0.0:expected==RC_AXIS_UNKNOWN?-1.0:1.0);
+        barrier();
+    }
+    for(uint i=0u;i<128u;++i) {
+        uint seed=i*128u+gl_LocalInvocationID.x+1u;
+        vec3 inputNormal=normalize(vec3(float((seed*17u)%997u)-498.1,float((seed*31u)%991u)-495.2,float((seed*43u)%983u)-491.3));
+        uint packed=RC_AxisPackNormal(inputNormal);
+        rcAxisData[lane]=uvec4(floatBitsToUint(vec3(0)),packed);
+        barrier();
+        uint nextSeed=i*128u+next+1u;
+        vec3 expectedNormal=normalize(vec3(float((nextSeed*17u)%997u)-498.1,float((nextSeed*31u)%991u)-495.2,float((nextSeed*43u)%983u)-491.3));
+        uint stored=rcAxisData[next].w;
+        vec3 decoded=RC_AxisNormal(int(next));
+        ok=ok && stored==RC_AxisPackNormal(expectedNormal) && stored!=RC_AXIS_INVALID && stored!=RC_AXIS_UNKNOWN && length(decoded-expectedNormal)<.00008;
+        barrier();
+    }
+    store(15,ok);
+}

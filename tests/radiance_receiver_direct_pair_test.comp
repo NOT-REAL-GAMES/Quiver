@@ -1,0 +1,38 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x=1) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+uvec2 ids[16]; uint statuses[4]; vec3 positions[4], normals[4], colors[4]; bool visible;
+int fullindex(ivec2 p) { return p.y*4+p.x; }
+int halfindex(ivec2 p) { return p.y*2+p.x; }
+uvec2 RC_ResolveID(ivec2 p) { return ids[fullindex(p)]; }
+uint RC_ResolveStatus(ivec2 p) { return statuses[halfindex(p)]; }
+vec3 RC_ResolvePosition(ivec2 p) { return positions[halfindex(p)]; }
+vec3 RC_ResolveNormal(ivec2 p) { return normals[halfindex(p)]; }
+vec4 RC_ResolveValue(ivec2 p, uint field) { return vec4(colors[halfindex(p)],1); }
+bool RC_ReceiverVisibilityCompatible(vec3 p,vec3 q,float s) { return visible; }
+#define RC_RECEIVER_RESOLVE_TEST 1
+#include "radiance_receiver_resolve.glsl"
+bool parityCompare(ivec2 p) {
+ vec3 a,b,d,m; bool oldA=RC_ReceiverField(p,uvec2(1),vec3(0),vec3(0,0,1),0u,a);
+ bool oldB=oldA && RC_ReceiverField(p,uvec2(1),vec3(0),vec3(0,0,1),2u,b);
+ bool now=RC_ReceiverDirect(p,uvec2(1),vec3(0),vec3(0,0,1),d,m);
+ return oldB==now && (!now || (all(lessThan(abs(a-d),vec3(.0001))) && all(lessThan(abs(b-m),vec3(.0001)))));
+}
+void main() {
+ rcReceiver.viewport=ivec4(0,0,4,4); rcReceiver.normalThreshold=vec4(.99,.01,2,0); visible=true;
+ for(int i=0;i<16;i++) ids[i]=uvec2(1);
+ for(int i=0;i<4;i++) {statuses[i]=1;positions[i]=vec3(0);normals[i]=vec3(0,0,1);colors[i]=vec3(i);}
+ for(int n=0;n<16;n++) {
+  rcLighting.receiver_filter.y=float(n&1); int scenario=n/2;
+  statuses[3]=scenario==1?0u:1u;
+  ids[10]=scenario==2?uvec2(2):uvec2(1);
+  normals[3]=scenario==3?vec3(1,0,0):vec3(0,0,1);
+  positions[3]=scenario==4?vec3(0,0,.1):vec3(0);
+  colors[3]=scenario==5?vec3(uintBitsToFloat(0x7f800000u)):vec3(3);
+  ivec2 pixel=scenario==6?ivec2(3,1):scenario==7?ivec2(0,0):ivec2(1,1);
+  result[n]=uint(parityCompare(pixel));
+ }
+}

@@ -53,6 +53,10 @@ void	Draw_TransPicTranslate (cb_context_t *cbx, float x, float y, qpic_t *pic, i
 void	Draw_ConsoleBackground (cb_context_t *cbx);														// johnfitz -- removed parameter int lines
 void	Draw_TileClear (cb_context_t *cbx, float x, float y, float w, float h);
 void	Draw_Fill (cb_context_t *cbx, float x, float y, float w, float h, int c, float alpha); // johnfitz -- added alpha
+void	Draw_FillRGBA (cb_context_t *cbx, float x, float y, float w, float h, float r, float g, float b, float alpha);
+void	Draw_EditorClearDepth (cb_context_t *cbx);
+/* xyz contains screen coordinates and normalized reverse depth (near = 1). */
+void	Draw_EditorPolygonDepth (cb_context_t *cbx, const float (*xyz)[3], int count, int color, float alpha, qboolean depth_write);
 void	Draw_SetOpacity (float opacity);
 void	Draw_FadeScreen (cb_context_t *cbx);
 void	Draw_String (cb_context_t *cbx, float x, float y, const char *str);
