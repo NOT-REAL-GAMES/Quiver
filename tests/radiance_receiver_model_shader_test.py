@@ -46,7 +46,7 @@ def main():
                 pre = run([*base, '-E'])
                 assert 'RC_ReceiverVisibilityCompatible' not in pre, 'upsampler rechecks probe visibility'
                 assert 'RC_ReceiverSoftVisibility' not in pre and 'RC_ReceiverShadowSelect' not in pre, 'forward cloned optional shadow graph'
-                assert 'RC_ReceiverIndirect' in pre and 'RC_ReceiverDirect' in pre, 'model lacks receiver reuse'
+                assert 'RC_ReceiverLighting' in pre, 'model lacks receiver reuse'
                 assert all(token in pre for token in ('125u', '27u', 'RC_FilterKernel')), 'fallback loses Gaussian'
                 dis = run(['spirv-dis', str(output)])
                 assert re.search(r'OpDecorate\s+%\S+\s+DescriptorSet\s+6\b', dis), 'receiver set ABI'
@@ -54,7 +54,7 @@ def main():
                 block = re.search(r'OpName\s+(%\S+)\s+"PushConsts"', dis)[1]
                 assert re.search(r'OpMemberDecorate\s+' + re.escape(block) + r'\s+3\s+Offset\s+80', dis), 'forward token ABI'
         default = run(['glslangValidator', f'-I{SHADERS}', '-DRADIANCE_LIGHTING=1', '-E', str(SHADERS / 'alias.frag')])
-        assert 'RC_ReceiverIndirect' not in default and 'receiver_token' not in default, 'legacy model path changed interfaces'
+        assert 'RC_ReceiverLighting' not in default and 'receiver_token' not in default, 'legacy model path changed interfaces'
         assert 'RC_ReceiverOccluded' not in default, 'opaque-only culling leaked into native model shader'
         output = temp / 'native.spv'
         run(['glslangValidator', '-V', '--target-env', 'vulkan1.1', f'-I{SHADERS}', '-DRADIANCE_LIGHTING=1',

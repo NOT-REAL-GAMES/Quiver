@@ -3,14 +3,17 @@
 #include "radiance_receiver_pipelines.h"
 #include "radiance_receiver_layouts.h"
 #include "radiance_receiver_model.h"
+#include "radiance_receiver_light.h"
 typedef struct {
 	VkDevice device;
 	rc_receiver_targets_t targets;
 	rc_receiver_descriptors_t descriptors;
 	rc_receiver_layouts_t layouts;
 	rc_receiver_pipelines_t pipelines;
-	VkPipeline prepass_cutout, forward[4], reconstruct, soft_shadows;
+	VkPipeline prepass_cutout, forward[4], reconstruct, reconstruct_whole, soft_shadows;
+	uint32_t filter_group;
 	rc_receiver_model_pipelines_t models;
+	rc_receiver_light_t light; /* device is null unless the slot asked for it */
 } rc_receiver_resources_t;
 /* Every Vk*CreateInfo and shader module is borrowed only during creation.
  * The prepass infos target the private pass; forward infos target a compatible

@@ -22,22 +22,36 @@ vec4 WorldFragmentColor ()
 		vec3 normal = RC_WorldSurfaceNormal (in_world_position);
 		vec3 indirect = vec3 (0.0);
 		float bounce_gain = RC_BounceGain () * RC_IndirectDistanceWeight (in_world_position);
+		vec3 direct, minimum;
+#if RC_RECEIVER_FULL_LIGHT
+		RC_ReceiverFullLight (ivec2(gl_FragCoord.xy), indirect, direct, minimum);
+#else
+#if RC_RECEIVER_REUSE
+		bool reused_indirect, reused_direct;
+		RC_ReceiverLighting (ivec2(gl_FragCoord.xy), uvec2(push_constants.receiver_token, uint(gl_PrimitiveID) + 1u), in_world_position, normal,
+			bounce_gain > 0.0, indirect, reused_indirect, direct, minimum, reused_direct);
+#endif
 		if (bounce_gain > 0.0) {
 #if RC_RECEIVER_REUSE
-			if (!RC_ReceiverIndirect (ivec2(gl_FragCoord.xy), uvec2(push_constants.receiver_token, uint(gl_PrimitiveID) + 1u), in_world_position, normal, indirect))
+			if (!reused_indirect && RC_NoteFallback (1u))
 #endif
 #if RC_RECEIVER_TEXTURE_FILTER && !RC_RECEIVER_GAUSSIAN_FALLBACK
-				RC_SampleDiffuse (in_world_position, normal, indirect);
+				RC_SampleDiffuse (RC_GI_LOOKUP_POINT (in_world_position, normal), normal, indirect);
 #else
-				RC_SampleDiffuseMode (in_world_position, normal, rcLighting.receiver_filter.x, indirect);
+				RC_SampleDiffuseMode (RC_GI_LOOKUP_POINT (in_world_position, normal), normal, rcLighting.receiver_filter.x, indirect);
 #endif
 		}
-		vec3 direct, minimum;
 #if RC_RECEIVER_REUSE
-		if (!RC_ReceiverDirect (ivec2(gl_FragCoord.xy), uvec2(push_constants.receiver_token, uint(gl_PrimitiveID) + 1u), in_world_position, normal, direct, minimum))
+		if (!reused_direct && RC_NoteFallback (2u))
 #endif
 			RC_EvaluateDirectComponents (in_world_position, normal, direct, minimum);
+#endif
 		light = RC_CombineDirectIndirect (direct, minimum, indirect * bounce_gain);
+#if RC_RECEIVER_REUSE
+		/* Debug view: green reused, red direct missed, blue indirect missed, magenta both. */
+		if ((rcLighting.counts.w & 64u) != 0u)
+			return vec4 ((rcFallbackMask & 2u) != 0u ? 1.0 : 0.0, rcFallbackMask == 0u ? 1.0 : 0.0, (rcFallbackMask & 1u) != 0u ? 1.0 : 0.0, 1.0);
+#endif
 	}
 	/* Renderer sets this only for the single-player fullbright debug mode. */
 	if ((rcLighting.counts.w & 2u) != 0u) light = vec3 (1.0);

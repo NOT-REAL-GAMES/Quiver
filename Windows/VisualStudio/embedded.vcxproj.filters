@@ -32,7 +32,6 @@
     <None Include="..\..\Shaders\radiance_receiver_shadow_source.glsl"><Filter>Shaders\World</Filter></None>
     <None Include="..\..\Shaders\radiance_light_unshadowed.glsl"><Filter>Shaders\World</Filter></None>
     <None Include="..\..\Shaders\radiance_light_query_free.glsl"><Filter>Shaders\World</Filter></None>
-    <None Include="..\..\Shaders\radiance_receiver_shadow_filter.glsl"><Filter>Shaders\World</Filter></None>
     <CustomBuild Include="..\..\Shaders\radiance_merge.comp">
       <Filter>Shaders\World</Filter>
     </CustomBuild>

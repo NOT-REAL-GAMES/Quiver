@@ -23,11 +23,11 @@ import bench_radiance_soft_shadows as soft
 POSES = {'dm2': (1696,-1380,24,-8,90,0), 'ecs': (-480,0,32,-25,0,0),
          'sponza': (-16,-300,80,-5,90,0), 'doorway': (607,143,40,3,91,0)}
 QUERY = (soft.QUERY+'\nr_radiance_shadow_filter\nr_radiance_soft_shadows\n'
-         'r_radiance_shadow_radius\nr_radiance_shadow_sun_angle\nr_radiance_probe_spacing\n'
+         'r_radiance_shadow_radius\nr_radiance_shadow_sun_angle\nr_radiance_probe_spacing\nr_radiance_shadow_filter_radius\n'
          'r_radiance_batch_shadows\nr_radiance_deferred')
 
 
-def verify_filter(output, strength):
+def verify_filter(output, strength, radius=None):
     soft.verify_cvar(output,'r_radiance_shadow_filter',strength)
     match=re.search(r'shadow filter requested=(\S+) active=(\S+)',output)
     try:
@@ -36,6 +36,13 @@ def verify_filter(output, strength):
         actual=()
     if len(actual)!=2 or any(not math.isfinite(v) or abs(v-strength)>1e-6 for v in actual):
         raise RuntimeError('shadow filter requested/active state differs: '+output)
+    if radius is not None:
+        match=re.search(r'shadow filter requested=\S+ active=\S+ radius=(\S+) active_radius=(\S+)',output)
+        try:actual=tuple(float(match[i]) for i in (1,2)) if match else ()
+        except ValueError:actual=()
+        expected=(radius,radius if strength>0 else 0)
+        if len(actual)!=2 or any(not math.isfinite(v) or abs(v-e)>1e-6 for v,e in zip(actual,expected)):
+            raise RuntimeError('shadow filter requested/active world radius differs: '+output)
 
 
 def filter_frames(output):
@@ -55,14 +62,14 @@ def verify(output, args, pose, strength):
     rc.verify_receiver_state(output,rc.receiver_name(args.scale,args.checkerboard),args.scale,'texture',True,
                              full_texture=args.scale==1,checkerboard_requested=args.checkerboard)
     rc.verify_pose(output,pose);rc.verify_probe_filter(output,args.gaussian);rc.verify_hold(output)
-    rc.verify_receiver_diagnostics_off(output);soft.verify_soft(output,True,15,.5,True)
-    verify_filter(output,strength)
+    rc.verify_receiver_diagnostics_off(output);soft.verify_soft(output,True,args.soft_radius,.5,True)
+    verify_filter(output,strength,args.filter_radius)
     for name,expected in (('r_lightmap',args.lightmap),('r_indirect',0),('vid_fsaa',1),
                           ('r_radiance_quality',args.quality),('r_radiance_grid',1),
                           ('r_radiance_highlight',0),('r_radiance_batch_shadows',args.batch_shadows)):
         soft.verify_cvar(output,name,expected)
     if args.scene=='sponza':rc.verify_model_receiver_state(output,1,1,200000)
-    return rc.verify_sources(output,1,1,0)
+    return rc.verify_sources(output,args.point_gain,args.emissive_gain,args.bounce_gain)
 
 
 def prepare_assets(args, work):
@@ -103,34 +110,43 @@ def main():
     p.add_argument('--quality',type=int,choices=(0,1),default=1)
     p.add_argument('--gaussian',type=rc.probe_gaussian_strength,default=1)
     p.add_argument('--lightmap',type=int,choices=(0,1),default=0)
+    p.add_argument('--pose',type=float,nargs=6)
+    p.add_argument('--point-gain',type=float,default=1)
+    p.add_argument('--emissive-gain',type=float,default=1)
+    p.add_argument('--bounce-gain',type=float,default=0)
+    p.add_argument('--probe-spacing',type=float,default=32)
+    p.add_argument('--soft-radius',type=float,default=15)
+    p.add_argument('--filter-radius',type=float,default=8)
     p.add_argument('--batch-shadows',type=int,choices=(0,1),default=1)
     p.add_argument('--pairs',type=int,default=3);p.add_argument('--seconds',type=float,default=1)
     p.add_argument('--initial-warmup',type=float,default=10);p.add_argument('--warmup',type=float,default=1)
-    p.add_argument('--timeout',type=float,default=35);args=p.parse_args()
+    p.add_argument('--timeout',type=float,default=35)
+    p.add_argument('--exit-grace-seconds',type=float,default=5,help='final idle grace outside every timing window')
+    args=p.parse_args()
     if args.mode=='benchmark' and (args.allow_existing or args.validation):p.error('timing requires no other game and no validation')
     if (args.pairs<1 or min(args.width,args.height)<1 or
-        not all(math.isfinite(v) for v in (args.seconds,args.warmup,args.timeout,args.initial_warmup)) or
-        min(args.seconds,args.warmup,args.timeout)<=0 or args.initial_warmup<10):
+        not all(math.isfinite(v) for v in (args.seconds,args.warmup,args.timeout,args.initial_warmup,args.exit_grace_seconds,args.probe_spacing,args.soft_radius,args.filter_radius,args.point_gain,args.emissive_gain,args.bounce_gain)) or
+        min(args.seconds,args.warmup,args.timeout)<=0 or args.initial_warmup<10 or not 0<=args.exit_grace_seconds<=10 or not 8<=args.probe_spacing<=128 or not 0<=args.soft_radius<=64 or not 0<args.filter_radius<=128):
         p.error('positive finite durations/dimensions and initial warmup>=10 required')
     if not args.allow_existing:rc.ensure_no_game(False)
     environment=soft.clean_timing_environment()if args.mode=='benchmark'else None
     root=args.output.resolve();root.mkdir(parents=True,exist_ok=False)
     frozen=root/'vkquake';shutil.copy2(args.binary,frozen);binary_hash=rc.sha256(frozen)
-    game,configdir,mapname,assets=prepare_assets(args,root);pose=POSES[args.scene]
+    game,configdir,mapname,assets=prepare_assets(args,root);pose=tuple(args.pose) if args.pose is not None else POSES[args.scene]
     settings={'host_timescale':.000001,'host_maxfps':30 if args.mode=='capture' else 0,'max_edicts':32800 if args.scene=='ecs' else 2048,
         'r_radiance':1,'r_radiance_backend':2,'r_radiance_quality':args.quality,'r_radiance_grid':1,
-        'r_radiance_probe_spacing':32,'r_radiance_probe_gaussian':args.gaussian,
-        'r_radiance_point_gain':1,'r_radiance_emissive_gain':1,'r_radiance_bounce_gain':0,
+        'r_radiance_probe_spacing':args.probe_spacing,'r_radiance_probe_gaussian':args.gaussian,
+        'r_radiance_point_gain':args.point_gain,'r_radiance_emissive_gain':args.emissive_gain,'r_radiance_bounce_gain':args.bounce_gain,
         'r_radiance_deferred':1,'r_radiance_resolution_scale':args.scale,'r_radiance_receiver_filter':1,
-        'r_radiance_checkerboard':args.checkerboard,'r_radiance_soft_shadows':1,'r_radiance_shadow_radius':15,
-        'r_radiance_shadow_sun_angle':.5,'r_radiance_shadow_filter':0,'r_radiance_batch_shadows':args.batch_shadows,
+        'r_radiance_checkerboard':args.checkerboard,'r_radiance_soft_shadows':1,'r_radiance_shadow_radius':args.soft_radius,
+        'r_radiance_shadow_sun_angle':.5,'r_radiance_shadow_filter':0,'r_radiance_shadow_filter_radius':args.filter_radius,'r_radiance_batch_shadows':args.batch_shadows,
         'r_radiance_receiver_diagnostics':0,'r_ecs_batch':1,'r_ecs_gpu_cull':1,'r_ssao':0,'r_drawviewmodel':0,
         'crosshair':0,'viewsize':130,'fov':90,'cl_bob':0,'r_rtshadows':0,'r_lightmap':args.lightmap,'r_radiance_highlight':0}
     boot=bench.BOOT.replace('vid_fsaa 0','vid_fsaa 1').replace('r_indirect 1','r_indirect 0').replace('map start',
         '\n'.join(f'{k} {v}'for k,v in settings.items())+'\nscr_centertime 0\nmap '+mapname)
     (configdir/'boot.cfg').write_text(boot);bench.SHIM=soft.isolated_poll_source(bench.SHIM)
     report={'complete':False,'mode':args.mode,'authoritative_timing':False,'binary_sha256':binary_hash,
-        'settings':settings,'pose':pose,'assets':assets,'timing_environment':environment,'pairs':[]}
+        'settings':settings,'pose':pose,'assets':assets,'timing_environment':environment,'requested_final_idle_grace_seconds':args.exit_grace_seconds,'pairs':[]}
     def save():(root/'results.json').write_text(json.dumps(report,indent=2)+'\n')
     save();alias,path=soft.short_binary_alias(frozen)
     e=bench.Engine(SimpleNamespace(binary=path,width=args.width,height=args.height,timeout=args.timeout,validation=args.validation,game=game),root)
@@ -181,7 +197,7 @@ def main():
                 if args.mode=='capture'or pair==args.pairs-1:
                     image=e.photo(f'{label}-pair{pair+1}');value.update(capture=str(image),actual_viewport=soft.viewport(image,args.width,args.height))
                 after=e.cmd(QUERY);verify(after,args,pose,strength)
-                if rc.verify_sources(after,1,1,0)!=sources:raise RuntimeError('light sources changed during sample')
+                if rc.verify_sources(after,args.point_gain,args.emissive_gain,args.bounce_gain)!=sources:raise RuntimeError('light sources changed during sample')
                 t1=clock.sample()
                 if not 0<=t1-t0<.001:raise RuntimeError('simulation not held')
                 value.update(after=after,simulation_before=t0,simulation_after=t1,
@@ -194,6 +210,9 @@ def main():
     except Exception as exc:report['failure']=repr(exc);raise
     finally:
         if counter:counter.close()
+        if e.process.poll()is None and args.exit_grace_seconds:
+            grace_begin=time.monotonic();time.sleep(args.exit_grace_seconds)
+            report['final_idle_grace_seconds']=time.monotonic()-grace_begin
         e.close();stop.set()
         if watchdog:watchdog.join(timeout=1)
         alias.cleanup();report['exit_code']=e.process.returncode;log=(root/'output.log').read_text(errors='replace')+'\n'+e.text()

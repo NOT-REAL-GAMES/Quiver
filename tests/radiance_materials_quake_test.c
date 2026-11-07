@@ -59,6 +59,7 @@ byte *Image_LoadImage (const char *name, int *width, int *height, enum srcformat
 	return pixels;
 }
 void Mem_Free (const void *pointer) { free ((void *)pointer); }
+void Con_Printf (const char *format, ...) { (void)format; }
 
 static const uint8_t *texel (const radiance_material_atlas_t *atlas, size_t index, bool emission, unsigned x, unsigned y)
 {

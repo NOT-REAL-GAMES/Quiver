@@ -14,6 +14,10 @@ typedef struct {
 	VkDeviceSize vertex_offset, index_offset;
 	VkIndexType index_type;
 	uint32_t index_count, first_index, token;
+	/* Set for GPU-built draws: one VkDrawIndexedIndirectCommand, whose counts the
+	 * CPU never sees, so index_count and first_index stay zero. */
+	VkBuffer indirect_buffer;
+	VkDeviceSize indirect_offset;
 	int32_t vertex_offset_index;
 	VkDescriptorSet diffuse_set, instance_set, camera_set;
 	float mvp[16];
@@ -21,6 +25,8 @@ typedef struct {
 	bool alpha_test;
 	float depth_bias_constant, depth_bias_slope;
 } rc_receiver_world_draw_t;
+/* Issues the draw itself; state must already be bound. */
+void RCReceiverWorld_Draw(VkCommandBuffer command, const rc_receiver_world_draw_t *draw);
 bool RCReceiverWorld_CanRecord(VkCommandBuffer command, VkPipelineLayout layout,
 	const VkPipeline pipelines[2], const rc_receiver_world_draw_t *draws, uint32_t count);
 /* Call inside the receiver render pass after the full list has passed preflight.

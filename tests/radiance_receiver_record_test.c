@@ -5,17 +5,22 @@
 #include <stdio.h>
 
 static unsigned barriers, binds, sets, pushes, dispatches, begins, ends, draws, viewports, scissors;
-static bool ready,expect_soft;
+static bool ready;
+static unsigned soft_binds;
 static unsigned timestamp_writes;
 static unsigned expected_x=80, expected_y=45;
 static float expected_divisor=2;
 static bool draw_ready(void *user) { (void)user; return ready; }
 static void draw(VkCommandBuffer command, void *user) { (void)command; (void)user; ++draws; }
 VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer c,const VkRenderPassBeginInfo *i,VkSubpassContents contents)
-{ (void)c; assert(i->renderArea.extent.width==1290 && i->renderArea.extent.height==726 && i->clearValueCount==3 && i->pClearValues[0].depthStencil.depth==1.0f && contents==VK_SUBPASS_CONTENTS_INLINE); ++begins; }
+{ (void)c; assert(i->renderArea.extent.width==1290 && i->renderArea.extent.height==726 && (!i->clearValueCount || (i->clearValueCount==3 && i->pClearValues[0].depthStencil.depth==1.0f)) && contents==VK_SUBPASS_CONTENTS_INLINE); ++begins; }
 VKAPI_ATTR void VKAPI_CALL vkCmdEndRenderPass(VkCommandBuffer c) { (void)c; ++ends; }
+static unsigned fullscreen_draws;
+VKAPI_ATTR void VKAPI_CALL vkCmdDraw(VkCommandBuffer c,uint32_t vertices,uint32_t instances,uint32_t first,uint32_t base)
+{ (void)c; assert(vertices==3 && instances==1 && !first && !base); ++fullscreen_draws; }
 VKAPI_ATTR void VKAPI_CALL vkCmdSetViewport(VkCommandBuffer c,uint32_t first,uint32_t count,const VkViewport *v)
-{ (void)c; assert(begins==ends+1 && first==0 && count==1 && v->x==11 && v->y==7 && v->width==1279 && v->height==719 && v->minDepth==0 && v->maxDepth==1); ++viewports; }
+{ (void)c; assert(begins==ends+1 && first==0 && count==1 && v->minDepth==0 && v->maxDepth==1);
+  assert((v->x==11 && v->y==7 && v->width==1279 && v->height==719) || (v->x==0 && v->y==0 && v->width==1290 && v->height==726)); ++viewports; }
 VKAPI_ATTR void VKAPI_CALL vkCmdSetScissor(VkCommandBuffer c,uint32_t first,uint32_t count,const VkRect2D *s)
 { (void)c; assert(begins==ends+1 && first==0 && count==1 && s->offset.x==0 && s->offset.y==0 && s->extent.width==1290 && s->extent.height==726); ++scissors; }
 VKAPI_ATTR void VKAPI_CALL vkCmdPipelineBarrier(VkCommandBuffer c,VkPipelineStageFlags src,VkPipelineStageFlags dst,
@@ -27,17 +32,16 @@ VKAPI_ATTR void VKAPI_CALL vkCmdPipelineBarrier(VkCommandBuffer c,VkPipelineStag
 		for(unsigned i=0;i<ni;++i) assert(images[i].oldLayout==VK_IMAGE_LAYOUT_UNDEFINED && images[i].newLayout==VK_IMAGE_LAYOUT_GENERAL); }
 	if(barriers==1) { assert(src==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && dst==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && ni==3);
 		assert(images[0].newLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && images[2].newLayout==VK_IMAGE_LAYOUT_GENERAL); }
-	if(barriers==2 && expect_soft) { assert(src==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && dst==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && nm==1 && !ni);
-        assert(m->srcAccessMask==VK_ACCESS_SHADER_WRITE_BIT && m->dstAccessMask==(VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT)); }
-    if(barriers==(expect_soft?3u:2u)) { assert(src==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && dst==(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) && ni==6);
+    if(barriers==2) { assert(src==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && dst==(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT) && ni==6);
 		for(unsigned i=0;i<ni;++i) assert(images[i].oldLayout==(i<4?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) && images[i].newLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); }
 	++barriers;
 }
 VKAPI_ATTR void VKAPI_CALL vkCmdBindPipeline(VkCommandBuffer c,VkPipelineBindPoint point,VkPipeline p)
-{ (void)c;(void)p; assert(point==VK_PIPELINE_BIND_POINT_COMPUTE || (point==VK_PIPELINE_BIND_POINT_GRAPHICS && begins==ends+1)); ++binds; }
+{ (void)c; assert(point==VK_PIPELINE_BIND_POINT_COMPUTE || (point==VK_PIPELINE_BIND_POINT_GRAPHICS && begins==ends+1)); if(p==(VkPipeline)(uintptr_t)33) ++soft_binds; ++binds; }
 VKAPI_ATTR void VKAPI_CALL vkCmdBindDescriptorSets(VkCommandBuffer c,VkPipelineBindPoint point,VkPipelineLayout l,
 	uint32_t first,uint32_t count,const VkDescriptorSet *s,uint32_t nd,const uint32_t *offsets)
-{ (void)c;(void)l;(void)s;(void)nd;(void)offsets; assert(point==VK_PIPELINE_BIND_POINT_COMPUTE && first==0 && count==(sets ? 2u : 1u)); ++sets; }
+{ (void)c;(void)l;(void)s;(void)nd;(void)offsets; if(point==VK_PIPELINE_BIND_POINT_GRAPHICS) { assert(begins==ends+1 && !first && count==1); return; }
+  assert(point==VK_PIPELINE_BIND_POINT_COMPUTE && first==0 && count==(sets ? 2u : 1u)); ++sets; }
 VKAPI_ATTR void VKAPI_CALL vkCmdPushConstants(VkCommandBuffer c,VkPipelineLayout l,VkShaderStageFlags stage,uint32_t off,uint32_t size,const void *data)
 { (void)c;(void)l; assert(stage==VK_SHADER_STAGE_COMPUTE_BIT && off==0 && size==(pushes ? 8u : 112u));
  if(!pushes) assert(((const rc_receiver_params_t *)data)->divisor==expected_divisor);
@@ -67,7 +71,7 @@ int main(void)
     params.divisor=expected_divisor=1.5f;expected_x=107;expected_y=60;
     assert(RCReceiver_RecordCompute(command,&targets,&p,layout,layout,set,set,set,set,&params));
     assert(dispatches==2);barriers=binds=sets=pushes=dispatches=0;
-    const float invalid[]={1,1.499f,1.501f,2.5f,5,NAN,INFINITY,-INFINITY};
+    const float invalid[]={0,.5f,.999f,16.5f,17,NAN,INFINITY,-INFINITY};
     for(unsigned d=0;d<sizeof(invalid)/sizeof(invalid[0]);++d) {
         params.divisor=invalid[d];assert(!RCReceiver_RecordCompute(command,&targets,&p,layout,layout,set,set,set,set,&params));
     }
@@ -92,9 +96,20 @@ int main(void)
 	assert(timestamp_writes==4);
 	ready=false; assert(!RCReceiver_RecordFrameTimed(command,&targets,&p,layout,layout,set,set,set,set,&params,1.0f,draw_ready,draw,NULL,(VkQueryPool)(uintptr_t)1,12));
 	assert(timestamp_writes==4);
-	ready=true;expect_soft=true;barriers=binds=sets=pushes=dispatches=0;
+	ready=true;barriers=binds=sets=pushes=dispatches=0;
 	assert(RCReceiver_RecordFrameSoftTimed(command,&targets,&p,layout,layout,set,set,set,set,&params,1.0f,draw_ready,draw,NULL,VK_NULL_HANDLE,0,(VkPipeline)(uintptr_t)33));
-	assert(barriers==4 && binds==4 && sets==3 && pushes==3 && dispatches==3 && timestamp_writes==4);
+	/* Soft shadows replace the direct pipeline instead of adding a pass. */
+	assert(barriers==3 && binds==3 && soft_binds==1 && sets==2 && pushes==2 && dispatches==2 && timestamp_writes==4);
+	assert(!fullscreen_draws);
+	/* Multisampled targets need the collapse pass and matching parameters. */
+	targets.samples=VK_SAMPLE_COUNT_4_BIT;
+	assert(!RCReceiver_RecordFrame(command,&targets,&p,layout,layout,set,set,set,set,&params,1.0f,draw_ready,draw,NULL));
+	params.samples=4; begins=ends=draws=viewports=scissors=barriers=binds=sets=pushes=dispatches=0;
+	assert(!RCReceiver_RecordFrame(command,&targets,&p,layout,layout,set,set,set,set,&params,1.0f,draw_ready,draw,NULL));
+	assert(!begins && !draws);
+	targets.resolve_pass=(VkRenderPass)(uintptr_t)7; targets.resolve_framebuffer=(VkFramebuffer)(uintptr_t)8; p.resolve=(VkPipeline)(uintptr_t)9;
+	assert(RCReceiver_RecordFrame(command,&targets,&p,layout,layout,set,set,set,set,&params,1.0f,draw_ready,draw,NULL));
+	assert(begins==2 && ends==2 && draws==1 && fullscreen_draws==1 && sets==2);
 	puts("PASS: receiver prepass and compute ordering with pre-record fallback checks");
 	return 0;
 }

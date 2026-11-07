@@ -11,6 +11,7 @@ r_radiance_soft_shadows 1
 r_radiance_shadow_radius 2
 r_radiance_shadow_sun_angle 0.5
 r_radiance_shadow_filter 1
+r_radiance_shadow_filter_radius 8
 ```
 
 The feature defaults to off. `r_radiance_shadow_radius` defaults to 2 and is an explicit source
@@ -26,23 +27,47 @@ The correction fades to zero when the two strongest candidates approach equal
 strength, avoiding an abrupt change when their ranks switch. Other sources,
 subtractive lights and local minimums keep their original visibility. Candidate
 selection records the winner and its existing hard visibility in the producer.
-An optional compute pass applies the three outer queries, so the additional
-query count is at most three per receiver, independent of the number of lights.
+A separate build of the direct pipeline applies the three outer queries, so the
+additional query count is at most three per receiver, independent of the number
+of lights, and hard shadows pay nothing for it.
 
-`r_radiance_shadow_filter` adds a geometry-guided Gaussian to the resulting
-visibility. It defaults to `1`, accepts fractional strengths from `0` to `2`,
-and uses `0` to retain the original unfiltered soft-shadow result. Ray-sampled
-contact hardening and this spatial filter can run together; the shadow filter
-is also independent of the indirect-light `r_radiance_probe_gaussian` control.
+`r_radiance_shadow_filter` applies a geometry-guided Gaussian to the combined
+direct-light result from **every** point, spot, emissive and directional light.
+There is no dominant-source selection or source-ID barrier in this filter.
+Signed additive/subtractive direct lighting and minimum lighting are filtered
+as separate fields, preserving their separate composition. It defaults to `1`,
+accepts fractional strengths from `0` to `2`, and uses `0` to retain the original
+unfiltered soft-shadow result. The master `r_radiance_soft_shadows` setting must
+be on. Gaussian filtering can still run if the optional contact-ray pipeline
+is unavailable.
 
-The spatial filter compares only scheduled samples of the same selected light
-on compatible geometry. It adjusts that light's visibility contribution while
-preserving other additive lights, subtractive lights and local minimum lighting.
-It uses a fixed nine-tap kernel, with checker holes reconstructed from up to
-four filtered scheduled samples. It adds no visibility rays or render targets.
-The existing texture-reconstruction dispatch performs the filter, including
-when checkerboarding and indirect lighting are both off. GI smoothing still
-uses its existing horizontal/vertical/copy passes.
+`r_radiance_shadow_filter_radius` defaults to `8` world units and accepts `0` to
+`128`; zero disables the Gaussian. Increasing it widens the fade. It is separate
+from the finite light-source radius and from probe spacing. The kernel support
+is 1.5 radii through strength 1 and 2.5 radii above 1, capped at 448 receiver
+texels per axis and stopped by geometry or unknown-sample barriers.
+
+Ray-sampled contact hardening, the all-light Gaussian and indirect-light
+`r_radiance_probe_gaussian` smoothing can all run together. The all-light filter
+uses nine logical interpolated taps per axis, with one shared geometry cache
+and separate validity barriers for each field. Missing GI data cannot block
+valid direct lighting. It adds no visibility rays or render targets and uses
+the existing horizontal/vertical/copy dispatches, including when checkerboarding
+and indirect lighting are both off.
+
+The cache retains exact draw/primitive IDs. Samples on the same native triangle
+can use its known plane even when smooth shading normals tilt away from that
+plane. Other triangles allow the slope that the normal-angle limit permits over
+the sample distance, so curved surfaces filter across their triangle edges while
+real steps stay barriers. Finite and normal-angle
+checks remain in both cases. This avoids falsely blocking filtering inside
+curved model triangles. Shared storage totals 34,328 bytes at 512 lanes, or 31,988 at the 416 lanes used on devices limited to 32 KiB. `RC_AXIS_RADIUS` is the storage limit, not the load size: each tile loads its core cells, derives an upper bound on its lanes' radii, then loads only that reach per field. A barrier at the edge of the loaded range stops segment searches, and the GPU fixtures compare every result bit for bit against a full-reach load.
+
+Opaque brush entities (doors, platforms, trains) replay through the world receiver stream with their own `mvp`, so they receive the same filtered lighting as the world. Their native draws sit in `SCBX_RECEIVER_BRUSHES`, which runs only when the world replay does not. Translucent entities, water and sky stay on the native path, and an entity that would overflow its capture stays native for that frame. `radiance_stats` reports `brush entities receiver draws`, `brush_frames_active` and `brush_frames_fallback`. `gpu_stage_time` also splits `receiver_filter` into `filter_horizontal`, `filter_vertical` and `filter_copy`.
+
+Two controls shape receiver lighting at reduced scales. `r_radiance_gi_normal_bias` (default 0.1, 0 to 1) lifts each receiver's GI lookup along its normal by that fraction of probe spacing; bounce transport keeps its own offset, so changing it leaves probe history alone. `r_radiance_upscale_blur` (default 1, 0 to 1) blends the upscale kernel for GI and direct light from one receiver texel of radius up to `r_radiance_upscale_blur_radius` (default 2, 1 to 16). The kernel is measured in receiver texels, so its size on screen grows with the divisor, and it has no effect at full scale. Taps on other surfaces are excluded, so light does not bleed across edges, but shadow edges soften by the same amount. Zero is plain bilinear. Beyond three texels the taps move to a coarser fixed lattice rather than multiply, capped at six per axis. Above bilinear, geometry fades a tap's weight instead of rejecting it, so curved surfaces do not stipple. Direct light keeps the bilinear upscale. `r_radiance_depth_aa` (default 0) keeps the majority surface in a block that crosses a silhouette, instead of dropping the block to the per-pixel path. At 1 the vote uses the pixels the prepass already has. At 2, 4 or 8 the prepass renders that many samples per pixel, and the classifier votes across them and rebuilds each position at its true sample location, so a one-pixel block can tell which surface really covers it. Higher values use the largest level the device can render and read back, which is 8 on most hardware, so 16 behaves as 8. A collapse pass then keeps each pixel's largest facet for the stages that read one sample per pixel. Multisampled targets cost 20 bytes per sample per pixel in each of the two frame slots, about 1.6 GB in total at 8x and 3440x1440. Depth is never averaged across surfaces, because that would invent points between them.
+
+Opaque world liquids join the world receiver stream, with their native draw in the last `SCBX_RECEIVER_BRUSHES` context. Their token range lets the filter recognize liquid texels, and `r_radiance_water_shadow_scale` (default 4, 1 to 16) multiplies the all-light filter radius there for a subsurface look. Lava stays unlit through the replay. Translucent liquids and liquid surfaces on brush entities keep native lighting. `radiance_stats` reports `water_draws`.
 
 The feature applies to the fast texture-filtered receiver path. With
 `r_radiance_deferred 1`, supported opaque world and model surfaces share this
@@ -55,15 +80,33 @@ only when requested; normal startup does not compile the soft-shadow pass.
 The original visibility helper still handles cutouts, liquids, sky boundaries
 and direct-only ECS shadow casters.
 
-This is a bounded approximation. Several similarly strong lights may retain
-hard shadows, and broad penumbras can show the small sample count. Spot-cone
-attenuation is unchanged: this feature filters visibility rather than cone
-boundaries. Full-resolution receivers and fragment fallback can cost more
-than reduced receivers. `radiance_stats` reports requested and actually active
+This is a bounded surface-lighting approximation. The all-light Gaussian also
+smooths attenuation and color gradients; it does not perform a separate blocker
+search or physical penumbra estimate for every light. The optional contact-ray
+pass retains its three-extra-ray budget. Full-resolution receivers and fragment
+fallback can cost more than reduced receivers. `radiance_stats` reports requested and actually active
 controls, including unsupported or unavailable optional-pipeline fallback.
 The `shadow filter` line reports requested and actually recorded filter
-strength; its active/inactive frame counters can detect a skipped pass during
+strength and world radius; its active/inactive frame counters can detect a skipped pass during
 a comparison. Selecting the cvar alone does not prove the filter ran.
+
+The all-light implementation passed eight SDK synchronization-validated states
+at odd 641×361, including full/half/quarter grids, checkerboarding, GI and
+direct filtering together, disabled controls and reference-path fallback.
+An exact E1M1 hallway comparison with bounce and emissive gains zero confirms
+that the point-light triangular boundaries become broad fades at radius 8.
+
+A clean three-pair RTX 4080 comparison at 1280×720, half scale, checkerboarding,
+quality 0, bounce 0, point gain 1, emissive gain 0, soft source radius 5 and
+Gaussian radius 8 measured median whole-frame GPU times of 0.9602 ms off and
+1.4040 ms on. The median paired cost was 0.4419 ms (46.02%); measured wall FPS
+medians were 910.4 and 657.2. This includes the final exact-triangle guide cache.
+The final five-second idle grace and clean exit
+were included outside the timing windows. This is a small scene-specific
+comparison, not a native-widescreen performance guarantee. Earlier source-local
+filter timings below describe superseded implementations.
+
+## Earlier validation
 
 The first all-forward prototype is rejected: its driver compilation delayed
 startup. Its cross-binary image comparison also had different active light

@@ -3,12 +3,17 @@
 #include "radiance_receiver_record.h"
 #include "radiance_receiver_world.h"
 #include "radiance_receiver_model.h"
+/* Must match RC_AXIS_GROUP in radiance_receiver_filter_axis.glsl. */
+#define RC_RECEIVER_FILTER_GROUP 416u
+#define RC_RECEIVER_FILTER_GROUP_WIDE 512u
+#define RC_RECEIVER_FILTER_WIDE_SHARED 34328u
 /* SCR_DrawDone advances the counter before end-of-frame recording. */
 static inline uint64_t RCReceiverFrame_CompletedSerial(uint32_t frame_count)
 {
 	return (uint64_t)(frame_count - 1u);
 }
 struct rc_receiver_forward_material_s;
+struct rc_receiver_light_s;
 /* All resources and the immutable draw snapshot remain owned by the caller
  * until command recording has finished. Stage on the render thread only. */
 typedef struct {
@@ -21,11 +26,12 @@ typedef struct {
 	const rc_receiver_pipelines_t *pipelines;
 	VkPipelineLayout classify_layout, direct_layout, world_layout;
 	VkDescriptorSet classify_set, direct_set, cascade_set, lighting_set;
-	VkPipeline reconstruct_pipeline;
+	VkPipeline reconstruct_pipeline,reconstruct_whole_pipeline;
+	uint32_t filter_group; /* zero means RC_RECEIVER_FILTER_GROUP */
 	VkPipelineLayout reconstruct_layout;
 	VkDescriptorSet reconstruct_set, reconstruct_reverse_set;
 	bool postprocess,checkerboard,texture_filter,gaussian_filter,smooth_shadows;
-	float shadow_filter_strength;
+	float shadow_filter_strength,shadow_filter_radius;
 	VkPipeline soft_shadow_pipeline;
 	bool soft_shadows;
 	VkQueryPool timing_pool;
@@ -41,6 +47,7 @@ typedef struct {
 	uint64_t model_fingerprint;
 	rc_receiver_params_t params;
 	float depth_clear;
+	const struct rc_receiver_light_s *light; /* null: the forward shader upsamples */
 } rc_receiver_frame_plan_t;
 /* One-shot plan: only a matching frame may consume it. A plan not staged for
  * the current frame and any failed preflight force full-resolution rendering. */
@@ -55,6 +62,7 @@ const rc_receiver_params_t *RCReceiverFrame_ActiveParams(uint64_t frame_serial);
 bool RCReceiverFrame_ActivePostprocess(uint64_t frame_serial);
 bool RCReceiverFrame_ActiveSoftShadows(uint64_t frame_serial);
 float RCReceiverFrame_ActiveShadowFilter(uint64_t frame_serial);
+float RCReceiverFrame_ActiveShadowFilterRadius(uint64_t frame_serial);
 const rc_receiver_targets_t *RCReceiverFrame_ActiveTargets(uint64_t frame_serial);
 void RCReceiverFrame_Reset(void);
 #endif

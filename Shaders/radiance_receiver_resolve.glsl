@@ -1,6 +1,15 @@
 #ifndef RADIANCE_RECEIVER_RESOLVE_GLSL
 #define RADIANCE_RECEIVER_RESOLVE_GLSL
 #include "radiance_receiver_scale.glsl"
+/* A shader with the lighting parameters defines this as the scene's flag, so the
+ * field goes unread where no light can write it. */
+#ifndef RC_RECEIVER_MINIMUM_LIGHTS
+#define RC_RECEIVER_MINIMUM_LIGHTS true
+#endif
+/* Records which lighting terms missed the receiver, for r_radiance_debug_fallback.
+ * Bit 0: indirect, bit 1: direct. Always true, so it can sit in a condition. */
+uint rcFallbackMask=0u;
+bool RC_NoteFallback(uint term) { rcFallbackMask|=term; return true; }
 #ifndef RC_RECEIVER_RESOLVE_TEST
 #if !RC_RECEIVER_TEXTURE_FILTER
 #include "radiance_receiver_visibility.glsl"
@@ -46,6 +55,9 @@ vec4 RC_ResolveValue(ivec2 p, uint field) {
  * may reject hidden fragments; unknown and near-equal evidence fails open. */
 bool RC_ReceiverOccluded(ivec2 pixel,uvec2 id,float fragmentDepth)
 {
+    /* Receiver depth is one sample per pixel. Under MSAA a fragment can still
+     * cover other samples, so culling here would cut holes in silhouettes. */
+    if((rcLighting.counts.w&32u)!=0u) return false;
     ivec2 localPixel=pixel-rcReceiver.viewport.xy;
     if(any(lessThan(localPixel,ivec2(0))) || any(greaterThanEqual(localPixel,rcReceiver.viewport.zw)) ||
         any(equal(id,uvec2(0))) || isnan(fragmentDepth) || isinf(fragmentDepth) || fragmentDepth<0.0 || fragmentDepth>1.0) return false;
@@ -58,6 +70,10 @@ bool RC_ReceiverOccluded(ivec2 pixel,uvec2 id,float fragmentDepth)
 }
 #endif
 #if RC_RECEIVER_TEXTURE_FILTER
+#ifndef RC_RECEIVER_RESOLVE_TEST
+ivec2 RC_ReceiverRepresentative(float packed) { int offset=max(int(packed)-1,0); return ivec2(offset&15,offset>>4); }
+#define RC_RECEIVER_REPRESENTATIVE(p) RC_ReceiverRepresentative(texelFetch(rcHalfPosition,p,0).w)
+#endif
 #include "radiance_receiver_guides.glsl"
 #endif
 /* Mode 0: full half-resolution fields; mode 1: opposite parity fields.
@@ -85,6 +101,16 @@ bool RC_CheckerCompatible(ivec2 dst, ivec2 src, uint field) {
 }
 #include "radiance_receiver_checkerboard.glsl"
 #if RC_RECEIVER_TEXTURE_FILTER
+/* One texel of radius is bilinear. The upscale blur widens it, in receiver
+ * texels, so its size on screen grows with the divisor. */
+float RC_ReceiverUpscaleRadius()
+{
+    float radius=1.0;
+#ifndef RC_RECEIVER_PLAIN_UPSCALE
+    if(rcReceiver.normalThreshold.z>1.0) radius+=clamp(rcReceiver.normalThreshold.w,0.0,15.0);
+#endif
+    return radius;
+}
 bool RC_TextureReceiverTap(ivec2 tap,ivec2 extent,uvec2 id,vec3 position,vec3 normal)
 {
     uvec2 otherID; vec3 otherPosition,otherNormal;
@@ -97,7 +123,10 @@ bool RC_ReceiverField(ivec2 pixel, uvec2 id, vec3 position, vec3 normal, uint fi
     result=vec3(0);
     ivec2 localPixel=pixel-rcReceiver.viewport.xy;
     if (any(lessThan(localPixel,ivec2(0))) || any(greaterThanEqual(localPixel,rcReceiver.viewport.zw)) ||
-        any(notEqual(RC_ResolveID(pixel),id)) || any(equal(id,uvec2(0))) ||
+#if !RC_RECEIVER_TEXTURE_FILTER
+        any(notEqual(RC_ResolveID(pixel),id)) ||
+#endif
+        any(equal(id,uvec2(0))) ||
         any(isnan(position)) || any(isinf(position)) || any(isnan(normal)) || any(isinf(normal))) return false;
     vec2 coord=RC_ReceiverSourceCoord(localPixel,rcReceiver.normalThreshold.z);
     ivec2 base=ivec2(floor(coord)); vec2 f=fract(coord);
@@ -106,13 +135,30 @@ bool RC_ReceiverField(ivec2 pixel, uvec2 id, vec3 position, vec3 normal, uint fi
     /* A rejected guide removes that tap, rather than forcing every fragment
      * near an edge through a second probe lookup. No probe visibility scan. */
     float total=0.0;
-    for(int y=0;y<2;y++) for(int x=0;x<2;x++) {
-        float weight=(x==0?1-f.x:f.x)*(y==0?1-f.y:f.y);
+    float radius=RC_ReceiverUpscaleRadius();
+    /* At most six taps per axis. Wider kernels use a fixed coarser lattice, so
+     * a tap only enters or leaves at the kernel edge, where its weight is zero. */
+    /* Probes can leave GI texels empty deep in folds. Search wider before
+     * leaving the filtered path, whose result looks different. */
+    for(int attempt=0;attempt<(field==1u?2:1) && total<=0.0;++attempt) {
+    if(attempt>0) radius=max(radius*2.0,4.0);
+    int stride=max(int(ceil(radius/3.0)),1),reach=int(ceil(radius/float(stride)));
+    ivec2 lattice=(base/stride)*stride;
+    for(int y=1-reach;y<=reach;y++) for(int x=1-reach;x<=reach;x++) {
+        ivec2 p=lattice+ivec2(x,y)*stride; vec3 value;
+        vec2 falloff=max(vec2(1)-abs(vec2(p)-coord)/radius,vec2(0));
+        float weight=falloff.x*falloff.y;
         if(weight<=1e-7) continue;
-        ivec2 p=base+ivec2(x,y); vec3 value;
-        if(!RC_TextureReceiverTap(p,extent,id,position,normal) || !RC_CheckerFetch(p,field,value) ||
-            !RC_ReceiverFinite(value) || any(greaterThan(abs(value),vec3(65504.0)))) continue;
+        if(radius>1.0) {
+            uvec2 otherID; vec3 otherPosition,otherNormal;
+            if(!RC_ReceiverGuide(p,extent,otherID,otherPosition,otherNormal)) continue;
+            weight*=RC_ReceiverGeometryWeight(id,position,normal,otherID,otherPosition,otherNormal);
+            if(weight<=1e-7) continue;
+        }
+        else if(!RC_TextureReceiverTap(p,extent,id,position,normal)) continue;
+        if(!RC_CheckerFetch(p,field,value) || !RC_ReceiverFinite(value) || any(greaterThan(abs(value),vec3(65504.0)))) continue;
         result+=weight*value; total+=weight;
+    }
     }
     if(total<=0.0) { result=vec3(0); return false; }
     result/=total;
@@ -180,20 +226,36 @@ bool RC_ReceiverDirect(ivec2 pixel, uvec2 id, vec3 position, vec3 normal, out ve
 {
     direct=vec3(0); minimum=vec3(0);
     ivec2 localPixel=pixel-rcReceiver.viewport.xy;
+    /* A shared triangle edge can give this pixel to the neighbor in the prepass.
+     * Texture taps judge geometry themselves, so the exact identity is only
+     * required by the legacy path; demanding it here outlines every triangle. */
     if(any(lessThan(localPixel,ivec2(0))) || any(greaterThanEqual(localPixel,rcReceiver.viewport.zw)) ||
-       any(notEqual(RC_ResolveID(pixel),id)) || any(equal(id,uvec2(0))) ||
+#if !RC_RECEIVER_TEXTURE_FILTER
+       any(notEqual(RC_ResolveID(pixel),id)) ||
+#endif
+       any(equal(id,uvec2(0))) ||
        any(isnan(position)) || any(isinf(position)) || any(isnan(normal)) || any(isinf(normal))) return false;
     vec2 coord=RC_ReceiverSourceCoord(localPixel,rcReceiver.normalThreshold.z);
     ivec2 base=ivec2(floor(coord)); vec2 f=fract(coord);
     ivec2 extent=RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z);
 #if RC_RECEIVER_TEXTURE_FILTER
-    float total=0.0;
-    for(int y=0;y<2;y++) for(int x=0;x<2;x++) {
-        float weight=(x==0?1-f.x:f.x)*(y==0?1-f.y:f.y);
+    /* Same kernel as GI, so reduced scales do not leave direct light blocky. */
+    float total=0.0, radius=RC_ReceiverUpscaleRadius();
+    int stride=max(int(ceil(radius/3.0)),1),reach=int(ceil(radius/float(stride)));
+    ivec2 lattice=(base/stride)*stride;
+    for(int y=1-reach;y<=reach;y++) for(int x=1-reach;x<=reach;x++) {
+        ivec2 p=lattice+ivec2(x,y)*stride; vec3 d,m;
+        vec2 falloff=max(vec2(1)-abs(vec2(p)-coord)/radius,vec2(0));
+        float weight=falloff.x*falloff.y;
         if(weight<=1e-7) continue;
-        ivec2 p=base+ivec2(x,y); vec3 d,m;
-        if(!RC_TextureReceiverTap(p,extent,id,position,normal) ||
-            !RC_CheckerFetch(p,0u,d) || !RC_CheckerFetch(p,2u,m) || !RC_ReceiverFinite(d) || !RC_ReceiverFinite(m) ||
+        if(radius>1.0) {
+            uvec2 otherID; vec3 otherPosition,otherNormal;
+            if(!RC_ReceiverGuide(p,extent,otherID,otherPosition,otherNormal)) continue;
+            weight*=RC_ReceiverGeometryWeight(id,position,normal,otherID,otherPosition,otherNormal);
+            if(weight<=1e-7) continue;
+        }
+        else if(!RC_TextureReceiverTap(p,extent,id,position,normal)) continue;
+        if(!RC_CheckerFetch(p,0u,d) || !RC_CheckerFetch(p,2u,m) || !RC_ReceiverFinite(d) || !RC_ReceiverFinite(m) ||
             any(greaterThan(abs(d),vec3(65504.0))) || any(greaterThan(abs(m),vec3(65504.0)))) continue;
         direct+=weight*d; minimum+=weight*m; total+=weight;
     }
@@ -216,5 +278,67 @@ bool RC_ReceiverDirect(ivec2 pixel, uvec2 id, vec3 position, vec3 normal, out ve
     }
 #endif
     return !(any(isnan(direct)) || any(isinf(direct)) || any(isnan(minimum)) || any(isinf(minimum)));
+}
+#if RC_RECEIVER_FULL_LIGHT
+/* The gather and miss passes already resolved this pixel. Alpha 2 marks a miss. */
+void RC_ReceiverFullLight(ivec2 pixel,out vec3 indirect,out vec3 direct,out vec3 minimum)
+{
+    vec4 gi=RC_ResolveValue(pixel,1u),light=RC_ResolveValue(pixel,0u);
+    indirect=gi.rgb; direct=light.rgb;
+    minimum=RC_RECEIVER_MINIMUM_LIGHTS?RC_ResolveValue(pixel,2u).rgb:vec3(0);
+    if(gi.a>1.5) RC_NoteFallback(1u);
+    if(light.a>1.5) RC_NoteFallback(2u);
+}
+#endif
+/* The forward pass needs every field at one point. Guides dominate the kernel,
+ * so one walk serves GI, direct and minimum instead of a walk per lookup. */
+void RC_ReceiverLighting(ivec2 pixel,uvec2 id,vec3 position,vec3 normal,bool wantIndirect,
+    out vec3 indirect,out bool indirectValid,out vec3 direct,out vec3 minimum,out bool directValid)
+{
+    indirect=vec3(0); direct=vec3(0); minimum=vec3(0); indirectValid=false; directValid=false;
+#if RC_RECEIVER_TEXTURE_FILTER
+    ivec2 localPixel=pixel-rcReceiver.viewport.xy;
+    if(any(lessThan(localPixel,ivec2(0))) || any(greaterThanEqual(localPixel,rcReceiver.viewport.zw)) ||
+       any(equal(id,uvec2(0))) ||
+       any(isnan(position)) || any(isinf(position)) || any(isnan(normal)) || any(isinf(normal))) return;
+    vec2 coord=RC_ReceiverSourceCoord(localPixel,rcReceiver.normalThreshold.z);
+    ivec2 base=ivec2(floor(coord));
+    ivec2 extent=RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z);
+    float indirectTotal=0.0,directTotal=0.0,radius=RC_ReceiverUpscaleRadius();
+    bool minimumLights=RC_RECEIVER_MINIMUM_LIGHTS;
+    int stride=max(int(ceil(radius/3.0)),1),reach=int(ceil(radius/float(stride)));
+    ivec2 lattice=(base/stride)*stride;
+    for(int y=1-reach;y<=reach;y++) for(int x=1-reach;x<=reach;x++) {
+        ivec2 p=lattice+ivec2(x,y)*stride;
+        vec2 falloff=max(vec2(1)-abs(vec2(p)-coord)/radius,vec2(0));
+        float weight=falloff.x*falloff.y;
+        if(weight<=1e-7) continue;
+        if(radius>1.0) {
+            uvec2 otherID; vec3 otherPosition,otherNormal;
+            if(!RC_ReceiverGuide(p,extent,otherID,otherPosition,otherNormal)) continue;
+            weight*=RC_ReceiverGeometryWeight(id,position,normal,otherID,otherPosition,otherNormal);
+            if(weight<=1e-7) continue;
+        }
+        else if(!RC_TextureReceiverTap(p,extent,id,position,normal)) continue;
+        vec3 value,d,m=vec3(0);
+        if(wantIndirect && RC_CheckerFetch(p,1u,value) && RC_ReceiverFinite(value) && !any(greaterThan(abs(value),vec3(65504.0)))) {
+            indirect+=weight*value; indirectTotal+=weight;
+        }
+        if(RC_CheckerFetch(p,0u,d) && (!minimumLights || RC_CheckerFetch(p,2u,m)) && RC_ReceiverFinite(d) && RC_ReceiverFinite(m) &&
+            !any(greaterThan(abs(d),vec3(65504.0))) && !any(greaterThan(abs(m),vec3(65504.0)))) {
+            direct+=weight*d; minimum+=weight*m; directTotal+=weight;
+        }
+    }
+    if(directTotal>0.0) {
+        direct/=directTotal; minimum/=directTotal;
+        directValid=RC_ReceiverFinite(direct) && RC_ReceiverFinite(minimum);
+    } else { direct=vec3(0); minimum=vec3(0); }
+    /* The rare empty kernel takes the GI lookup's wider search. */
+    if(indirectTotal>0.0) { indirect/=indirectTotal; indirectValid=RC_ReceiverFinite(indirect); }
+    else if(wantIndirect) indirectValid=RC_ReceiverField(pixel,id,position,normal,1u,indirect);
+#else
+    if(wantIndirect) indirectValid=RC_ReceiverIndirect(pixel,id,position,normal,indirect);
+    directValid=RC_ReceiverDirect(pixel,id,position,normal,direct,minimum);
+#endif
 }
 #endif

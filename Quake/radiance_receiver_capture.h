@@ -11,6 +11,7 @@ typedef struct rc_receiver_world_capture_s {
 	bool failed;
 } rc_receiver_world_capture_t;
 #define RC_RECEIVER_CAPTURE_SLOTS 32
+#define RC_EXPERIMENTAL_CAPTURE_CAPACITY 512
 bool RCReceiverCapture_Install(uint32_t slot, rc_receiver_world_capture_t *capture);
 rc_receiver_world_capture_t *RCReceiverCapture_Acquire(uint32_t slot, uint64_t serial);
 bool RCReceiverCapture_Add(rc_receiver_world_capture_t *capture, const rc_receiver_world_draw_t *draw,

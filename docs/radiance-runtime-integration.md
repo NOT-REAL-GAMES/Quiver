@@ -114,34 +114,12 @@ breakdown. Receiver sample counts cover submitted receiver frames only and can
 differ from world/entity counts; a skipped postfilter records an empty range.
 Whole-frame and stage commands also report p95.
 
-Set `r_radiance_resolution_scale` to `0.666666667` (or `0.666`), `0.5`,
-`0.333333333`, or `0.25` to evaluate direct illumination, shadows, and diffuse
-bounce at two-thirds, half, one-third, or one-quarter width and height.
-Two-thirds uses divisor `1.5` and an exact `ceil(2N/3)` grid: a 641×361 viewport
-has 428×241 receiver cells. Its raster footprints alternate between one and
-two pixels per axis, and reconstruction aligns with those nonuniform anchors.
-The other scales use 2×2, 3×3, or 4×4 blocks. Classification checks every
-present pixel, including partial blocks at odd viewport edges. Set
-`r_radiance_checkerboard 1` as well to evaluate direct light and bounce on
-opposite cells of the receiver grid and reconstruct their missing values
-spatially. The result is interpolated onto world surfaces, with full-resolution evaluation at
-incompatible geometry or invalid samples. Shadow edges on the same surface
-are interpolated and may be softer or shifted. No temporal history is used.
-
-This experimental path currently requires `r_indirect 0` (the engine default), single-sample
-rendering (`vid_fsaa 1`, which restarts video when changed), and a supported opaque
-world draw. Models, transparency, MSAA, and unsupported frames retain the
-existing path. `radiance_stats` reports both requested and actually active
-receiver modes; a requested mode can fall back. Set
-`r_radiance_resolution_scale 1` for full resolution. Other positive values are
-rounded to the nearest supported per-axis scale and invalid or nonpositive
-values select full resolution. The scale and
-checkerboard controls are archived. Existing configs and scripts can still use
-`r_radiance_half_resolution 1` or `0` as a compatibility alias for scale `0.5`
-or `1`. Reading the alias reports `0` for full, `1` for half, `2` for one-third,
-`3` for one-quarter, and `4` for two-thirds resolution. Legacy writes of `1`
-select half resolution, and writes of `0` select full resolution.
-Distinct mirror values preserve legacy `0`/`1` writes after changing scale.
+`r_radiance_resolution_scale` accepts any value from 1/16 to 1, with 1 meaning
+full resolution. Smaller positive values clamp to 1/16, and invalid or nonpositive
+values select full resolution. Rounded spellings such as `0.666` or `0.333` select
+the exact fraction they mean. A receiver block starts at `floor(block * divisor)`,
+so widths alternate at fractional divisors; blocks wider than four pixels classify
+from an evenly spread 4x4 sample. The scale and checkerboard controls are archived.
 `radiance_stats` reports the actual recorded scale and numeric divisor,
 including `1.5` for two-thirds and `1` for full-resolution fallback. Geometry
 that cannot reuse receiver samples still requires fragment lighting, so performance depends on the view. The older

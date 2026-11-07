@@ -24,7 +24,8 @@ def function(source, signature):
 for name, default in [('r_radiance_soft_shadows', '0'),
                       ('r_radiance_shadow_radius', '2'),
                       ('r_radiance_shadow_sun_angle', '0.5'),
-                      ('r_radiance_shadow_filter', '1')]:
+                      ('r_radiance_shadow_filter', '1'),
+                      ('r_radiance_shadow_filter_radius', '8')]:
     if not re.search(r'cvar_t\s+' + name + r'\s*=\s*\{"' + name + r'",\s*"' + re.escape(default) + r'",\s*CVAR_ARCHIVE\}', runtime):
         raise RuntimeError(f'{name}: archived default changed')
 
@@ -35,17 +36,25 @@ prefix = r'''
 #include <stddef.h>
 #include <string.h>
 typedef struct { float value; } cvar_t;
-static cvar_t r_radiance_soft_shadows={0},r_radiance_shadow_radius={4},r_radiance_shadow_sun_angle={.5f},r_radiance_shadow_filter={1};
+static cvar_t r_radiance_soft_shadows={0},r_radiance_shadow_radius={4},r_radiance_shadow_sun_angle={.5f},r_radiance_shadow_filter={1},r_radiance_shadow_filter_radius={8};
 '''
 body = function(runtime, 'void R_RadianceShadowParameters')
+body += function(runtime, 'float R_RadianceShadowFilterRadius')
 body += function(inputs, 'static bool RadianceInputs_ValidateSnapshot')
 suffix = r'''
 int main(void) {
- _Static_assert(sizeof(radiance_lighting_parameters_t)==160,"std140 lighting block size");
+ _Static_assert(sizeof(radiance_lighting_parameters_t)==176,"std140 lighting block size");
  _Static_assert(offsetof(radiance_lighting_parameters_t,receiver_filter)==128,"existing field offset");
  _Static_assert(offsetof(radiance_lighting_parameters_t,shadow_parameters)==144,"new shadow offset");
  float out[4]; R_RadianceShadowParameters(out);
  assert(out[0]==0 && out[1]==4 && fabsf(out[2]-.00872664626f)<1e-9f && out[3]==1);
+ assert(R_RadianceShadowFilterRadius()==8);
+ const float radius_requests[]={0,.5f,8,32,128,200,NAN,INFINITY,-1};
+ const float radius_effective[]={0,.5f,8,32,128,128,0,0,0};
+ for(unsigned i=0;i<sizeof(radius_requests)/sizeof(*radius_requests);++i) {
+  r_radiance_shadow_filter_radius.value=radius_requests[i];
+  assert(R_RadianceShadowFilterRadius()==radius_effective[i]);
+ }
  r_radiance_soft_shadows.value=.01f; r_radiance_shadow_radius.value=100; r_radiance_shadow_sun_angle.value=90;
  R_RadianceShadowParameters(out);
  const float maximum=15.0f*.01745329251994329577f;
@@ -85,6 +94,13 @@ int main(void) {
   memcpy(snapshot.parameters.shadow_parameters,valid[i],sizeof(out));
   assert(RadianceInputs_ValidateSnapshot(&inputs,&snapshot,&bytes));
  }
+ const float bad_radius[]={-.1f,128.1f,NAN,INFINITY};
+ for(unsigned i=0;i<sizeof(bad_radius)/sizeof(*bad_radius);++i) {
+  snapshot.parameters.receiver_filter[3]=bad_radius[i];
+  assert(!RadianceInputs_ValidateSnapshot(&inputs,&snapshot,&bytes));
+ }
+ snapshot.parameters.receiver_filter[3]=128;
+ assert(RadianceInputs_ValidateSnapshot(&inputs,&snapshot,&bytes));
  return 0;
 }
 '''

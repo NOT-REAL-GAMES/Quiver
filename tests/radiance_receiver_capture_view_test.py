@@ -51,32 +51,43 @@ prefix = r'''
 #include <assert.h>
 #include <math.h>
 #include <string.h>
-enum { NUM_WORLD_CBX=2, NUM_ENTITIES_CBX=2, RC_EXPERIMENTAL_CAPTURE_CAPACITY=4, RC_EXPERIMENTAL_MODEL_CAPACITY=4 };
+#undef RC_EXPERIMENTAL_CAPTURE_CAPACITY
+#define RC_EXPERIMENTAL_CAPTURE_CAPACITY 4
+enum { NUM_WORLD_CBX=2, NUM_ENTITIES_CBX=2, RC_EXPERIMENTAL_MODEL_CAPACITY=4 };
 static struct { int render_width,render_height; } vid;
 static struct { int x,y,width,height; } r_scene_vrect;
 static struct { float view_projection_matrix[16]; VkSampleCountFlagBits sample_count; } vulkan_globals;
-static struct { float value; } r_radiance_deferred,r_radiance_receiver_filter,r_radiance_checkerboard,r_radiance_bounce_gain,r_radiance_probe_gaussian;
+static struct { float value; } r_radiance_deferred,r_radiance_receiver_filter,r_radiance_checkerboard,r_radiance_bounce_gain,r_radiance_probe_gaussian,r_radiance_receiver_diagnostics;
 static float live_shadow_parameters[4];
+static float live_shadow_filter_radius;
 static void R_RadianceShadowParameters(float out[4]) { memcpy(out,live_shadow_parameters,sizeof(live_shadow_parameters)); }
+static float R_RadianceShadowFilterRadius(void) { return live_shadow_filter_radius; }
 static bool indirect,active=true;
 static float divisor;
 static uint32_t r_framecount=19;
 static float R_RadianceResolutionDivisor(void) { return divisor; }
 static bool R_RadianceActive(void) { return active; }
 static void Con_Printf(const char *format,...) { (void)format; }
-static rc_receiver_world_capture_t rc_capture_workers[NUM_WORLD_CBX];
-static rc_receiver_world_draw_t rc_capture_draws[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
-static rc_receiver_forward_material_t rc_capture_materials[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+#define RC_EXPERIMENTAL_WATER_SLOT (NUM_WORLD_CBX+NUM_ENTITIES_CBX)
+#define RC_EXPERIMENTAL_CAPTURE_WORKERS (RC_EXPERIMENTAL_WATER_SLOT+1)
+static rc_receiver_world_capture_t rc_capture_workers[RC_EXPERIMENTAL_CAPTURE_WORKERS];
+static rc_receiver_world_draw_t rc_capture_draws[RC_EXPERIMENTAL_CAPTURE_WORKERS][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_forward_material_t rc_capture_materials[RC_EXPERIMENTAL_CAPTURE_WORKERS][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
 static rc_receiver_model_capture_t rc_model_workers[NUM_ENTITIES_CBX];
 static rc_receiver_model_draw_t rc_model_draws[NUM_ENTITIES_CBX][RC_EXPERIMENTAL_MODEL_CAPACITY];
 static rc_receiver_model_snapshot_t rc_model_snapshot;
-static uint32_t rc_model_capture_count,rc_capture_count;
+static uint32_t rc_model_capture_count,rc_capture_count,rc_brush_capture_count,rc_brush_draw_count,rc_water_draw_count;
+static bool rc_water_capture;
+static float R_RadianceUpscaleExtent(void) { return 1; }
+static struct { float value; } r_radiance_depth_aa={0};
+static uint32_t R_ReceiverDepthSamples(void){return 1;}
+static bool R_MeshletsDrawWorld(void){return false;}
 static uint64_t rc_capture_serial;
 static bool rc_capture_requested;
 static unsigned installs;
 void RCReceiverCapture_Reset(void) { installs=0; }
 static void RCReceiverModelCapture_Reset(void) { installs=0; }
-static bool RCReceiverCapture_Install(uint32_t slot,rc_receiver_world_capture_t *p) { assert(slot<2 && p->frame_serial==19);++installs;return true; }
+static bool RCReceiverCapture_Install(uint32_t slot,rc_receiver_world_capture_t *p) { assert(slot<RC_EXPERIMENTAL_CAPTURE_WORKERS && p->frame_serial==19);++installs;return true; }
 static bool RCReceiverModelCapture_Install(uint32_t slot,rc_receiver_model_capture_t *p) { assert(slot<2 && p->frame_serial==19);++installs;return true; }
 typedef struct { unsigned unused; } rc_experimental_bindings_t;
 static uint32_t GL_RenderFrameSlot(void) { return 1; }
@@ -104,7 +115,7 @@ body += 'static rc_receiver_params_t FinishView(void) {\nVkRenderPass pass=(VkRe
 body += 'assert(view_ok && bindings_ok && prepared && pool);return params;\n}\n'
 body += r'''
 static bool ResolvedChoice(bool pipeline) {
- struct { struct { VkPipeline soft_shadows; struct { VkDescriptorSet forward_resolved,forward; } descriptors; } resources; }
+ struct { struct { VkPipeline soft_shadows; struct { VkDescriptorSet forward_resolved,forward; } descriptors; struct { VkDevice device; VkDescriptorSet forward; } light; } resources; }
   slot={.resources={.soft_shadows=pipeline?(VkPipeline)(uintptr_t)1:VK_NULL_HANDLE,
    .descriptors={.forward_resolved=(VkDescriptorSet)(uintptr_t)2,.forward=(VkDescriptorSet)(uintptr_t)1}}},*s=&slot;
 '''
@@ -122,16 +133,21 @@ static void set_view(void) {
  r_radiance_deferred.value=1;r_radiance_receiver_filter.value=1;active=true;indirect=false;
  r_radiance_checkerboard.value=1;r_radiance_bounce_gain.value=1;r_radiance_probe_gaussian.value=2;
  live_shadow_parameters[0]=1;live_shadow_parameters[1]=2;live_shadow_parameters[2]=.01f;live_shadow_parameters[3]=1.5f;
+ live_shadow_filter_radius=8;
 }
 int main(void) {
  const float divisors[]={1,1.5,2,3,4};
  for(unsigned mode=0;mode<5;++mode)for(unsigned task=0;task<2;++task) {
   set_view();divisor=divisors[mode];bool tasks=task!=0;
-  RCExperimentalCaptureBegin(&tasks);assert(rc_capture_requested && installs==(task?4:2));
+  RCExperimentalCaptureBegin(&tasks);assert(rc_capture_requested && installs==(task?7:4) && rc_brush_capture_count==(task?2:1));
+  /* Staging rejects a frame whose world-stream tokens reach the model range. */
+  assert(rc_water_capture && rc_capture_workers[RC_EXPERIMENTAL_WATER_SLOT].first_token+RC_EXPERIMENTAL_CAPTURE_CAPACITY<=rc_model_workers[0].first_token);
+  assert(rc_capture_workers[NUM_WORLD_CBX].first_token>=rc_capture_workers[rc_capture_count-1].first_token+RC_EXPERIMENTAL_CAPTURE_CAPACITY);
   rc_experimental_view_t saved=rc_capture_view;
   assert(saved.params.divisor==divisor && saved.params.inverse_view_projection[12]==-17);
   assert(saved.texture_filter && saved.smooth_indirect && saved.checkerboard==(saved.params.divisor>1));
   assert(!memcmp(saved.shadow_parameters,live_shadow_parameters,sizeof(live_shadow_parameters)));
+  assert(saved.shadow_filter_radius==8);
   assert(saved.params.inverse_view_projection[13]==23 && saved.params.inverse_view_projection[14]==-31);
   assert(saved.params.ndc_transform[0]==2.f/633 && saved.params.ndc_transform[1]==2.f/349);
   assert(saved.params.ndc_transform[2]==-1.f-3*(2.f/633) && saved.params.ndc_transform[3]==-1.f-7*(2.f/349));
@@ -142,6 +158,7 @@ int main(void) {
   divisor=divisors[(mode+1)%5];
   r_radiance_receiver_filter.value=0;r_radiance_checkerboard.value=0;
   r_radiance_bounce_gain.value=0;r_radiance_probe_gaussian.value=0;memset(live_shadow_parameters,0,sizeof(live_shadow_parameters));
+  live_shadow_filter_radius=0;
   rc_receiver_params_t actual=FinishView();
   assert(!memcmp(&actual,&saved.params,sizeof(actual)));
   assert(prepared_width==641 && prepared_height==361 && !memcmp(prepared_view,saved.params.viewport,sizeof(prepared_view)));
@@ -166,12 +183,13 @@ int main(void) {
  active=false;RCExperimentalCaptureBegin(&tasks);assert(!rc_capture_requested && !installs && !rc_capture_view.width);
  const float strengths[]={0,.5f,1,2};
  for(unsigned d=0;d<5;++d)for(unsigned soft=0;soft<2;++soft)for(unsigned strength=0;strength<4;++strength)
- for(unsigned pipeline=0;pipeline<2;++pipeline)for(unsigned bounce=0;bounce<2;++bounce)
+ for(unsigned pipeline=0;pipeline<2;++pipeline)for(unsigned radius=0;radius<2;++radius)for(unsigned bounce=0;bounce<2;++bounce)
  for(unsigned gaussian=0;gaussian<2;++gaussian)for(unsigned checker=0;checker<2;++checker) {
   set_view();divisor=divisors[d];r_radiance_bounce_gain.value=bounce;r_radiance_probe_gaussian.value=gaussian?2:0;
   r_radiance_checkerboard.value=checker;live_shadow_parameters[0]=soft;live_shadow_parameters[3]=strengths[strength];
+  live_shadow_filter_radius=radius?8:0;
   RCExperimentalCaptureBegin(&tasks);assert(rc_capture_requested);
-  bool expected=(checker && divisor>1) || (bounce && gaussian) || (soft && strength && pipeline);
+  bool expected=(checker && divisor>1) || (bounce && gaussian) || (soft && strength && radius);
   assert(ResolvedChoice(pipeline)==expected);
  }
  return 0;

@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "radiance_graphics.h"
+#include "radiance_receiver_capture.h"
 #include "bsp_meshlet.h"
 #include "meshlet_hiz.h"
 
@@ -1387,6 +1388,18 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 	MatrixMultiply (mvp, model_matrix);
 
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), mvp);
+	/* Each surface adds at most one batch, so a full capture leaves this entity
+	 * native instead of failing the whole frame's receiver. */
+	cb_context_t *surface_cbx = cbx;
+	rc_receiver_world_capture_t *brush_capture = cbx->receiver_brush_capture;
+	if (brush_capture && cbx->receiver_brush_context && !sort && !water_transparent_only && e->alpha == ENTALPHA_DEFAULT &&
+		brush_capture->count + (uint32_t)clmodel->nummodelsurfaces <= brush_capture->capacity)
+	{
+		surface_cbx = cbx->receiver_brush_context;
+		surface_cbx->receiver_world_capture = brush_capture;
+		surface_cbx->receiver_mvp = mvp;
+		R_PushConstants (surface_cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), mvp);
+	}
 	R_ClearTextureChains (clmodel, chain);
 	const int worker_index = Tasks_GetWorkerIndex ();
 	if (sort && !clmodel->bogus_tree)
@@ -1422,7 +1435,13 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 		}
 
 	if (!water_transparent_only)
-		R_DrawTextureChains (cbx, clmodel, e, chain);
+		R_DrawTextureChains (surface_cbx, clmodel, e, chain);
+	if (surface_cbx != cbx)
+	{
+		surface_cbx->receiver_world_capture = NULL;
+		surface_cbx->receiver_mvp = NULL;
+		R_PushConstants (surface_cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
+	}
 	if (clmodel->used_specials & SURF_DRAWTURB)
 		R_DrawTextureChains_Water (cbx, clmodel, e, chain, water_opaque_only, water_transparent_only);
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
@@ -1730,12 +1749,56 @@ void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean tra
 					cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle, 1, 1, &lightmap_texture->descriptor_set, 0, NULL);
 				lastlightmap = lightmap_texture;
 			}
+
+			/* The receiver replays this same GPU-built command in its prepass and
+			 * forward draw, so both see one triangle order within the frame. */
+			if (cbx->receiver_world_capture && !alpha_blend)
+			{
+				rc_receiver_world_draw_t draw = {0};
+				rc_receiver_forward_material_t material = {0};
+				draw.vertex_buffer = bmodel_vertex_buffer;
+				draw.index_buffer = indirect_index_buffer;
+				draw.index_type = VK_INDEX_TYPE_UINT32;
+				draw.indirect_buffer = indirect_buffer;
+				draw.indirect_offset = i * sizeof (VkDrawIndexedIndirectCommand);
+				draw.diffuse_set = r_lightmap_cheatsafe ? greytexture->descriptor_set : gl_texture->descriptor_set;
+				draw.instance_set = vulkan_globals.bmodel_instances_desc_set;
+				draw.camera_set = RCGraphics_FrameDescriptor ();
+				draw.alpha_test = alpha_test;
+				draw.instance_base = (((uint32_t)bmodel_instances_index * MAX_MODELS) + 1) |
+					((draw_water && radiance && texture->type == TEXTYPE_LAVA) ? UINT32_C (0x80000000) : 0);
+				draw.depth_bias_constant = constant_factor;
+				draw.depth_bias_slope = slope_factor;
+				memcpy (draw.mvp, vulkan_globals.view_projection_matrix, sizeof (draw.mvp));
+				material.lightmap_set = lightmap_texture->descriptor_set;
+				material.fullbright_set = fullbright_enabled ? fullbright->descriptor_set : nulltexture->descriptor_set;
+				material.fullbright = fullbright_enabled;
+				float fog[4];
+				Fog_GetColor (fog);
+				for (int c = 0; c < 3; ++c)
+					material.fog_color[c] = CLAMP (0.0f, fog[c], 1.0f);
+				material.fog_density = Fog_GetDensity () / 64.0f;
+				material.alpha = 1.0f;
+				RCReceiverCapture_Add (cbx->receiver_world_capture, &draw, &material);
+			}
 		}
 
 		vulkan_globals.vk_cmd_draw_indexed_indirect (cbx->cb, indirect_buffer, i * sizeof (VkDrawIndexedIndirectCommand), 1, 0);
 	}
 
 	R_EndDebugUtilsLabel (cbx);
+}
+
+/*
+=============
+R_MeshletsDrawWorld
+
+Mesh-shader batches have no indexed command for the receiver to replay.
+=============
+*/
+qboolean R_MeshletsDrawWorld (void)
+{
+	return meshlet_world.mesh_active;
 }
 
 /*

@@ -10,6 +10,9 @@ typedef struct
 	const gltexture_t *albedo, *emission;
 	int brush_frame;
 	bool sky;
+	/* Survives compaction, so a skin keeps its atlas rectangle and ID when no
+	 * entity uses it. Excluded from material identity. */
+	bool pinned;
 } radiance_quake_material_t;
 
 typedef struct radiance_quake_materials_s
@@ -24,6 +27,9 @@ void RadianceQuakeMaterials_Init (radiance_quake_materials_t *materials);
 void RadianceQuakeMaterials_Clear (radiance_quake_materials_t *materials);
 /* Set this before extracting a brush entity; world geometry uses frame 0.
  * Like R_TextureAnimation, all nonzero values select the same alternate. */
+bool RadianceQuakeMaterials_Pin (radiance_quake_materials_t *materials, const gltexture_t *albedo, const gltexture_t *emission);
+/* Returns whether any pin was released. */
+bool RadianceQuakeMaterials_ClearPins (radiance_quake_materials_t *materials);
 void RadianceQuakeMaterials_SetBrushFrame (radiance_quake_materials_t *materials, int frame);
 /* Scene extraction callbacks. IDs are stable until Clear or an explicit
  * scene compaction; UINT32_MAX means unavailable and requires fallback. */

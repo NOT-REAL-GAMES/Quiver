@@ -1,3 +1,4 @@
+#include "radiance_receiver_light.h"
 #include "radiance_receiver_forward.h"
 #include <assert.h>
 #include <stdint.h>
@@ -17,6 +18,7 @@ static unsigned order, prepass, compute, forward, pre_token, forward_token;
 VKAPI_ATTR void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer c,const VkRenderPassBeginInfo *i,VkSubpassContents contents)
 { (void)c;(void)i;(void)contents; assert(order++==0); }
 VKAPI_ATTR void VKAPI_CALL vkCmdEndRenderPass(VkCommandBuffer c) { (void)c; assert(prepass==1); }
+VKAPI_ATTR void VKAPI_CALL vkCmdDraw(VkCommandBuffer c,uint32_t vertices,uint32_t instances,uint32_t first,uint32_t base) { (void)c;(void)vertices;(void)instances;(void)first;(void)base; assert(0); }
 VKAPI_ATTR void VKAPI_CALL vkCmdPipelineBarrier(VkCommandBuffer c,VkPipelineStageFlags a,VkPipelineStageFlags b,VkDependencyFlags d,uint32_t x,const VkMemoryBarrier *m,uint32_t y,const VkBufferMemoryBarrier *bb,uint32_t n,const VkImageMemoryBarrier *im)
 { (void)c;(void)a;(void)b;(void)d;(void)x;(void)m;(void)y;(void)bb;(void)n;(void)im; }
 VKAPI_ATTR void VKAPI_CALL vkCmdBindPipeline(VkCommandBuffer c,VkPipelineBindPoint b,VkPipeline p)
@@ -33,10 +35,12 @@ VKAPI_ATTR void VKAPI_CALL vkCmdBindVertexBuffers(VkCommandBuffer c,uint32_t f,u
 { (void)c;(void)f;(void)n;(void)b;(void)o; }
 VKAPI_ATTR void VKAPI_CALL vkCmdBindIndexBuffer(VkCommandBuffer c,VkBuffer b,VkDeviceSize o,VkIndexType t)
 { (void)c;(void)b;(void)o;(void)t; }
+VKAPI_ATTR void VKAPI_CALL vkCmdDrawIndexedIndirect(VkCommandBuffer c,VkBuffer b,VkDeviceSize o,uint32_t n,uint32_t s) { (void)c;(void)b;(void)o;(void)n;(void)s; assert(0); }
 VKAPI_ATTR void VKAPI_CALL vkCmdDrawIndexed(VkCommandBuffer c,uint32_t n,uint32_t instances,uint32_t first,int32_t vertex,uint32_t start)
 { (void)c;(void)n;(void)instances;(void)first;(void)vertex;(void)start; if (!compute) ++prepass; else ++forward; }
 VKAPI_ATTR void VKAPI_CALL vkCmdWriteTimestamp(VkCommandBuffer c,VkPipelineStageFlagBits stage,VkQueryPool pool,uint32_t query)
 { (void)c;(void)stage;(void)pool;(void)query;assert(!"profiling must be disabled in this fixture"); }
+void RCReceiverLight_Record(VkCommandBuffer c,const rc_receiver_light_t *l,const rc_receiver_params_t *p,bool post,VkDescriptorSet s) { (void)c;(void)l;(void)p;(void)post;(void)s; assert(0); }
 int main(void)
 {
 	VkCommandBuffer cb=H(VkCommandBuffer,1); VkDevice dev=H(VkDevice,1); VkPipelineLayout layout=H(VkPipelineLayout,1); VkDescriptorSet set=H(VkDescriptorSet,1);

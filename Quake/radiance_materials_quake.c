@@ -71,6 +71,27 @@ static uint32_t RadianceQuakeMaterials_Add (radiance_quake_materials_t *material
 	return (uint32_t)materials->count++;
 }
 
+bool RadianceQuakeMaterials_Pin (radiance_quake_materials_t *materials, const gltexture_t *albedo, const gltexture_t *emission)
+{
+	radiance_quake_material_t value = {.albedo = albedo, .emission = emission, .pinned = true};
+	uint32_t index = RadianceQuakeMaterials_Add (materials, value);
+	if (index == UINT32_MAX) return false;
+	materials->entries[index].pinned = true;
+	return true;
+}
+
+bool RadianceQuakeMaterials_ClearPins (radiance_quake_materials_t *materials)
+{
+	bool released = false;
+	if (materials)
+		for (size_t i = 0; i < materials->count; ++i)
+		{
+			released |= materials->entries[i].pinned;
+			materials->entries[i].pinned = false;
+		}
+	return released;
+}
+
 uint32_t RadianceQuakeMaterials_Brush (const texture_t *texture, void *user)
 {
 	radiance_quake_materials_t *materials = user;
@@ -239,7 +260,12 @@ static bool RadianceQuakeMaterials_Load (const gltexture_t *texture, bool emissi
 		data = Image_LoadImage (texture->source_file, &w, &h, &format, texture->path_id);
 		allocated = data; engine_allocated = true;
 		if (!data || w <= 0 || h <= 0 || (uint32_t)w != width || (uint32_t)h != height ||
-			(format != SRC_INDEXED && format != SRC_RGBA)) goto failed;
+			(format != SRC_INDEXED && format != SRC_RGBA))
+		{
+			Con_Printf ("Radiance: material image read failed: %s file=%s expected=%ux%u read=%dx%d format=%d loaded=%d\n",
+				texture->name, texture->source_file, width, height, w, h, (int)format, data != NULL);
+			goto failed;
+		}
 	}
 	else if (texture->source_offset)
 	{
@@ -322,8 +348,18 @@ static bool RadianceQuakeMaterials_LoadSource (const radiance_quake_material_t *
 		liquid_mask = original_mask = true;
 	}
 	(*source).sky = entry->sky;
-	if (!entry->sky && (!RadianceQuakeMaterials_Charge (base, max_dimension, max_bytes, source_bytes) ||
-		!RadianceQuakeMaterials_Load (base, false, max_dimension, &(*source).albedo))) return false;
+	if (!entry->sky && !RadianceQuakeMaterials_Charge (base, max_dimension, max_bytes, source_bytes))
+	{
+		Con_Printf ("Radiance: material over budget: %s %ux%u used=%zu limit=%zu\n", base ? base->name : "(none)",
+			base ? base->source_width : 0, base ? base->source_height : 0, *source_bytes, max_bytes);
+		return false;
+	}
+	if (!entry->sky && !RadianceQuakeMaterials_Load (base, false, max_dimension, &(*source).albedo))
+	{
+		Con_Printf ("Radiance: material albedo failed: %s file=%s offset=%llu format=%d\n", base->name, base->source_file,
+			(unsigned long long)base->source_offset, (int)base->source_format);
+		return false;
+	}
 	if (gl_fullbrights.value && emission)
 	{
 		size_t before = *source_bytes;
@@ -332,7 +368,12 @@ static bool RadianceQuakeMaterials_LoadSource (const radiance_quake_material_t *
 		{
 			/* An optional original source can be absent for external WADs or
 			 * exceed the atlas budget; keep the replacement material usable. */
-			if (!original_mask) return false;
+			if (!original_mask)
+			{
+				Con_Printf ("Radiance: material emission failed: %s file=%s %ux%u format=%d\n", emission->name, emission->source_file,
+					emission->source_width, emission->source_height, (int)emission->source_format);
+				return false;
+			}
 			*source_bytes = before;
 			return true;
 		}
@@ -577,7 +618,11 @@ bool RadianceQuakeMaterials_UpdateAtlas (radiance_quake_materials_t *materials,
 		else if (!RadianceQuakeMaterials_LoadSource (&inventory[i].source, inventory[i].source.brush,
 			max_dimension, max_bytes, &source_bytes, &sources[i])) goto done;
 	}
-	if (!RadianceMaterialAtlas_Build (&pending, sources, count, max_dimension, max_layers, max_bytes)) goto done;
+	if (!RadianceMaterialAtlas_Build (&pending, sources, count, max_dimension, max_layers, max_bytes))
+	{
+		Con_Printf ("Radiance: material atlas pack failed: %zu sources %zu bytes, limit %zu bytes %u layers\n", count, source_bytes, max_bytes, max_layers);
+		goto done;
+	}
 	for (size_t i = 0; i < count; ++i) inventory[i].packed = pending.materials[i];
 	selected = RadianceQuakeMaterials_SelectRecords (materials, inventory, count);
 	if (!selected) goto done;

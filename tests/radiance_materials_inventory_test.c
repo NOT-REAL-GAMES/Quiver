@@ -30,6 +30,7 @@ int Sys_FileSeek (int handle, qfileofs_t offset) { (void)handle; (void)offset; r
 int Sys_FileRead (int handle, void *data, int size) { (void)handle; (void)data; (void)size; return 0; }
 void Sys_FileClose (int handle) { (void)handle; }
 void Mem_Free (const void *data) { free ((void *)data); }
+void Con_Printf (const char *format, ...) { (void)format; }
 byte *Image_LoadImage (const char *name, int *width, int *height, enum srcformat *format, unsigned int path_id)
 {
 	(void)path_id;

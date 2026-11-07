@@ -1,0 +1,58 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+/* Upsamples receiver lighting once per visible pixel, so the forward shader only
+ * reads the result. Pixels with no usable receiver go to the miss pass. */
+#define RC_SET 1
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#include "radiance_cascades.glsl"
+#include "radiance_parameters.glsl"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform sampler2D halfPosition;
+layout(set=0,binding=1) uniform sampler2D halfNormal;
+layout(set=0,binding=2) uniform usampler2D halfStatus;
+layout(set=0,binding=3) uniform usampler2D fullReceiverID;
+layout(set=0,binding=4) uniform sampler2D sourceIndirect;
+layout(set=0,binding=5) uniform sampler2D sourceDirect;
+layout(set=0,binding=6) uniform sampler2D sourceMinimum;
+#include "radiance_receiver_light_common.glsl"
+struct ReceiverViewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+uint RC_ResolveStatus(ivec2 p) { return texelFetch(halfStatus,p,0).r&3u; }
+uvec2 RC_ResolveID(ivec2 p) { return texelFetch(fullReceiverID,p,0).rg; }
+vec3 RC_ResolvePosition(ivec2 p) { return texelFetch(halfPosition,p,0).xyz; }
+vec3 RC_ResolveNormal(ivec2 p) { return texelFetch(halfNormal,p,0).xyz; }
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+    if(field==1u) return texelFetch(sourceIndirect,p,0);
+    if(field==2u) return texelFetch(sourceMinimum,p,0);
+    return texelFetch(sourceDirect,p,0);
+}
+ivec2 RC_ReceiverRepresentative(float packed) { int offset=max(int(packed)-1,0); return ivec2(offset&15,offset>>4); }
+#define RC_RECEIVER_REPRESENTATIVE(p) RC_ReceiverRepresentative(texelFetch(halfPosition,p,0).w)
+#define RC_RECEIVER_RESOLVE_TEST 1
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#define RC_RECEIVER_MINIMUM_LIGHTS ((rcLighting.counts.w&128u)!=0u)
+#include "radiance_receiver_resolve.glsl"
+void main() {
+    ivec2 localPixel=ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(localPixel,params.viewport.zw))) return;
+    rcReceiver.viewport=params.viewport; rcReceiver.normalThreshold=params.normalThreshold;
+    ivec2 pixel=params.viewport.xy+localPixel;
+    uvec2 id=RC_ResolveID(pixel);
+    vec3 indirect=vec3(0),direct=vec3(0),minimum=vec3(0),position,normal;
+    bool indirectValid=false,directValid=false;
+    float gain=rcLighting.bounce_parameters.x;
+    bool wantIndirect=(rcLighting.counts.w&8u)==0u || isnan(gain) || isinf(gain) || gain>0.0;
+    if(!any(equal(id,uvec2(0))) && RC_LightSurface(pixel,position,normal)) {
+        RC_ReceiverLighting(pixel,id,position,normal,wantIndirect,indirect,indirectValid,direct,minimum,directValid);
+        uint miss=(wantIndirect && !indirectValid?RC_LIGHT_MISS_INDIRECT:0u)|(directValid?0u:RC_LIGHT_MISS_DIRECT);
+        if(miss!=0u) {
+            uint slot=atomicAdd(missCount,1u);
+            if((slot%uint(RC_LIGHT_MISS_GROUP))==0u) atomicAdd(dispatchGroups.x,1u);
+            misses[slot]=uint(pixel.x)|(uint(pixel.y)<<15)|miss;
+        }
+    }
+    imageStore(lightIndirect,pixel,vec4(indirect,indirectValid?1:0));
+    imageStore(lightDirect,pixel,vec4(direct,directValid?1:0));
+    if((rcLighting.counts.w&128u)!=0u) imageStore(lightMinimum,pixel,vec4(minimum,directValid?1:0));
+}

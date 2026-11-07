@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(sizeof(radiance_lighting_parameters_t)==160 &&
+_Static_assert(sizeof(radiance_lighting_parameters_t)==176 &&
 	offsetof(radiance_lighting_parameters_t,receiver_filter)==128 &&
 	offsetof(radiance_lighting_parameters_t,shadow_parameters)==144,
 	"lighting parameters must match the std140 shader block");
@@ -169,7 +169,7 @@ static bool RadianceInputs_ValidateSnapshot (const radiance_gpu_inputs_t *inputs
 		(!s->grid_offsets && s->grid_offset_count) || (!s->grid_indices && s->grid_index_count) || !s->atlas_rgba ||
 		s->light_count > UINT32_MAX || s->material_count > UINT32_MAX || s->grid_index_count > UINT32_MAX ||
 		s->parameters.counts[0] != s->light_count || s->parameters.counts[1] != s->material_count ||
-		s->parameters.counts[2] != s->atlas_layers || (s->parameters.counts[3] & ~63u) ||
+		s->parameters.counts[2] != s->atlas_layers || (s->parameters.counts[3] & ~255u) ||
 		!s->atlas_width || !s->atlas_height || !s->atlas_layers || s->atlas_width > inputs->limits.maxImageDimension2D ||
 		s->atlas_height > inputs->limits.maxImageDimension2D || s->atlas_layers > inputs->limits.maxImageArrayLayers) return false;
 	if ((s->parameters.counts[3] & 4u) && (!isfinite(s->parameters.grid_origin[3]) || s->parameters.grid_origin[3] < 0 ||
@@ -183,6 +183,8 @@ static bool RadianceInputs_ValidateSnapshot (const radiance_gpu_inputs_t *inputs
 	if (s->parameters.gi_camera_fade[3] < 0) return false;
 	if (!isfinite (s->parameters.receiver_filter[0]) || s->parameters.receiver_filter[0] < 0 ||
 		s->parameters.receiver_filter[0] > 2) return false;
+	if (!isfinite (s->parameters.receiver_filter[3]) || s->parameters.receiver_filter[3] < 0 ||
+		s->parameters.receiver_filter[3] > 128) return false;
 	const float *shadows = s->parameters.shadow_parameters;
 	if (!isfinite (shadows[0]) || (shadows[0] != 0.0f && shadows[0] != 1.0f) ||
 		!isfinite (shadows[1]) || shadows[1] < 0 || shadows[1] > 64 ||

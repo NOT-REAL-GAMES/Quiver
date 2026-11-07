@@ -221,6 +221,7 @@ typedef enum
 	// Main render pass:
 	SCBX_WORLD,
 	SCBX_ENTITIES,
+	SCBX_RECEIVER_BRUSHES,
 	SCBX_MODELS,
 	SCBX_SKY,
 	SCBX_VIEW_MODEL,
@@ -313,6 +314,7 @@ typedef enum
 static const int SECONDARY_CB_MULTIPLICITY[SCBX_NUM] = {
 	NUM_WORLD_CBX,	  // SCBX_WORLD,
 	NUM_ENTITIES_CBX, // SCBX_ENTITIES,
+	NUM_ENTITIES_CBX + 1, // SCBX_RECEIVER_BRUSHES, last one holds opaque world liquids
 	NUM_ENTITIES_CBX, // SCBX_MODELS,
 	1,				  // SCBX_SKY,
 	1,				  // SCBX_VIEW_MODEL,
@@ -347,6 +349,11 @@ typedef struct cb_context_s
 	struct rc_receiver_world_capture_s *receiver_world_capture;
 	struct rc_receiver_model_capture_s *receiver_model_capture;
 	struct cb_context_s *receiver_model_context;
+	/* Opaque brush entities replay through the world stream; this context holds their native fallback. */
+	struct rc_receiver_world_capture_s *receiver_brush_capture;
+	struct cb_context_s *receiver_brush_context;
+	const float *receiver_mvp;
+	uint32_t receiver_instance_base;
 	VkDescriptorSet receiver_diffuse, receiver_fullbright;
 } cb_context_t;
 
@@ -836,6 +843,7 @@ void R_DrawBrushModel (cb_context_t *cbx, entity_t *e, int chain, int *brushpoly
 void R_DrawSpriteModel (cb_context_t *cbx, entity_t *e);
 void R_DrawIndirectBrushes (cb_context_t *cbx, qboolean draw_water, qboolean transparent_water, qboolean draw_sky, int index);
 void R_DrawIndirectBrushes_ShowTris (cb_context_t *cbx);
+qboolean R_MeshletsDrawWorld (void);
 
 void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *ent, texchain_t chain, qboolean opaque_only, qboolean transparent_only);
 

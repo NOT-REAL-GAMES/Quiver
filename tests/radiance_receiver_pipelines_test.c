@@ -39,7 +39,7 @@ int main(void)
 		assert(p.raster==old && live==3);
 	}
 	fail_at=0; call=0;
-	ms.rasterizationSamples=VK_SAMPLE_COUNT_4_BIT;
+	ms.rasterizationSamples=(VkSampleCountFlagBits)3;
 	assert(!RCReceiverPipelines_Create(&p,device,VK_NULL_HANDLE,&raster,&compute,&compute) && !call && live==3);
 	ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT; colors[1].blendEnable=VK_TRUE;
 	assert(!RCReceiverPipelines_Create(&p,device,VK_NULL_HANDLE,&raster,&compute,&compute) && !call && live==3);

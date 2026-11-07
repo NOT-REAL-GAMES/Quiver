@@ -162,14 +162,18 @@ static float            gpu_measure_history[GPU_MEASURE_HISTORY_CAPACITY];
 /* Optional graphics-stage timing. Queries live in the same fenced slots as
  * whole-frame timing. World/entity ranges can overlap GPU work and must not
  * be summed as though they partition the frame. */
-#define GPU_QUERY_STRIDE 12u
+#define GPU_QUERY_STRIDE 15u
 static bool             gpu_stage_active, gpu_stage_frame_enabled, gpu_stage_written[DOUBLE_BUFFERED];
 static double           gpu_stage_ms[2];
 static unsigned int     gpu_stage_samples;
 static float            gpu_stage_history[2][GPU_MEASURE_HISTORY_CAPACITY];
-static double           gpu_receiver_ms[3];
+static double           gpu_receiver_ms[4];
 static unsigned int     gpu_receiver_samples;
-static float            gpu_receiver_history[3][GPU_MEASURE_HISTORY_CAPACITY];
+static float            gpu_receiver_history[4][GPU_MEASURE_HISTORY_CAPACITY];
+/* Horizontal, vertical and copy intervals inside receiver_filter. */
+static double           gpu_filter_pass_ms[3];
+static unsigned int     gpu_filter_pass_samples;
+static float            gpu_filter_pass_history[3][GPU_MEASURE_HISTORY_CAPACITY];
 static VkSemaphore		image_aquired_semaphores[DOUBLE_BUFFERED];
 static VkSemaphore		draw_complete_semaphores[MAX_SWAP_CHAIN_IMAGES];
 static VkImage			swapchain_images[MAX_SWAP_CHAIN_IMAGES];
@@ -3261,7 +3265,30 @@ void GL_BeginRenderingTask (void *unused)
 					gpu_receiver_ms[i] += ms;
 					if (gpu_receiver_samples < GPU_MEASURE_HISTORY_CAPACITY) gpu_receiver_history[i][gpu_receiver_samples] = (float)ms;
 				}
+				/* Frames without the full-resolution light pass leave this unwritten. */
+				uint64_t light_end;
+				double light_ms = 0.0;
+				if (vkGetQueryPoolResults (vulkan_globals.device, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE + 14, 1,
+					sizeof (light_end), &light_end, sizeof (uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+					light_ms = (double)((light_end - receiver[5]) & timestamp_mask) * vulkan_globals.device_properties.limits.timestampPeriod / 1000000.0;
+				gpu_receiver_ms[3] += light_ms;
+				if (gpu_receiver_samples < GPU_MEASURE_HISTORY_CAPACITY) gpu_receiver_history[3][gpu_receiver_samples] = (float)light_ms;
 				++gpu_receiver_samples;
+				uint64_t passes[2];
+				/* One-pass frames leave these unwritten, so read them separately. */
+				if (vkGetQueryPoolResults (vulkan_globals.device, timestamp_query_pool, current_cb_index * GPU_QUERY_STRIDE + 12, 2,
+					sizeof (passes), passes, sizeof (uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
+				{
+					const uint64_t bounds[4] = {receiver[4], passes[0], passes[1], receiver[5]};
+					for (unsigned i = 0; i < 3; ++i)
+					{
+						double ms = (double)((bounds[i + 1] - bounds[i]) & timestamp_mask) *
+							vulkan_globals.device_properties.limits.timestampPeriod / 1000000.0;
+						gpu_filter_pass_ms[i] += ms;
+						if (gpu_filter_pass_samples < GPU_MEASURE_HISTORY_CAPACITY) gpu_filter_pass_history[i][gpu_filter_pass_samples] = (float)ms;
+					}
+					++gpu_filter_pass_samples;
+				}
 			}
 		}
 	}
@@ -4355,6 +4382,8 @@ static void VID_GPUStageTime_f (void)
 		memset (gpu_stage_written, 0, sizeof (gpu_stage_written));
 		gpu_receiver_samples = 0;
 		memset (gpu_receiver_ms, 0, sizeof (gpu_receiver_ms));
+		gpu_filter_pass_samples = 0;
+		memset (gpu_filter_pass_ms, 0, sizeof (gpu_filter_pass_ms));
 	}
 	else
 	{
@@ -4377,7 +4406,7 @@ static void VID_GPUStageTime_f (void)
 				gpu_stage_history[i][p95_index], count, gpu_stage_samples);
 		}
 		const unsigned receiver_count = q_min (gpu_receiver_samples, GPU_MEASURE_HISTORY_CAPACITY);
-		static const char *receiver_names[] = {"receiver_classify", "receiver_shade", "receiver_filter"};
+		static const char *receiver_names[] = {"receiver_classify", "receiver_shade", "receiver_filter", "receiver_light"};
 		for (unsigned i = 0; receiver_count && i < countof (receiver_names); ++i)
 		{
 			qsort (gpu_receiver_history[i], receiver_count, sizeof (gpu_receiver_history[i][0]), VID_CompareGPUFrameTimes);
@@ -4387,6 +4416,18 @@ static void VID_GPUStageTime_f (void)
 			Con_Printf ("GPU %s stage: %u samples, %.4f ms mean, %.4f ms median, %.4f ms p95 (%u/%u samples)\n",
 				receiver_names[i], gpu_receiver_samples, gpu_receiver_ms[i] / gpu_receiver_samples, median,
 				gpu_receiver_history[i][p95_index], receiver_count, gpu_receiver_samples);
+		}
+		const unsigned pass_count = q_min (gpu_filter_pass_samples, GPU_MEASURE_HISTORY_CAPACITY);
+		static const char *pass_names[] = {"filter_horizontal", "filter_vertical", "filter_copy"};
+		for (unsigned i = 0; pass_count && i < countof (pass_names); ++i)
+		{
+			qsort (gpu_filter_pass_history[i], pass_count, sizeof (gpu_filter_pass_history[i][0]), VID_CompareGPUFrameTimes);
+			double median = (pass_count & 1u) ? gpu_filter_pass_history[i][pass_count / 2] :
+				((double)gpu_filter_pass_history[i][pass_count / 2 - 1] + gpu_filter_pass_history[i][pass_count / 2]) * 0.5;
+			const unsigned p95_index = (pass_count * 95u + 99u) / 100u - 1u;
+			Con_Printf ("GPU %s stage: %u samples, %.4f ms mean, %.4f ms median, %.4f ms p95 (%u/%u samples)\n",
+				pass_names[i], gpu_filter_pass_samples, gpu_filter_pass_ms[i] / gpu_filter_pass_samples, median,
+				gpu_filter_pass_history[i][p95_index], pass_count, gpu_filter_pass_samples);
 		}
 	}
 }

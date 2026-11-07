@@ -169,11 +169,11 @@ def main():
             timings['filter_empty_work_range'] = not postprocess
             return timings
 
-        engine.cmd('r_radiance_half_resolution 0\nr_radiance_checkerboard 0')
+        engine.cmd('r_radiance_resolution_scale 1\nr_radiance_checkerboard 0')
         wait_mode('full', 1)
         engine.photo('receiver-full')
         for mode in ('half', 'checkerboard'):
-            engine.cmd(f'r_radiance_half_resolution 1\nr_radiance_checkerboard {int(mode == "checkerboard")}')
+            engine.cmd(f'r_radiance_resolution_scale 0.5\nr_radiance_checkerboard {int(mode == "checkerboard")}')
             wait_mode(mode, 2)
             engine.photo('receiver-' + mode)
         for divisor, scale in ((1.5, '0.666'), (2, '0.5'), (3, '0.333'), (4, '0.25')):
@@ -181,9 +181,6 @@ def main():
                 engine.cmd(f'r_radiance_resolution_scale {scale}\nr_radiance_checkerboard {int(mode == "checkerboard")}')
                 wait_mode(mode, divisor)
                 if divisor == 1.5:
-                    alias = engine.cmd('r_radiance_half_resolution')
-                    if not re.search(r'"r_radiance_half_resolution" is "4"', alias):
-                        raise RuntimeError(f'two-thirds scale did not mirror alias4: {alias}')
                     check_two_thirds_coverage(mode)
                 engine.photo(f'receiver-divisor-{divisor}-{mode}')
         if args.exercise_gaussian:
@@ -204,12 +201,10 @@ def main():
                         print(f'PASS: {label}, filter={"work" if gaussian > 0 or checker else "empty range"}', flush=True)
             engine.cmd(f'r_radiance_probe_gaussian {args.probe_gaussian}')
             current_gaussian = args.probe_gaussian
-        # Legacy setters must override every non-half reduced scale, including
-        # the distinct two-thirds mirror value4.
+        # Returning to full resolution must work from every reduced scale.
         for scale in ('0.666', '0.25', '0.333'):
-            engine.cmd(f'r_radiance_resolution_scale {scale}\nr_radiance_half_resolution 1')
-            wait_mode('checkerboard', 2)
-            engine.cmd('r_radiance_half_resolution 0\nr_radiance_checkerboard 0')
+            engine.cmd(f'r_radiance_resolution_scale {scale}\nr_radiance_checkerboard 1')
+            engine.cmd('r_radiance_resolution_scale 1\nr_radiance_checkerboard 0')
             wait_mode('full', 1)
             engine.cmd('r_radiance_checkerboard 1')
         engine.cmd('r_radiance_resolution_scale 0.666666667')
@@ -275,7 +270,7 @@ def main():
         engine.cmd('map e1m1')
         engine.wait(lambda text: 'CL_SignonReply: 4' in text, start)
         wait_mode('checkerboard', 1.5)
-        engine.cmd('r_radiance_checkerboard 0\nr_radiance_half_resolution 0')
+        engine.cmd('r_radiance_checkerboard 0\nr_radiance_resolution_scale 1')
         wait_mode('full', 1)
         if args.validation:
             output = engine.text() + (work / 'output.log').read_text(errors='replace')

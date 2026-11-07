@@ -1214,8 +1214,9 @@ static void R_FlushBatch (
 			draw.index_type = VK_INDEX_TYPE_UINT32; draw.index_count = cbx->num_vbo_indices;
 			draw.diffuse_set = cbx->receiver_diffuse; draw.instance_set = vulkan_globals.bmodel_instances_desc_set;
 			draw.camera_set = RCGraphics_FrameDescriptor (); draw.alpha_test = alpha_test;
+			draw.instance_base = cbx->receiver_instance_base;
 			draw.depth_bias_constant = constant_factor; draw.depth_bias_slope = slope_factor;
-			memcpy (draw.mvp, vulkan_globals.view_projection_matrix, sizeof (draw.mvp));
+			memcpy (draw.mvp, cbx->receiver_mvp ? cbx->receiver_mvp : vulkan_globals.view_projection_matrix, sizeof (draw.mvp));
 			material.lightmap_set = r_fullbright_cheatsafe ? greylightmap->descriptor_set : lightmap_texture->descriptor_set;
 			material.fullbright_set = cbx->receiver_fullbright; material.fullbright = fullbright_enabled;
 			float fog[4]; Fog_GetColor (fog);
@@ -1338,6 +1339,7 @@ void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *en
 			 * the vertex shader masks it out of the instance-buffer index. */
 			const uint32_t liquid_instance_base = (type == TEXTYPE_LAVA && RCGraphics_Frame ()) ? UINT32_C (0x80000000) : 0;
 			R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (liquid_instance_base), &liquid_instance_base);
+			cbx->receiver_instance_base = liquid_instance_base;
 
 			gltexture_t *lightmap_texture = NULL;
 			R_ClearBatch (cbx);
@@ -1345,6 +1347,11 @@ void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *en
 			int lastlightmap = -2;
 
 			gltexture_t *gl_texture = t->warpimage;
+			if (cbx->receiver_world_capture)
+			{
+				cbx->receiver_diffuse = r_lightmap_cheatsafe ? greytexture->descriptor_set : gl_texture->descriptor_set;
+				cbx->receiver_fullbright = nulltexture->descriptor_set;
+			}
 			if (!r_lightmap_cheatsafe)
 				vulkan_globals.vk_cmd_bind_descriptor_sets (
 					cbx->cb, VK_PIPELINE_BIND_POINT_GRAPHICS, vulkan_globals.world_pipeline_layout.handle, 0, 1, &gl_texture->descriptor_set, 0, NULL);
@@ -1372,6 +1379,7 @@ void R_DrawTextureChains_Water (cb_context_t *cbx, qmodel_t *model, entity_t *en
 		}
 	}
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 21 * sizeof (float), sizeof (instance_base), &instance_base);
+	cbx->receiver_instance_base = 0;
 
 	Atomic_AddUInt32 (&rs_brushpasses, brushpasses);
 }

@@ -10,7 +10,8 @@ typedef struct {
 	VkFence last_fence;
 	uint64_t revision;
 	uint32_t width,height;
-	bool hardware,texture_filter,ready;
+	VkSampleCountFlagBits samples;
+	bool hardware,texture_filter,full_light,ready;
 	bool soft_shadow_requested,soft_shadow_attempted;
 	rc_receiver_shaders_t shaders;
 	rc_receiver_resources_t resources;
@@ -20,7 +21,7 @@ typedef struct {
 typedef struct {
 	VkPhysicalDevice physical; VkDevice device; const VkPhysicalDeviceMemoryProperties *memory;
 	uint64_t revision; uint32_t width,height; VkSampleCountFlagBits samples;
-	bool hardware,texture_filter,geometry_enabled,ray_query_enabled,soft_shadows;
+	bool hardware,texture_filter,full_light,geometry_enabled,ray_query_enabled,soft_shadows;
 	VkSampler nearest; VkBuffer viewport_buffer; VkDeviceSize viewport_offset,viewport_range;
 	VkDescriptorSetLayout world[5],radiance,cascade,light;
 	VkPipelineCache cache;

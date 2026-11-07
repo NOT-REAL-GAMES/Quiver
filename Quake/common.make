@@ -198,11 +198,20 @@ SHADER_OBJS = \
 	alias_receiver_forward_fast_rt_alphatest_frag.o \
 	radiance_receiver_half_comp.o \
 	radiance_receiver_half_fast_comp.o \
+	radiance_receiver_half_msaa_comp.o \
+	radiance_receiver_half_fast_msaa_comp.o \
+	radiance_receiver_depth_resolve_frag.o \
 	radiance_receiver_reconstruct_comp.o \
 	radiance_receiver_filter_comp.o \
 	radiance_receiver_diagnostics_comp.o \
 	radiance_receiver_direct_fast_sw_comp.o \
 	radiance_receiver_direct_fast_rt_comp.o \
+	radiance_receiver_light_comp.o \
+	radiance_receiver_light_miss_sw_comp.o \
+	radiance_receiver_light_miss_rt_comp.o \
+	world_receiver_forward_lit_frag.o \
+	alias_receiver_forward_lit_frag.o \
+	alias_receiver_forward_lit_alphatest_frag.o \
 	radiance_receiver_soft_sw_comp.o \
 	radiance_receiver_soft_rt_comp.o \
 	world_receiver_forward_fast_sw_frag.o \
@@ -447,6 +456,7 @@ OBJS := strlcat.o \
 	menu.o \
 	sbar.o \
 	view.o \
+	view_motion.o \
 	wad.o \
 	cmd.o \
 	common.o \
@@ -529,9 +539,10 @@ $(BINTOC_EXE): ../Shaders/bintoc.c
 	$(GLSLANG) $(GLSLANG_FLAGS) $< -o $@ --depfile ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/$*_comp.d
 
 # The filter's shared-memory helper must also invalidate existing SPIR-V.
-../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/radiance_receiver_filter_comp.spv: ../Shaders/radiance_receiver_filter_axis.glsl ../Shaders/radiance_receiver_shadow_filter.glsl ../Shaders/radiance_light_unshadowed.glsl
+../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/radiance_receiver_filter_comp.spv: ../Shaders/radiance_receiver_filter_axis.glsl
 
 RECEIVER_SCALE_SPV_NAMES := radiance_receiver_half_comp radiance_receiver_half_fast_comp \
+ radiance_receiver_half_msaa_comp radiance_receiver_half_fast_msaa_comp \
  radiance_receiver_reconstruct_comp radiance_receiver_filter_comp radiance_receiver_diagnostics_comp \
  world_receiver_forward_sw_frag world_receiver_forward_rt_frag \
  world_receiver_forward_fast_sw_frag world_receiver_forward_fast_rt_frag \
@@ -541,7 +552,7 @@ $(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(addsuffix .spv,$(RECEIV
 
 RECEIVER_SHADOW_SPV_NAMES := $(patsubst %.o,%.spv,$(filter world_%_frag.o alias_%_frag.o md5_%_frag.o radiance_receiver_direct_%.o radiance_receiver_soft_%.o,$(SHADER_OBJS)))
 $(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(RECEIVER_SHADOW_SPV_NAMES)): ../Shaders/radiance_receiver_shadows.glsl ../Shaders/radiance_receiver_shadow_metadata.glsl ../Shaders/radiance_receiver_shadow_source.glsl ../Shaders/radiance_light_unshadowed.glsl ../Shaders/radiance_parameters.glsl
-$(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(RECEIVER_SHADOW_SPV_NAMES) radiance_trace_sw_comp.spv radiance_trace_rt_comp.spv radiance_receiver_filter_comp.spv): ../Shaders/radiance_light_query_free.glsl
+$(addprefix ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/,$(RECEIVER_SHADOW_SPV_NAMES) radiance_trace_sw_comp.spv radiance_trace_rt_comp.spv): ../Shaders/radiance_light_query_free.glsl
 
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/ssao_mip_comp.spv \
 ../Shaders/Compiled/$(GLSLANG_OUT_FOLDER)/ssao_mip_msaa_comp.spv \
@@ -621,12 +632,19 @@ $(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_sw_alphatest_frag,alias
 $(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_rt_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1))
 $(eval $(call SHADER_VARIANT,alias_receiver_forward_fast_rt_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1 -DALIAS_ALPHA_TEST=1))
 $(eval $(call SHADER_VARIANT,radiance_receiver_half_fast_comp,radiance_receiver_half.comp,-DRC_RECEIVER_TEXTURE_FILTER=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_half_msaa_comp,radiance_receiver_half.comp,-DRECEIVER_MSAA=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_half_fast_msaa_comp,radiance_receiver_half.comp,-DRECEIVER_MSAA=1 -DRC_RECEIVER_TEXTURE_FILTER=1))
 $(eval $(call SHADER_VARIANT,world_receiver_forward_fast_sw_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1))
 $(eval $(call SHADER_VARIANT,world_receiver_forward_fast_rt_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_GAUSSIAN_FALLBACK=1 -DRC_HARDWARE_RAY_QUERY=1))
 $(eval $(call SHADER_VARIANT,radiance_receiver_direct_fast_sw_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1))
 $(eval $(call SHADER_VARIANT,radiance_receiver_direct_fast_rt_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_HARDWARE_RAY_QUERY=1))
-$(eval $(call SHADER_VARIANT,radiance_receiver_soft_sw_comp,radiance_receiver_soft.comp,))
-$(eval $(call SHADER_VARIANT,radiance_receiver_soft_rt_comp,radiance_receiver_soft.comp,-DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_light_miss_sw_comp,radiance_receiver_light_miss.comp,))
+$(eval $(call SHADER_VARIANT,radiance_receiver_light_miss_rt_comp,radiance_receiver_light_miss.comp,-DRC_HARDWARE_RAY_QUERY=1))
+$(eval $(call SHADER_VARIANT,world_receiver_forward_lit_frag,world.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_FULL_LIGHT=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_lit_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_FULL_LIGHT=1))
+$(eval $(call SHADER_VARIANT,alias_receiver_forward_lit_alphatest_frag,alias.frag,-DRADIANCE_LIGHTING=1 -DRC_RECEIVER_REUSE=1 -DRC_RECEIVER_MODEL_CULL=1 -DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_FULL_LIGHT=1 -DALIAS_ALPHA_TEST=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_soft_sw_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_SOFT_SHADOWS=1))
+$(eval $(call SHADER_VARIANT,radiance_receiver_soft_rt_comp,radiance_receiver_direct.comp,-DRC_RECEIVER_TEXTURE_FILTER=1 -DRC_RECEIVER_SOFT_SHADOWS=1 -DRC_HARDWARE_RAY_QUERY=1))
 $(eval $(call SHADER_VARIANT,world_radiance_vert,world.vert,-DRADIANCE_LIGHTING=1))
 $(eval $(call SHADER_VARIANT,alias_radiance_vert,alias.vert,-DRADIANCE_LIGHTING=1))
 $(eval $(call SHADER_VARIANT,alias_instanced_radiance_vert,alias_instanced.vert,-DRADIANCE_LIGHTING=1))

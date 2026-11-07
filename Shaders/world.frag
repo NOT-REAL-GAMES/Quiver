@@ -49,6 +49,7 @@ layout (location = 2) in vec3 in_world_position;
 #include "radiance_lighting.glsl"
 #include "radiance_world_normal.glsl"
 #if RC_RECEIVER_REUSE
+#define RC_RECEIVER_MINIMUM_LIGHTS ((rcLighting.counts.w&128u)!=0u)
 #include "radiance_receiver_resolve.glsl"
 #endif
 #endif

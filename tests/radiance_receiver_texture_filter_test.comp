@@ -90,7 +90,9 @@ void main() {
     reset(2,false); setID(ivec2(3,2),uvec2(8,9));
     ok=RC_ReceiverGuidesCompatible(ivec2(2),ivec2(3,2),activeExtent());
     ivec2 parityPixel=rcReceiver.viewport.xy+ivec2(4);
-    ok=ok && !RC_ReceiverIndirect(parityPixel,uvec2(8,9),vec3(2,2,0),vec3(0,0,1),value);
+    /* The same surface reuses across triangle IDs; a different one does not. */
+    ok=ok && RC_ReceiverIndirect(parityPixel,uvec2(8,9),vec3(2,2,0),vec3(0,0,1),value);
+    ok=ok && !RC_ReceiverIndirect(parityPixel,uvec2(8,9),vec3(2,2,40),vec3(0,0,1),value);
     setID(ivec2(3,2),uvec2(0));
     result[9]=uint(ok && !RC_ReceiverGuidesCompatible(ivec2(2),ivec2(3,2),activeExtent()));
 
@@ -119,6 +121,7 @@ void main() {
 
     reset(2,false); fields[49+16].a=0;
     ok=!filtered(ivec2(2),value);
+    for(int i=0;i<49;++i) fields[49+i].a=0; /* the GI search survives one bad texel */
     pixel=rcReceiver.viewport.xy+ivec2(4);
     result[13]=uint(ok && !RC_ReceiverIndirect(pixel,uvec2(1),vec3(2,2,0),vec3(0,0,1),value));
 

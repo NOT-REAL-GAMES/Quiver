@@ -1,4 +1,5 @@
 #include "radiance_receiver_model.h"
+#include "radiance_receiver_targets.h"
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
@@ -137,10 +138,11 @@ void RCReceiverModelPipelines_Destroy(rc_receiver_model_pipelines_t *p)
 	if(p->empty_layout)vkDestroyDescriptorSetLayout(p->device,p->empty_layout,NULL);
 	memset(p,0,sizeof(*p));
 }
+/* The prepass follows the receiver targets; forward follows the scene. */
 static bool graphics_state(const VkGraphicsPipelineCreateInfo *info,uint32_t colors)
 {
 	if(!info || info->stageCount!=2 || !info->pStages || !info->pMultisampleState ||
-		info->pMultisampleState->rasterizationSamples!=VK_SAMPLE_COUNT_1_BIT || !info->pDepthStencilState ||
+		(colors==2 && !RCReceiverTargets_ValidSamples(info->pMultisampleState->rasterizationSamples)) || !info->pDepthStencilState ||
 		!info->pDepthStencilState->depthTestEnable || !info->pDepthStencilState->depthWriteEnable ||
 		!info->pColorBlendState || info->pColorBlendState->attachmentCount!=colors || !info->pColorBlendState->pAttachments ||
 		!info->pDynamicState || !info->pDynamicState->pDynamicStates || !info->pRasterizationState || info->pRasterizationState->depthBiasEnable)return false;

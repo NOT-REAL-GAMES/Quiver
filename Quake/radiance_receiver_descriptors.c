@@ -26,7 +26,8 @@ bool RCReceiverDescriptors_Create(rc_receiver_descriptors_t *out,const rc_receiv
 	if (!out || !t || !t->device || !nearest || !viewport_buffer || viewport_range<32 || viewport_offset>UINT64_MAX-viewport_range) return false;
 	for (unsigned i=0;i<RC_RECEIVER_TARGET_COUNT;++i) if (!t->images[i].view) return false;
 	rc_receiver_descriptors_t pending={.device=t->device};
-	if (!create_layout(t->device,&pending.layouts[0],6,3,3,-1,VK_SHADER_STAGE_COMPUTE_BIT) ||
+	/* The depth collapse pass reads the classifier's three sampled bindings. */
+	if (!create_layout(t->device,&pending.layouts[0],6,3,3,-1,VK_SHADER_STAGE_COMPUTE_BIT|VK_SHADER_STAGE_FRAGMENT_BIT) ||
 		!create_layout(t->device,&pending.layouts[1],6,2,4,-1,VK_SHADER_STAGE_COMPUTE_BIT) ||
 		!create_layout(t->device,&pending.layouts[2],9,8,0,7,VK_SHADER_STAGE_FRAGMENT_BIT) ||
 		!create_layout(t->device,&pending.layouts[3],10,7,3,-1,VK_SHADER_STAGE_COMPUTE_BIT)) goto fail;
@@ -45,15 +46,16 @@ bool RCReceiverDescriptors_Create(rc_receiver_descriptors_t *out,const rc_receiv
 		RC_RECEIVER_RESOLVED_INDIRECT,RC_RECEIVER_RESOLVED_DIRECT,RC_RECEIVER_HALF_STATUS,RC_RECEIVER_ID,RC_RECEIVER_HALF_NORMAL,RC_RECEIVER_HALF_POSITION,RC_RECEIVER_RESOLVED_MINIMUM,
 		RC_RECEIVER_HALF_POSITION,RC_RECEIVER_HALF_NORMAL,RC_RECEIVER_HALF_STATUS,RC_RECEIVER_ID,RC_RECEIVER_HALF_INDIRECT,RC_RECEIVER_HALF_DIRECT,RC_RECEIVER_HALF_MINIMUM,
 		RC_RECEIVER_RESOLVED_INDIRECT,RC_RECEIVER_RESOLVED_DIRECT,RC_RECEIVER_RESOLVED_MINIMUM,
-		RC_RECEIVER_HALF_POSITION,RC_RECEIVER_HALF_NORMAL,RC_RECEIVER_HALF_STATUS,RC_RECEIVER_ID,RC_RECEIVER_RESOLVED_INDIRECT,RC_RECEIVER_HALF_DIRECT,RC_RECEIVER_HALF_MINIMUM,
-		RC_RECEIVER_HALF_INDIRECT,RC_RECEIVER_RESOLVED_DIRECT,RC_RECEIVER_RESOLVED_MINIMUM};
+		RC_RECEIVER_HALF_POSITION,RC_RECEIVER_HALF_NORMAL,RC_RECEIVER_HALF_STATUS,RC_RECEIVER_ID,RC_RECEIVER_RESOLVED_INDIRECT,RC_RECEIVER_RESOLVED_DIRECT,RC_RECEIVER_RESOLVED_MINIMUM,
+		RC_RECEIVER_HALF_INDIRECT,RC_RECEIVER_HALF_DIRECT,RC_RECEIVER_HALF_MINIMUM};
 	VkDescriptorImageInfo images[48]={0}; VkWriteDescriptorSet writes[50]={0};
 	for (unsigned i=0;i<46;++i) {
 		unsigned set=i<6?0:i<12?1:i<19?2:i<26?3:i<36?4:5;
 		unsigned binding=set==0?i:set==1?i-6:set==2?i-12:set==3?i-19:set==4?i-26:i-36;
 		bool storage=(i>=3 && i<6) || (i>=8 && i<12) || (i>=33 && i<36) || i>=43;
 		VkImageLayout layout=storage?VK_IMAGE_LAYOUT_GENERAL:indices[i]==RC_RECEIVER_DEPTH?VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		images[i]=(VkDescriptorImageInfo){.sampler=storage?VK_NULL_HANDLE:nearest,.imageView=t->images[indices[i]].view,.imageLayout=layout};
+		const rc_receiver_image_t *target=i<3 && t->samples>VK_SAMPLE_COUNT_1_BIT ? &t->multisampled[indices[i]] : &t->images[indices[i]];
+		images[i]=(VkDescriptorImageInfo){.sampler=storage?VK_NULL_HANDLE:nearest,.imageView=target->view,.imageLayout=layout};
 		writes[i]=(VkWriteDescriptorSet){.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=sets[set],.dstBinding=binding,.descriptorCount=1,
 			.descriptorType=storage?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=&images[i]};
 	}

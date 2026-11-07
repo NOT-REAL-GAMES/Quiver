@@ -22,7 +22,7 @@ bool RCReceiver_CanRecordCompute(VkCommandBuffer command, const rc_receiver_targ
 {
 	if (!command || !t || !p || !params || !t->device || t->device!=p->device || !p->classify || !p->direct ||
 		!classify_layout || !direct_layout || !classify_set || !direct_set || !cascade_set || !lighting_set ||
-		params->samples!=1 || !RCReceiver_ValidDivisor(params->divisor) || params->viewport[0]<0 || params->viewport[1]<0 || params->viewport[2]<=0 || params->viewport[3]<=0 ||
+		(params->samples&255u)!=(t->samples>VK_SAMPLE_COUNT_1_BIT?(uint32_t)t->samples:1u) || !RCReceiver_ValidDivisor(params->divisor) || params->viewport[0]<0 || params->viewport[1]<0 || params->viewport[2]<=0 || params->viewport[3]<=0 ||
 		(uint64_t)params->viewport[0]+(uint32_t)params->viewport[2]>t->width ||
 		(uint64_t)params->viewport[1]+(uint32_t)params->viewport[3]>t->height || !isfinite(params->plane_tolerance) ||
 		params->plane_tolerance<0 || !isfinite(params->normal_cosine) || params->normal_cosine< -1 || params->normal_cosine>1)
@@ -62,24 +62,13 @@ static bool RCReceiver_RecordComputeTimed(VkCommandBuffer command, const rc_rece
 		vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,timing_pool,first_query+1);
 		vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,timing_pool,first_query+2);
 	}
-	vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,p->direct);
+	/* The soft shadow pipeline is the direct pass with its outer rays built in. */
+	vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,soft_shadow_pipeline?soft_shadow_pipeline:p->direct);
 	VkDescriptorSet sets[2]={direct_set,cascade_set};
 	vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,direct_layout,0,2,sets,0,NULL);
 	int32_t extent[2]={(int32_t)width,(int32_t)height};
 	vkCmdPushConstants(command,direct_layout,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(extent),extent);
 	vkCmdDispatch(command,groups_x,groups_y,1);
-	if(soft_shadow_pipeline) {
-		/* Raw direct/status remain GENERAL until the ordinary final barriers.
-		 * Only this opt-in pass needs their producer writes in read/write use. */
-		VkMemoryBarrier soft_ready={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT,
-			.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT};
-		vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			0,1,&soft_ready,0,NULL,0,NULL);
-		vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,soft_shadow_pipeline);
-		vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,direct_layout,0,2,sets,0,NULL);
-		vkCmdPushConstants(command,direct_layout,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(extent),extent);
-		vkCmdDispatch(command,groups_x,groups_y,1);
-	}
 	VkImageMemoryBarrier final[6]={
 		RCReceiver_Barrier(t->images[RC_RECEIVER_HALF_INDIRECT].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT),
 		RCReceiver_Barrier(t->images[RC_RECEIVER_HALF_STATUS].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT),
@@ -110,7 +99,8 @@ bool RCReceiver_RecordFrameSoftTimed(VkCommandBuffer command, const rc_receiver_
 {
 	if (!RCReceiver_CanRecordCompute(command,t,p,classify_layout,direct_layout,classify_set,direct_set,cascade_set,lighting_set,params) ||
 		!t->pass || !t->framebuffer || !p->raster || p->raster_pass!=t->pass || !draw_ready || !draw || !isfinite(depth_clear) ||
-		depth_clear<0 || depth_clear>1 || (timing_pool && first_query>UINT32_MAX-5u) || !draw_ready(user)) return false;
+		depth_clear<0 || depth_clear>1 || (timing_pool && first_query>UINT32_MAX-5u) ||
+		(t->samples>VK_SAMPLE_COUNT_1_BIT && (!t->resolve_pass || !t->resolve_framebuffer || !p->resolve)) || !draw_ready(user)) return false;
 	if(timing_pool)vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,timing_pool,first_query);
 	VkClearValue clear[3]={0}; clear[RC_RECEIVER_DEPTH].depthStencil.depth=depth_clear;
 	VkRenderPassBeginInfo begin={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=t->pass,.framebuffer=t->framebuffer,
@@ -126,6 +116,20 @@ bool RCReceiver_RecordFrameSoftTimed(VkCommandBuffer command, const rc_receiver_
 	vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,p->raster);
 	draw(command,user);
 	vkCmdEndRenderPass(command);
+	if(t->samples>VK_SAMPLE_COUNT_1_BIT) {
+		/* Later stages read one sample per pixel. The whole target, so the
+		 * cleared border stays defined; the classifier reads the samples itself. */
+		VkRenderPassBeginInfo resolve={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=t->resolve_pass,
+			.framebuffer=t->resolve_framebuffer,.renderArea={{0,0},{t->width,t->height}}};
+		VkViewport whole={0.0f,0.0f,(float)t->width,(float)t->height,0.0f,1.0f};
+		vkCmdBeginRenderPass(command,&resolve,VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdSetViewport(command,0,1,&whole);
+		vkCmdSetScissor(command,0,1,&scissor);
+		vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,p->resolve);
+		vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,classify_layout,0,1,&classify_set,0,NULL);
+		vkCmdDraw(command,3,1,0,0);
+		vkCmdEndRenderPass(command);
+	}
 	/* All checks succeeded before recording; draw promises not to mutate them. */
 	return RCReceiver_RecordComputeTimed(command,t,p,classify_layout,direct_layout,classify_set,direct_set,cascade_set,lighting_set,params,timing_pool,first_query,soft_shadow_pipeline);
 }

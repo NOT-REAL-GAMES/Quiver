@@ -159,6 +159,34 @@ def _overlaps(a, b):
     return area > 1e-12 and thickness > 2e-7
 
 
+def needs_generated_uv(mesh, material_index, uv_name, object_name, uv_mode):
+    """Return whether ``AUTO`` must replace an unusable destination UV map."""
+    if uv_mode not in {'AUTO', 'EXISTING'}:
+        raise ExportError("Bake UV mode must be AUTO or EXISTING")
+    try:
+        _validate_uv(mesh, material_index, uv_name, object_name)
+    except BakeUVError:
+        if uv_mode == 'EXISTING':
+            raise
+        return True
+    return False
+
+
+def source_material(obj, mesh, material_index):
+    """The material a bake samples, resolved the way the temporary copy will be."""
+    return (obj.material_slots[material_index].material if material_index < len(obj.material_slots)
+            else mesh.materials[material_index] if material_index < len(mesh.materials) else None)
+
+
+def bake_sockets(material, mesh):
+    """Validate a material's baked channels and return them, or ``None`` without nodes."""
+    if material is None or not material.use_nodes:
+        return None
+    sockets = _surface(material)
+    _validate_inputs(sockets, material.name, missing_uv=not mesh.uv_layers)
+    return sockets
+
+
 def _validate_uv(mesh, material_index, uv_name, object_name):
     layer = mesh.uv_layers.get(uv_name) if uv_name else None
     if layer is None:
@@ -206,6 +234,7 @@ class BakeSession:
         if not isinstance(samples, int) or not 1 <= samples <= 4096:
             raise ExportError("Bake samples must be an integer from 1 to 4096")
         self.context, self.size, self.margin, self.samples = context, size, margin, samples
+        self.default_size, self.default_margin = size, margin
         self.scene = None
         self.images, self.objects, self.meshes, self.materials = [], [], [], []
 
@@ -260,8 +289,7 @@ class BakeSession:
         return material
 
     def _prepare(self, obj, mesh, material_index, uv_name, apply_modifiers, generate_uv=False):
-        source = (obj.material_slots[material_index].material if material_index < len(obj.material_slots)
-                  else mesh.materials[material_index] if material_index < len(mesh.materials) else None)
+        source = source_material(obj, mesh, material_index)
         temporary = obj.copy()
         self.objects.append(temporary)
         data = (obj.data if apply_modifiers else mesh).copy()
@@ -522,18 +550,40 @@ class BakeSession:
         image.pixels.foreach_get(pixels)
         return pixels
 
-    def bake(self, obj, mesh, material_index, uv_name, *, apply_modifiers=True, uv_mode='AUTO'):
+    def release(self, result):
+        """Free a finished bake's images once they have been written out."""
+        for image in (result.diffuse, result.glow):
+            if image is not None:
+                self.images.remove(image)
+                bpy.data.images.remove(image)
+
+    def _use_size(self, size, margin):
         if self.scene is None:
             raise ExportError("Use BakeSession as a context manager")
-        if uv_mode not in {'AUTO', 'EXISTING'}:
-            raise ExportError("Bake UV mode must be AUTO or EXISTING")
-        generate_uv = False
+        self.size = self.default_size if size is None else size
+        self.margin = self.default_margin if margin is None else margin
+        if not 16 <= self.size <= 8192 or not 0 <= self.margin <= self.size // 2:
+            raise ExportError("Bake size must be 16 to 8192 with a margin of at most half that")
+
+    def generated_layout(self, obj, mesh, material_index, uv_name, *, apply_modifiers=True, size=None, margin=None):
+        """Project a destination layout at a size without baking, and return its UVs."""
+        self._use_size(size, margin)
+        marker = (len(self.objects), len(self.meshes), len(self.materials))
+        scratch = None
         try:
-            _validate_uv(mesh, material_index, uv_name, obj.name)
-        except BakeUVError:
-            if uv_mode == 'EXISTING':
-                raise
-            generate_uv = True
+            temporary, _, scratch = self._prepare(obj, mesh, material_index, uv_name, apply_modifiers, True)
+            return self._smart_project(temporary, mesh, material_index, obj.name)[1]
+        finally:
+            self._release(marker)
+            if scratch is not None:
+                self.images.remove(scratch)
+                bpy.data.images.remove(scratch)
+
+    def bake(self, obj, mesh, material_index, uv_name, *, apply_modifiers=True, uv_mode='AUTO',
+             size=None, margin=None):
+        """Bake one surface; ``size`` and ``margin`` override the session defaults."""
+        self._use_size(size, margin)
+        generate_uv = needs_generated_uv(mesh, material_index, uv_name, obj.name, uv_mode)
         marker = (len(self.objects), len(self.meshes), len(self.materials))
         scratch = None
         try:

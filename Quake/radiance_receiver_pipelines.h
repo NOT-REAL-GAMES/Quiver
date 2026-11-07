@@ -6,6 +6,7 @@ typedef struct {
 	VkDevice device;
 	VkRenderPass raster_pass;
 	VkPipeline raster, classify, direct;
+	VkPipeline resolve; /* collapses multisampled targets; null at one sample */
 } rc_receiver_pipelines_t;
 /* Pipeline layouts, shader modules and render pass are borrowed from the
  * caller. Replacement/destruction is only safe after the old frame fences. */

@@ -51,6 +51,7 @@ typedef enum
 {
 	DRAW_WORLD,
 	DRAW_ENTITIES,
+	DRAW_RECEIVER_BRUSHES,
 	DRAW_MODELS,
 	DRAW_ENTITY_SSAO,
 	DRAW_POST_ENTITIES,
@@ -209,6 +210,7 @@ static void R_RecordECSCullWork (cb_context_t *cbx)
 
 extern void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass,
 	VkRenderPass model_pass, VkFramebuffer model_framebuffer, uint32_t model_subpass);
+extern bool RCExperimentalSubmitBrushes (bool world_reused);
 extern bool RCExperimentalSubmitModels (VkCommandBuffer primary, uint64_t serial,
 	VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass);
 static VkRenderPass rc_experimental_pass;
@@ -262,6 +264,7 @@ static void R_DescribeFrame (frame_desc_t *desc, main_render_pass_variant_t vari
 		R_BeginGraphicsPass (&builder, FRAME_TARGET_SCENE, SUBPASS_MAIN);
 	}
 	R_AddGraphicsWork (&builder, DRAW_ENTITIES, SCBX_ENTITIES, SCBX_ENTITIES);
+	R_AddGraphicsWork (&builder, DRAW_RECEIVER_BRUSHES, SCBX_RECEIVER_BRUSHES, SCBX_RECEIVER_BRUSHES);
 	R_AddGraphicsWork (&builder, DRAW_MODELS, SCBX_MODELS, SCBX_MODELS);
 	if (r_ssao.value > 0)
 	{
@@ -883,6 +886,7 @@ uint32_t R_RecordFrame (
 	uint32_t submit_count = 0;
 	bool	 recording_started = false;
 	bool receiver_any_reused = false;
+	bool receiver_world_reused=false;
 	VkRenderPass active_pass = VK_NULL_HANDLE;
 	VkFramebuffer active_framebuffer = VK_NULL_HANDLE;
 	uint32_t active_subpass = 0;
@@ -971,6 +975,10 @@ uint32_t R_RecordFrame (
 		{
 			bool reused=step->draw_stage == DRAW_WORLD && RCReceiverSelect_Submit (command_buffer, RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount),
 				RCReceiverFrame_Active (RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount)), active_pass, active_framebuffer, active_subpass);
+			if (step->draw_stage == DRAW_WORLD) receiver_world_reused = reused;
+			/* The world replay already drew these, so their native stream must not. */
+			if (step->draw_stage == DRAW_RECEIVER_BRUSHES)
+				reused=RCExperimentalSubmitBrushes(receiver_world_reused);
 			if (step->draw_stage == DRAW_MODELS)
 				reused=RCExperimentalSubmitModels(command_buffer,RCReceiverFrame_CompletedSerial((uint32_t)r_framecount),
 					active_pass,active_framebuffer,active_subpass);
@@ -999,7 +1007,8 @@ uint32_t R_RecordFrame (
 		receiver_any_reused && RCReceiverFrame_ActiveCheckerboard(serial),
 		receiver_any_reused && RCReceiverFrame_ActiveFilterMode(serial)==1);
 	R_RadianceRecordReceiverSoftUse(receiver_any_reused && RCReceiverFrame_ActiveSoftShadows(serial));
-	R_RadianceRecordReceiverShadowFilterUse(receiver_any_reused?RCReceiverFrame_ActiveShadowFilter(serial):0);
+	R_RadianceRecordReceiverShadowFilterUse(receiver_any_reused?RCReceiverFrame_ActiveShadowFilter(serial):0,
+		receiver_any_reused?RCReceiverFrame_ActiveShadowFilterRadius(serial):0);
 	return submit_count;
 }
 

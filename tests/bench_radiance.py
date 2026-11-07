@@ -32,7 +32,7 @@ QUALITY = re.compile(r'\bquality=(-?\d+)\b')
 STATIC_SCENE = re.compile(r'BLAS_upload static=(\d+) B dynamic=\d+ B; builds static=(\d+)')
 GPU_STAGE = re.compile(r'GPU (world|entities|receiver|receiver_classify|receiver_shade|receiver_filter) stage:\s*(\d+) samples,\s*([\d.]+) ms mean,\s*([\d.]+) ms median(?:,\s*([\d.]+) ms p95)?\s*\((\d+)/(\d+) samples\)')
 PROBE_FILTER = re.compile(r'"r_radiance_probe_gaussian" is "([^"]+)"')
-RECEIVER_STATE = re.compile(r'half-resolution receiver requested=(\d+) active=(\d+) checkerboard requested=(\d+) active=(\d+)')
+RECEIVER_STATE = re.compile(r'reduced receiver requested=(\d+) active=(\d+) checkerboard requested=(\d+) active=(\d+)')
 RECEIVER_SCALE = re.compile(r'receiver scale requested=(\S+) active=(\S+) divisor=(\S+)')
 RECEIVER_FILTER = re.compile(r'receiver filter requested=(probe|texture) active=(probe|texture|full)')
 GAINS = re.compile(r'gains point=(\S+) emissive=(\S+) bounce=(\S+)')
@@ -589,7 +589,7 @@ def main():
             (work / game).mkdir()
             (work / game / 'progs.dat').symlink_to(progs)
         scale_command = (f'r_radiance_resolution_scale {scale:.12g}' if args.resolution_scale is not None or guarded_comparison
-                         else f'r_radiance_half_resolution {int(receiver != "full")}')
+                         else f'r_radiance_resolution_scale {1 if receiver == "full" else 0.5}')
         startup = (f'r_rtshadows 0\nmax_edicts 32800\nhost_maxfps 0\nhost_speeds 0\nsv_speeds 0\n'
                    f'scr_showfps 0\nr_radiance 0\nr_radiance_backend {backend_code}\nr_radiance_quality {args.quality}\n'
                    f'r_radiance_grid {args.grid}\nr_radiance_emissive_gain {args.emissive_gain}\n'

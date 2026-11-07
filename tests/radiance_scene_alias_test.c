@@ -226,14 +226,24 @@ int main (void)
 	uint64_t revision=snapshot.mesh_revision;
 	entities[4].origin[2]=7; assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
 	assert(snapshot.mesh_revision==revision && snapshot.origins[4][2]==7);
-	entities[4].angles[0]=1; assert(!RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
-	assert(!snapshot.count && !snapshot.triangles); entities[4].angles[0]=0;
-	entities[5].origin[0]=NAN; assert(!RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
+	/* Each ineligible instance leaves alone; the rest of the batch stays. */
+	entities[4].angles[0]=1; assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
+	assert(snapshot.count==batch_count-1 && snapshot.origins[4][0]==5 && snapshot.mesh_revision==revision); entities[4].angles[0]=0;
+	entities[5].origin[0]=NAN; assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot) && snapshot.count==batch_count-1);
+	for(uint32_t i=0;i<snapshot.count;++i) assert(isfinite(snapshot.origins[i][0]));
 	entities[5].origin[0]=5; entities[6].netstate.scale=32;
-	assert(!RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
+	assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot) && snapshot.count==batch_count-1);
 	entities[6].netstate.scale=ENTSCALE_DEFAULT; entities[7].alpha=ENTALPHA_ENCODE(.5f);
-	assert(!RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot));
+	assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot) && snapshot.count==batch_count-1);
 	entities[7].alpha=ENTALPHA_DEFAULT;
+	/* A translucent first instance must not supply the shared mesh or block the rest. */
+	entities[0].alpha=ENTALPHA_ENCODE(.5f);
+	assert(RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot) && snapshot.count==batch_count-1);
+	entities[0].alpha=ENTALPHA_DEFAULT;
+	/* No eligible instance leaves nothing to batch. */
+	for(uint32_t i=0;i<batch_count;++i) entities[i].angles[0]=1;
+	assert(!RCScene_ECSBatchPrepare(&batch,entities,batch_count,&snapshot) && !snapshot.count && !snapshot.triangles);
+	for(uint32_t i=0;i<batch_count;++i) entities[i].angles[0]=0;
 	rc_alias_mesh_t *old_mesh=first.radiance_mesh; uint64_t old_identity=RCAlias_Revision(old_mesh);
 	first.radiance_mesh=RCAlias_Create (RC_ALIAS_MDL,3,2,3,xyz,sizeof (xyz[0][0]),uv,sizeof (uv[0]),indices,unit,zero);
 	assert(first.radiance_mesh && RCAlias_Revision(first.radiance_mesh)!=old_identity);

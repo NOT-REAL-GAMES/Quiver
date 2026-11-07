@@ -16,6 +16,26 @@ Set `r_meshlet_task 1` with mode 3 to enable task-shader culling on supported de
 
 Mode 3 bakes meshlet-local vertex and primitive streams from the compiled map. On capable devices, the Vulkan mesh shader performs frustum, optional depth-pyramid and per-surface facing tests, then emits geometry directly. Static opaque materials without texture animation use this path. Sky, liquid, cutout and animated materials, moving brush models and wireframe views use the indexed path. If the device, shader compiler, pipeline, resources or map cannot support the mesh path, the engine falls back to mode 2. `meshlet_stats` reports whether mesh shaders are active and how many clusters are eligible. Its compute-culling counters cover the indexed portion of mode 3, not the mesh-shader portion.
 
+### Radiance compatibility
+
+The current mesh/task shader pipelines cannot run together with active Radiance. Meshlets require `r_indirect 1`, while the Radiance receiver capture, deferred model reuse and all-light Gaussian filter require `r_indirect 0`. Successful Radiance preparation also explicitly disables the mesh/task stages; requesting mode 3 with `r_indirect 1` then uses indexed meshlet culling. With `r_indirect 0`, meshlets are inactive entirely. Check the actual `Mesh shader: active` and `Task shader: active` lines rather than interpreting `r_meshlets 3` as proof of execution.
+
+Compiled static MDL, MD3 and MD5 entities retain their model geometry; placing them in a BSPX static-model lump does not convert them into BSP world surfaces. They are outside this BSP meshlet pipeline. In particular, Sponza's MD5 geometry continues through the model renderer.
+
+For fair mesh/task shader timing, compare stock and mesh/task modes with Radiance off and `r_indirect 1` throughout. A filtered Radiance measurement can be reported separately, but changes in lighting prevent treating that comparison as a mesh-shader speedup at equal image quality. Supporting the combined path requires Radiance mesh/task pipeline layouts and compatible receiver capture with stable draw/primitive IDs.
+
+On 2026-11-06, a three-round fixed-camera pilot on the RTX 4080 at an actual 3440×1440 measured the compiled `the_sponza` balcony. The full-resolution deferred Radiance reference used quality 0, bounce gain 25, probe Gaussian 1, soft shadows with radius 5, and all-light Gaussian strength 1/radius 8. Its median wall throughput was 41.25 FPS and median whole-frame GPU time was 24.3437 ms. An untimed mode-3/task request retained filtering but reported both shader stages inactive, confirming the compatibility limit.
+
+With Radiance off and `r_indirect 1` in all three controls, the same camera measured:
+
+| Path | Median wall FPS | Median GPU frame ms |
+| --- | ---: | ---: |
+| Stock BSP | 2971.9 | 0.2467 |
+| Mesh shaders | 2870.4 | 0.2565 |
+| Mesh + task shaders | 2871.6 | 0.2578 |
+
+The paired GPU cost increased 4.13% for mesh shaders and 4.33% with task shaders. This small pilot covers one camera and three two-second windows per mode, after warmup; it does not establish performance on other maps. The scene has 1,004 BSP triangles and 262,266 model triangles, so this meshlet path covers only a small part of its geometry. Mode selection, held simulation, filter/model activity, native viewport, unchanged assets and executable, clean process exit, and absence of competing game processes were checked. Both shader controls selected independent occlusion with 117 active occluders and 378 eligible meshlets at every timing boundary. Their captures matched stock pixel for pixel. Validation and optional diagnostic queries were disabled for timing. The frozen runner, console states, captures and raw samples are in `build/radiance-shadow-filter-20261106/meshlet-comparison/results.json`.
+
 ## Independent GPU occlusion
 
 The engine selects up to 256 nearby opaque, stationary world faces from a map-local spatial index. It reuses a candidate list until the camera moves 64 units or turns about 11 degrees. Coverage and depth are rebuilt from the current camera every frame. Each frame compute shaders project those occluders with the **current camera** into a 64×64 depth grid. A cell contributes depth only if a real surface covers it completely, including a guard for raster precision and multisampling. Uncovered cells stay clear. Successive levels store the farthest guaranteed depth in each region, using the engine's reversed-Z convention.

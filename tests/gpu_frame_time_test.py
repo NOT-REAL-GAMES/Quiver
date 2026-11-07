@@ -44,6 +44,9 @@ static float gpu_stage_history[2][GPU_MEASURE_HISTORY_CAPACITY];
 static double gpu_receiver_ms[3];
 static unsigned int gpu_receiver_samples;
 static float gpu_receiver_history[3][GPU_MEASURE_HISTORY_CAPACITY];
+static double gpu_filter_pass_ms[3];
+static unsigned int gpu_filter_pass_samples;
+static float gpu_filter_pass_history[3][GPU_MEASURE_HISTORY_CAPACITY];
 static const char *command = "stop";
 static char output[2048];
 static int Cmd_Argc(void) { return 2; }
@@ -74,12 +77,15 @@ int main(void) {
     for(unsigned i=0;i<4;++i) { gpu_stage_history[0][i]=(float)(4-i); gpu_stage_history[1][i]=1; }
     gpu_receiver_samples=4;
     for(unsigned j=0;j<3;++j) { gpu_receiver_ms[j]=10; for(unsigned i=0;i<4;++i)gpu_receiver_history[j][i]=(float)(i+1); }
+    gpu_filter_pass_samples=4;
+    for(unsigned j=0;j<3;++j) { gpu_filter_pass_ms[j]=10; for(unsigned i=0;i<4;++i)gpu_filter_pass_history[j][i]=(float)(i+1); }
     VID_GPUStageTime_f();
     assert(strstr(output, "GPU receiver_filter stage: 4 samples, 2.5000 ms mean, 2.5000 ms median, 4.0000 ms p95"));
+    assert(strstr(output, "GPU filter_vertical stage: 4 samples, 2.5000 ms mean, 2.5000 ms median, 4.0000 ms p95"));
     assert(strstr(output, "GPU world stage: 4 samples, 2.5000 ms mean, 2.5000 ms median"));
     assert(strstr(output, "GPU entities stage: 4 samples, 1.0000 ms mean, 1.0000 ms median"));
     output[0]=0; command="start"; VID_GPUStageTime_f();
-    assert(gpu_stage_active && !gpu_stage_samples && gpu_stage_ms[0] == 0 && gpu_stage_ms[1] == 0 && !gpu_receiver_samples && gpu_receiver_ms[2] == 0);
+    assert(gpu_stage_active && !gpu_stage_samples && gpu_stage_ms[0] == 0 && gpu_stage_ms[1] == 0 && !gpu_receiver_samples && gpu_receiver_ms[2] == 0 && !gpu_filter_pass_samples && gpu_filter_pass_ms[2] == 0);
     output[0]=0; command="stop"; VID_GPUStageTime_f();
     assert(strstr(output, "GPU stage time: no completed samples"));
     puts("PASS: GPU frame timer mean, median and truncation reporting");

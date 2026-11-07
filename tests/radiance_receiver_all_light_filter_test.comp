@@ -1,0 +1,133 @@
+#version 460
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_GOOGLE_include_directive : require
+/* Actual cooperative axis filter; independent colored source profiles and
+ * field-validity hooks prove aggregate filtering without any source ranking. */
+layout(local_size_x=416) in;
+layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
+#include "radiance_receiver_scale.glsl"
+struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
+struct Lighting { vec4 receiver_filter; } rcLighting;
+struct Cascade { vec4 origin_spacing; } rcLevels[1];
+int target,obstruction,mode,invalidField,barrierKind;bool verticalInput,unknownGI;
+float worldStep;uint badFetch;shared uint failures;
+ivec2 activeExtent() { return RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z); }
+bool bounds(ivec2 p) { return all(greaterThanEqual(p,ivec2(0))) && all(lessThan(p,activeExtent())); }
+int axisOf(ivec2 p) { return verticalInput?p.y:p.x; }
+bool scheduled(ivec2 p,uint field) { return verticalInput || rcLighting.receiver_filter.y<=.5 || uint((p.x+p.y)&1)==(field&1u); }
+uint RC_ResolvePackedStatus(ivec2 p) {
+ if(!bounds(p)) { ++badFetch;return 0u; }
+ if(axisOf(p)==obstruction && barrierKind==1)return 2u;
+ bool known=scheduled(p,1u) && !unknownGI;
+ /* Deliberately change selected-source metadata at every receiver. */
+ return 1u|(known?4u:0u)|((uint(axisOf(p)%13)+1u)<<4u);
+}
+uint RC_ResolveStatus(ivec2 p) { return RC_ResolvePackedStatus(p)&3u; }
+uvec2 RC_ResolveID(ivec2 p) {
+ ivec2 q=RC_ReceiverPixelBlock(p-rcReceiver.viewport.xy,rcReceiver.normalThreshold.z);
+ if(!bounds(q)) { ++badFetch;return uvec2(0); }
+ if(barrierKind==4) return uvec2(123,456);
+ if(axisOf(q)==obstruction && (barrierKind==2 || barrierKind==3)) return uvec2(9000,9001);
+ return uvec2(q/3+1);
+}
+vec3 RC_ResolvePosition(ivec2 p) {
+ if(!bounds(p))++badFetch;
+ vec2 xy=vec2(RC_ReceiverFirstPixel(p,rcReceiver.normalThreshold.z))*worldStep;
+ return vec3(xy,axisOf(p)==obstruction && barrierKind==2?1:0);
+}
+vec3 RC_ResolveNormal(ivec2 p) {
+ if(!bounds(p))++badFetch;
+ if(barrierKind==4 || barrierKind==5)return normalize(vec3(.1,0,1));
+ return axisOf(p)==obstruction && barrierKind==3?vec3(1,0,0):vec3(0,0,1);
+}
+vec4 RC_ResolveValue(ivec2 p,uint field) {
+ if(!bounds(p)) { ++badFetch;return vec4(0); }
+ ivec2 center=verticalInput?ivec2(p.x,target):ivec2(target,p.y);
+ ivec2 delta=RC_ReceiverFirstPixel(p,rcReceiver.normalThreshold.z)-RC_ReceiverFirstPixel(center,rcReceiver.normalThreshold.z);
+ float x=float(verticalInput?delta.y:delta.x)*worldStep;
+ vec3 direct=vec3(-2,3,4),minimum=vec3(.1,.2,.3);
+ if(mode==1)direct=vec3(x>-4?1:0,-2,x>4?1:0); /* Two independent lights. */
+ if(mode==2)direct=vec3(x<0?1:0,0,x>=0?1:0);
+ if(mode==3)direct=abs(x)>9 && abs(x)<20?vec3(1):vec3(0);
+ if(mode==4)direct=axisOf(p)>obstruction?vec3(100):vec3(0);
+ if(mode==5) { direct=vec3(x>0?-2:0,-3,0);minimum=vec3(x>0?2:0,.25,.5); }
+ if(mode==6)direct=vec3(0);
+ bool valid=scheduled(p,field) && !(int(field)==invalidField && axisOf(p)==obstruction);
+ return vec4(field==0u?direct:field==2u?minimum:vec3(.5),valid?1:0);
+}
+#define RC_RECEIVER_TEXTURE_FILTER 1
+#include "radiance_receiver_guides.glsl"
+bool RC_CheckerFetch(ivec2 p,uint field,out vec3 value) {
+ if(RC_ResolveStatus(p)!=1u)return false;
+ vec4 v=RC_ResolveValue(p,field);value=v.rgb;return v.a>.5;
+}
+bool RC_CheckerCompatible(ivec2 a,ivec2 b,uint field) { return RC_ReceiverGuidesCompatible(a,b,activeExtent()); }
+#include "radiance_receiver_checkerboard.glsl"
+#include "radiance_receiver_texture_filter.glsl"
+#include "radiance_receiver_filter_axis.glsl"
+void reset(bool checker) {
+ rcReceiver.viewport=ivec4(3,5,1917,69);rcReceiver.normalThreshold=vec4(.99,.01,2,0);
+ rcLighting.receiver_filter=vec4(1,checker?1:0,1,16);rcLevels[0].origin_spacing=vec4(0,0,0,59);
+ target=320;obstruction=-1;mode=0;invalidField=-1;barrierKind=0;verticalInput=false;unknownGI=false;worldStep=.125;badFetch=0u;
+}
+vec3 evaluate(uint field,uint fields,float radius,float strength,out bool valid) {
+ int base=(target/RC_AXIS_GROUP)*RC_AXIS_GROUP,line=2;
+ float support=RC_AxisSupport(radius,strength);
+ ivec2 p=RC_AxisPixel(target,line,verticalInput);
+ RC_TextureAxisLoadFields(base,line,verticalInput,activeExtent(),fields,support,support);
+ vec3 value;valid=RC_TextureFilterAxisField(p,activeExtent(),base,line,verticalInput,field,radius,strength,value);
+ barrier();
+ /* Every fixture also proves the per-tile reach matches a full-storage load bit for bit. */
+ RC_TextureAxisLoadFields(base,line,verticalInput,activeExtent(),fields,3.0e38,3.0e38);
+ vec3 full;bool fullValid=RC_TextureFilterAxisField(p,activeExtent(),base,line,verticalInput,field,radius,strength,full);
+ barrier();
+ if(valid!=fullValid || any(notEqual(floatBitsToUint(value),floatBitsToUint(full))))++badFetch;
+ return value;
+}
+bool near(vec3 a,vec3 b) { return all(lessThan(abs(a-b),vec3(.0005))); }
+void store(int index,bool ok) {
+ if(gl_LocalInvocationID.x==0u)failures=0u;barrier();
+ if(!ok || badFetch!=0u)atomicOr(failures,1u);barrier();
+ if(gl_LocalInvocationID.x==0u)result[index]=uint(failures==0u);barrier();
+}
+void main() {
+ bool valid,ok;vec3 value,a,b;
+ reset(false);value=evaluate(0u,5u,16,1,valid);ok=valid && near(value,vec3(-2,3,4));
+ value=evaluate(2u,5u,16,1,valid);store(0,ok && valid && near(value,vec3(.1,.2,.3)));
+ reset(false);mode=1;value=evaluate(0u,5u,16,1,valid);
+ store(1,valid && value.x>0 && value.x<1 && value.z>0 && value.z<1 && abs(value.y+2)<.0005);
+ reset(false);mode=2;value=evaluate(0u,5u,16,1,valid);store(2,valid && value.x>.1 && value.z>.1 && abs(value.x+value.z-1)<.0005);
+ reset(false);mode=3;a=evaluate(0u,5u,2,1,valid);ok=valid && a==vec3(0);b=evaluate(0u,5u,16,1,valid);
+ ok=ok && valid && b.x>.03;
+ barrierKind=4;b=evaluate(0u,5u,16,1,valid);ok=ok && valid && b.x>.03;
+ barrierKind=5;b=evaluate(0u,5u,16,1,valid);
+ store(3,ok && valid && b.x>.03);
+ reset(false);mode=4;obstruction=target+24;barrierKind=1;value=evaluate(0u,5u,32,2,valid);store(4,valid && value==vec3(0));
+ barrierKind=2;value=evaluate(0u,5u,32,2,valid);ok=valid && value==vec3(0);
+ barrierKind=3;value=evaluate(0u,5u,32,2,valid);store(5,ok && valid && value==vec3(0));
+ reset(false);mode=1;unknownGI=true;value=evaluate(0u,7u,16,1,valid);ok=valid && value.x>0 && value.z>0;
+ value=evaluate(1u,7u,16,1,valid);store(6,ok && !valid);
+ reset(false);invalidField=0;obstruction=target;value=evaluate(0u,5u,16,1,valid);ok=!valid;
+ value=evaluate(2u,5u,16,1,valid);store(7,ok && valid && near(value,vec3(.1,.2,.3)));
+ reset(false);invalidField=2;obstruction=target;mode=1;value=evaluate(2u,5u,16,1,valid);ok=!valid;
+ value=evaluate(0u,5u,16,1,valid);store(8,ok && valid && value.x>0 && value.z>0);
+ reset(false);mode=6;value=evaluate(0u,5u,16,1,valid);store(9,valid && value==vec3(0));
+ reset(false);mode=5;a=evaluate(0u,5u,16,1,valid);ok=valid && a.x<0 && a.x>-2 && abs(a.y+3)<.0005;
+ b=evaluate(2u,5u,16,1,valid);store(10,ok && valid && b.x>0 && b.x<2 && near(b.yzz,vec3(.25,.5,.5)));
+ reset(true);mode=1;target=321;value=evaluate(0u,5u,16,1,valid);
+ store(11,valid && value.x>0 && value.z>0 && abs(value.y+2)<.0005);
+ reset(true);verticalInput=true;rcReceiver.viewport.zw=rcReceiver.viewport.wz;mode=1;
+ value=evaluate(0u,5u,16,1,valid);store(12,valid && value.x>0 && value.z>0 && abs(value.y+2)<.0005);
+ reset(false);mode=1;value=evaluate(0u,5u,16,1,valid);a=value;ok=valid;
+ const float divisors[5]=float[5](1,1.5,2,3,4);
+ for(int i=0;i<5;++i) {
+  rcReceiver.normalThreshold.z=divisors[i];value=evaluate(0u,5u,16,1,valid);
+  ok=ok && valid && all(lessThan(abs(value-a),vec3(.035)));
+ }
+ store(13,ok);
+ reset(false);mode=1;value=evaluate(0u,5u,16,.0001,valid);
+ vec3 raw=RC_ResolveValue(ivec2(target,2),0u).rgb;store(14,valid && near(value,raw));
+ reset(true);mode=1;target=0;value=evaluate(0u,5u,16,2,valid);ok=valid;
+ target=RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z).x-1;
+ value=evaluate(0u,5u,16,2,valid);store(15,ok && valid && RC_ReceiverFinite(value));
+}

@@ -17,17 +17,26 @@ extern cvar_t r_radiance_sky_fallback;
 extern cvar_t r_radiance_probe_gaussian;
 extern cvar_t r_radiance_probe_spacing;
 extern cvar_t r_radiance_gi_distance;
+extern cvar_t r_radiance_gi_normal_bias;
+extern cvar_t r_radiance_depth_aa;
+extern cvar_t r_radiance_full_light;
+uint32_t R_ReceiverDepthSamples (void);
+extern cvar_t r_radiance_debug_fallback;
+extern cvar_t r_radiance_upscale_blur;
+extern cvar_t r_radiance_upscale_blur_radius;
+float R_RadianceUpscaleExtent (void);
+extern cvar_t r_radiance_water_shadow_scale;
 extern cvar_t r_radiance_spot_softness;
 extern cvar_t r_radiance_soft_shadows;
 extern cvar_t r_radiance_shadow_radius;
 extern cvar_t r_radiance_shadow_sun_angle;
 extern cvar_t r_radiance_shadow_filter;
+extern cvar_t r_radiance_shadow_filter_radius;
 extern cvar_t r_radiance_grid;
 extern cvar_t r_radiance_highlight;
 extern cvar_t r_radiance_profile;
 extern cvar_t r_radiance_batch_shadows;
 extern cvar_t r_radiance_resolution_scale;
-extern cvar_t r_radiance_half_resolution;
 extern cvar_t r_radiance_checkerboard;
 extern cvar_t r_radiance_receiver_filter;
 extern cvar_t r_radiance_receiver_diagnostics;
@@ -45,6 +54,10 @@ typedef struct radiance_runtime_stats_s
 	bool active, timing_available, sky_fallback, sky_authored, ecs_batch_shadow_active;
 	radiance_backend_t backend;
 	uint64_t allocation_bytes, probes, intervals_updated;
+	uint64_t atlas_revision;
+	uint32_t atlas_repacks, atlas_layers, atlas_width, atlas_height;
+	uint64_t atlas_bytes;
+	double atlas_repack_ms;
 	uint64_t input_gpu_bytes, scene_gpu_bytes, cascade_gpu_bytes, acceleration_gpu_bytes;
 	uint64_t scene_upload_bytes, static_blas_upload_bytes, dynamic_blas_upload_bytes, light_grid_builds;
 	uint32_t static_blas_builds, dynamic_blas_builds, tlas_builds, dynamic_blas_updates, tlas_updates;
@@ -76,18 +89,22 @@ float R_RadianceResolutionDivisor (void);
 /* Sanitized receiver-only shadow controls: enabled, finite-source radius,
  * directional angular radius in radians, spatial filter strength [0,2]. */
 void R_RadianceShadowParameters (float output[4]);
+/* World-space direct-light Gaussian radius [0,128]; zero disables it. */
+float R_RadianceShadowFilterRadius (void);
 /* Update publication without counting a frame (for lifecycle resets). */
 void R_RadianceSetReceiverUse (float divisor, bool checkerboard, bool texture_filter);
 /* Update the last recorded optional-pass state without counting a frame. */
 void R_RadianceSetReceiverSoftUse (bool active);
 /* Record actual optional post work, including unsupported/skipped frames. */
 void R_RadianceRecordReceiverSoftUse (bool active);
-void R_RadianceSetReceiverShadowFilterUse (float strength);
-void R_RadianceRecordReceiverShadowFilterUse (float strength);
+void R_RadianceSetReceiverShadowFilterUse (float strength, float radius);
+void R_RadianceRecordReceiverShadowFilterUse (float strength, float radius);
 float R_RadianceActiveShadowFilter (void);
+float R_RadianceActiveShadowFilterRadius (void);
 /* Record one frame's selected world path, including full-resolution fallback. */
 void R_RadianceRecordReceiverUse (float divisor, bool checkerboard, bool texture_filter);
 void R_RadianceRecordModelReceiverUse (uint32_t draws, uint32_t triangles, bool reused);
+void R_RadianceRecordBrushReceiverUse (uint32_t draws, uint32_t water_draws, bool reused);
 void R_RadianceSetReceiverDiagnostics (const rc_receiver_diagnostic_stats_t *stats);
 float R_RadianceActiveProbeSpacing (void);
 void R_RadianceReset (const char *reason);

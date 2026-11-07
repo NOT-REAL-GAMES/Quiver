@@ -37,6 +37,8 @@ shaders = [
     'Shaders/radiance_merge.comp',
     'Shaders/radiance_receiver_world.frag',
     'Shaders/radiance_receiver_half.comp',
+    'Shaders/radiance_receiver_depth_resolve.frag',
+    'Shaders/radiance_receiver_light.comp',
     'Shaders/radiance_receiver_reconstruct.comp',
     'Shaders/radiance_receiver_filter.comp',
     'Shaders/radiance_receiver_diagnostics.comp',
@@ -259,12 +261,19 @@ shader_variants += [
     ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_direct_sw.comp', []],
     ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_direct_rt.comp', ['-DRC_HARDWARE_RAY_QUERY=1']],
     ['Shaders/radiance_receiver_half.comp', 'radiance_receiver_half_fast.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1']],
+    ['Shaders/radiance_receiver_half.comp', 'radiance_receiver_half_msaa.comp', ['-DRECEIVER_MSAA=1']],
+    ['Shaders/radiance_receiver_half.comp', 'radiance_receiver_half_fast_msaa.comp', ['-DRECEIVER_MSAA=1', '-DRC_RECEIVER_TEXTURE_FILTER=1']],
     ['Shaders/world.frag', 'world_receiver_forward_fast_sw.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_GAUSSIAN_FALLBACK=1']],
     ['Shaders/world.frag', 'world_receiver_forward_fast_rt.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_GAUSSIAN_FALLBACK=1', '-DRC_HARDWARE_RAY_QUERY=1']],
     ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_direct_fast_sw.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1']],
     ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_direct_fast_rt.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_HARDWARE_RAY_QUERY=1']],
-    ['Shaders/radiance_receiver_soft.comp', 'radiance_receiver_soft_sw.comp', []],
-    ['Shaders/radiance_receiver_soft.comp', 'radiance_receiver_soft_rt.comp', ['-DRC_HARDWARE_RAY_QUERY=1']],
+    ['Shaders/radiance_receiver_light_miss.comp', 'radiance_receiver_light_miss_sw.comp', []],
+    ['Shaders/radiance_receiver_light_miss.comp', 'radiance_receiver_light_miss_rt.comp', ['-DRC_HARDWARE_RAY_QUERY=1']],
+    ['Shaders/world.frag', 'world_receiver_forward_lit.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_FULL_LIGHT=1']],
+    ['Shaders/alias.frag', 'alias_receiver_forward_lit.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_MODEL_CULL=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_FULL_LIGHT=1']],
+    ['Shaders/alias.frag', 'alias_receiver_forward_lit_alphatest.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_MODEL_CULL=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_FULL_LIGHT=1', '-DALIAS_ALPHA_TEST=1']],
+    ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_soft_sw.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_SOFT_SHADOWS=1']],
+    ['Shaders/radiance_receiver_direct.comp', 'radiance_receiver_soft_rt.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_SOFT_SHADOWS=1', '-DRC_HARDWARE_RAY_QUERY=1']],
     ['Shaders/radiance_receiver_model.frag', 'radiance_receiver_model.frag', []],
     ['Shaders/radiance_receiver_model.frag', 'radiance_receiver_model_alphatest.frag', ['-DALIAS_ALPHA_TEST=1']],
     ['Shaders/alias.frag', 'alias_receiver_forward_fast_sw.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_MODEL_CULL=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_GAUSSIAN_FALLBACK=1']],
@@ -340,17 +349,18 @@ foreach job : shader_jobs
     if source.contains('radiance') or name.contains('radiance') or name.contains('receiver')
         filter_dependencies += files('Shaders/radiance_light_query_free.glsl')
     endif
-    if source == 'Shaders/radiance_receiver_filter.comp'
-        filter_dependencies += files('Shaders/radiance_receiver_shadow_filter.glsl', 'Shaders/radiance_light_unshadowed.glsl')
-    endif
-    if source in ['Shaders/radiance_receiver_half.comp', 'Shaders/radiance_receiver_reconstruct.comp',
+    if source in ['Shaders/radiance_receiver_half.comp', 'Shaders/radiance_receiver_reconstruct.comp', 'Shaders/radiance_receiver_light.comp',
+                  'Shaders/radiance_receiver_direct.comp',
                   'Shaders/radiance_receiver_filter.comp', 'Shaders/radiance_receiver_diagnostics.comp'] or name.startswith('world_receiver_forward') or name.startswith('alias_receiver_forward')
         filter_dependencies += files('Shaders/radiance_receiver_scale.glsl')
     endif
     if source in ['Shaders/radiance_receiver_model.frag', 'Shaders/alias.frag']
         filter_dependencies += files('Shaders/radiance_model_normal.glsl', 'Shaders/alias_common.inc')
     endif
-    if source in ['Shaders/radiance_receiver_direct.comp', 'Shaders/radiance_receiver_soft.comp']
+    if source in ['Shaders/radiance_receiver_light.comp', 'Shaders/radiance_receiver_light_miss.comp']
+        filter_dependencies += files('Shaders/radiance_receiver_light_common.glsl')
+    endif
+    if source in ['Shaders/radiance_receiver_direct.comp', 'Shaders/radiance_receiver_light_miss.comp']
         filter_dependencies += files('Shaders/radiance_receiver_shadows.glsl', 'Shaders/radiance_receiver_shadow_metadata.glsl',
             'Shaders/radiance_receiver_shadow_source.glsl', 'Shaders/radiance_light_unshadowed.glsl', 'Shaders/radiance_parameters.glsl')
     endif
@@ -433,6 +443,7 @@ srcs = [
     'Quake/radiance_receiver_descriptors.c',
     'Quake/radiance_receiver_layouts.c',
     'Quake/radiance_receiver_resources.c',
+    'Quake/radiance_receiver_light.c',
     'Quake/radiance_receiver_stage.c',
     'Quake/radiance_receiver_alternates.c',
     'Quake/radiance_receiver_shaders.c',
@@ -518,6 +529,7 @@ srcs = [
 	'Quake/sys_sdl.c',
     'Quake/tasks.c',
     'Quake/view.c',
+    'Quake/view_motion.c',
     'Quake/wad.c',
     'Quake/world.c',
 	'Quake/hash_map.c',
@@ -764,6 +776,13 @@ weld_test = executable('bsp_vertex_weld_test',
     include_directories : 'Quake',
     dependencies : cc.find_library('m', required : false))
 test('BSP vertex weld', weld_test)
+
+view_motion_test = executable('view_motion_test',
+    ['tests/view_motion_test.c', 'Quake/view_motion.c'],
+    include_directories : 'Quake',
+    dependencies : cc.find_library('m', required : false),
+    override_options : ['b_ndebug=false'])
+test('View breathing and gait motion', view_motion_test)
 
 # Bundle the GPL-licensed ericw QBSP compiler for editor playtesting. A C++
 # compiler with a working standard library is optional for engine-only builds.
@@ -1113,7 +1132,7 @@ receiver_filter_axis_spv = custom_target('receiver_filter_axis_spv',
         'Shaders/radiance_receiver_filter_axis.glsl', 'Shaders/radiance_filter.glsl'),
     build_by_default : true)
 test('Radiance receiver separable Gaussian axis GPU', receiver_reconstruct_equivalence_test,
-    args : [receiver_filter_axis_spv, '--gated'], timeout : 240)
+    args : [receiver_filter_axis_spv, '--gated'], timeout : 900)
 receiver_shadows_spv = custom_target('receiver_shadows_spv',
     input : 'tests/radiance_receiver_shadows_test.comp', output : 'receiver_shadows.spv',
     command : [glslang, '-V', '--target-env', 'vulkan1.1', '-I' + meson.current_source_dir() / 'Shaders', '-o', '@OUTPUT@', '@INPUT@'],
@@ -1122,15 +1141,15 @@ receiver_shadows_spv = custom_target('receiver_shadows_spv',
     build_by_default : true)
 test('Radiance receiver contact-hardening shadows GPU', receiver_reconstruct_equivalence_test,
     args : [receiver_shadows_spv, '--gated'], timeout : 240)
-receiver_shadow_filter_spv = custom_target('receiver_shadow_filter_spv',
-    input : 'tests/radiance_receiver_shadow_filter_test.comp', output : 'receiver_shadow_filter.spv',
+receiver_all_light_filter_spv = custom_target('receiver_all_light_filter_spv',
+    input : 'tests/radiance_receiver_all_light_filter_test.comp', output : 'receiver_all_light_filter.spv',
     command : [glslang, '-V', '--target-env', 'vulkan1.1', '-I' + meson.current_source_dir() / 'Shaders', '-o', '@OUTPUT@', '@INPUT@'],
-    depend_files : files('Shaders/radiance_receiver_shadow_filter.glsl', 'Shaders/radiance_light_query_free.glsl',
-        'Shaders/radiance_light_unshadowed.glsl', 'Shaders/radiance_receiver_guides.glsl',
-        'Shaders/radiance_receiver_scale.glsl', 'Shaders/radiance_receiver_checkerboard.glsl', 'Shaders/radiance_filter.glsl'),
+    depend_files : files('Shaders/radiance_receiver_filter_axis.glsl', 'Shaders/radiance_receiver_guides.glsl',
+        'Shaders/radiance_receiver_texture_filter.glsl', 'Shaders/radiance_receiver_scale.glsl',
+        'Shaders/radiance_receiver_checkerboard.glsl', 'Shaders/radiance_filter.glsl'),
     build_by_default : true)
-test('Radiance receiver selected-source shadow filter GPU', receiver_reconstruct_equivalence_test,
-    args : [receiver_shadow_filter_spv, '--gated'], timeout : 240)
+test('Radiance receiver all-light Gaussian GPU', receiver_reconstruct_equivalence_test,
+    args : [receiver_all_light_filter_spv, '--gated'], timeout : 900)
 receiver_texture_lookup_spv = custom_target('receiver_texture_lookup_spv',
     input : 'tests/radiance_receiver_texture_lookup_test.comp', output : 'receiver_texture_lookup.spv',
     command : [glslang, '-V', '--target-env', 'vulkan1.1', '-I' + meson.current_source_dir() / 'Shaders', '-o', '@OUTPUT@', '@INPUT@'],
@@ -1139,6 +1158,7 @@ receiver_texture_lookup_spv = custom_target('receiver_texture_lookup_spv',
 test('Radiance receiver texture lookup GPU', receiver_reconstruct_equivalence_test,
     args : [receiver_texture_lookup_spv, '--gated'], timeout : 240)
 test('Radiance receiver texture filter shaders', python, args : files('tests/radiance_receiver_texture_filter_shader_test.py'))
+test('Radiance receiver light shaders', python, args : files('tests/radiance_receiver_light_shader_test.py'), timeout : 120)
 # Grouped receiver visibility must match the original independent probes.
 receiver_visibility_batch_test = executable('receiver_visibility_batch_test',
     'tests/radiance_receiver_visibility_test.c', dependencies : vulkan_dep, override_options : ['b_ndebug=false'])

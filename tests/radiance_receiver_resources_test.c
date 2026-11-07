@@ -22,6 +22,7 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice d,VkPipelineCa
 { (void)d;(void)c;(void)a;assert(n==1);if(++call==fail)return VK_ERROR_OUT_OF_HOST_MEMORY; if(call==5)assert(i->renderPass==H(VkRenderPass,7) && i->layout==H(VkPipelineLayout,1));else assert(i->renderPass==H(VkRenderPass,8) && i->layout==H(VkPipelineLayout,2) && i->subpass==2); *out=H(VkPipeline,call);return VK_SUCCESS; }
 VKAPI_ATTR void VKAPI_CALL vkDestroyPipeline(VkDevice d,VkPipeline p,const VkAllocationCallbacks *a)
 { (void)d;(void)p;(void)a;++destroyed; }
+void RCReceiverLight_Destroy(rc_receiver_light_t *l) { assert(!l->device); }
 int main(void)
 {
 	VkPipelineMultisampleStateCreateInfo ms={.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT};
@@ -40,5 +41,11 @@ int main(void)
 	for(unsigned i=1;i<=9;++i) { call=destroyed=0;fail=i; assert(!RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,VK_SAMPLE_COUNT_1_BIT,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c)); assert(!out.device && destroyed==i-1); }
 	call=fail=0; assert(RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,VK_SAMPLE_COUNT_1_BIT,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c)); assert(out.forward[3]);
 	call=0;fail=7; assert(!RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,VK_SAMPLE_COUNT_1_BIT,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c)); assert(out.forward[3]);
+	/* The prepass may be multisampled, but its pipelines must match the targets. */
+	assert(!RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,VK_SAMPLE_COUNT_4_BIT,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c));
+	assert(out.forward[3]);
+	ms.rasterizationSamples=VK_SAMPLE_COUNT_4_BIT; call=fail=0;
+	assert(RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,VK_SAMPLE_COUNT_4_BIT,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c));
+	assert(!RCReceiverResources_Create(&out,0,H(VkDevice,1),0,10,10,(VkSampleCountFlagBits)3,0,0,0,32,0,0,0,0,true,0,pre,forward,&c,&c));
 	RCReceiverResources_Destroy(&out); assert(!out.device); puts("PASS: receiver resources preserve old frame state on every creation failure"); return 0;
 }

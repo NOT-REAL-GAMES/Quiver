@@ -1,8 +1,9 @@
 #version 460
+#extension GL_EXT_control_flow_attributes : require
 #extension GL_GOOGLE_include_directive : require
 /* Cooperative cache, bitset segments and nine-tap kernel are the production
  * functions. Procedural world guides expose large footprints without images. */
-layout(local_size_x=128) in;
+layout(local_size_x=416) in;
 layout(std430,set=0,binding=0) buffer Results { uint result[16]; };
 #include "radiance_receiver_scale.glsl"
 struct Viewport { ivec4 viewport; vec4 normalThreshold; } rcReceiver;
@@ -31,6 +32,8 @@ uvec2 RC_ResolveID(ivec2 p) {
     ivec2 q=RC_ReceiverPixelBlock(p-rcReceiver.viewport.xy,rcReceiver.normalThreshold.z);
     if(!bounds(q)) { ++badFetch; return uvec2(0); }
     if(axisOf(q)==obstruction && barrierKind==6) return uvec2(0);
+    if(barrierKind==9) return uvec2(123,456); /* One actual flat triangle. */
+    if(axisOf(q)==obstruction && (barrierKind==4 || barrierKind==7)) return uvec2(9000,9001);
     return uvec2(q/3+1); /* Deliberately cross many primitive/draw IDs. */
 }
 vec3 RC_ResolvePosition(ivec2 p) {
@@ -42,7 +45,8 @@ vec3 RC_ResolvePosition(ivec2 p) {
 vec3 RC_ResolveNormal(ivec2 p) {
     if(!bounds(p)) ++badFetch;
     if(axisOf(p)==obstruction && barrierKind==3) return vec3(1,0,0);
-    if(axisOf(p)==obstruction && barrierKind==7) return normalize(vec3(.1,0,1));
+    if((axisOf(p)==obstruction && barrierKind==7) || barrierKind==9 || barrierKind==10)
+        return normalize(vec3(.1,0,1));
     return vec3(0,0,1);
 }
 vec4 RC_ResolveValue(ivec2 p,uint field) {
@@ -85,6 +89,12 @@ vec3 evaluate(out bool valid) {
     valid=RC_TextureFilterAxis(p,activeExtent(),base,line,verticalInput,value);
     /* No lane may start the next cache load until every reader is done. */
     barrier();
+    /* Every fixture also proves the per-tile reach matches a full-storage load bit for bit. */
+    RC_TextureAxisLoadFields(base,line,verticalInput,activeExtent(),2u,3.0e38,0.0);
+    vec3 full;
+    bool fullValid=RC_TextureFilterAxis(p,activeExtent(),base,line,verticalInput,full);
+    barrier();
+    if(valid!=fullValid || any(notEqual(floatBitsToUint(value),floatBitsToUint(full)))) ++badFetch;
     return value;
 }
 bool near(vec3 a,vec3 b) { return all(lessThan(abs(a-b),vec3(.0003))); }
@@ -152,19 +162,33 @@ void main() {
     reset(2,false); verticalInput=true; rcReceiver.viewport.zw=rcReceiver.viewport.wz;
     obstruction=target; barrierKind=5; value=evaluate(valid); ok=!valid;
     obstruction=target+3; lightMode=2; value=evaluate(valid); store(13,ok && valid && value==vec3(0));
+    /* Smooth normals across triangles must not wall off each triangle; a real
+     * step (barrierKind 4) and a sharp normal (3) remain barriers. */
     reset(2,false); obstruction=target+3; barrierKind=7; lightMode=2;
-    value=evaluate(valid); store(14,valid && value==vec3(0));
+    value=evaluate(valid); ok=valid && value.x>0;
+    reset(2,false); lightMode=3; barrierKind=9;
+    value=evaluate(valid); ok=ok && valid && value.x>.05;
+    barrierKind=10; value=evaluate(valid);
+    store(14,ok && valid && value.x>.05);
 
     RCReceiverSample points[16];
     for(int i=0;i<16;++i) { points[i].position=vec3(i%4,i/4,0); points[i].normal=vec3(0,0,1); points[i].id=uvec2(i+1); points[i].valid=true; }
     vec3 position,normal;
     ok=RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==1u;
     points[15].id=uvec2(0); ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
+    /* A smooth normal across triangles stays usable; the step below does not. */
     points[15].id=uvec2(16); points[15].normal=normalize(vec3(.1,0,1));
-    ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
+    ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==1u;
     points[15].normal=vec3(0,0,1); points[15].position.z=1;
     ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u;
     points[15].valid=false; ok=ok && RC_ClassifyReceivers(points,15u,.01,.99,position,normal)==1u;
+    /* A silhouette block keeps the surface most samples agree on. */
+    for(int i=0;i<16;++i) { points[i].position=vec3(i%4,i/4,i<11?0:40); points[i].normal=vec3(0,0,1); points[i].id=uvec2(i+1); points[i].valid=true; }
+    ok=ok && RC_ClassifyReceivers(points,16u,.01,.99,position,normal)==2u && RC_ClassifyMajority(points,16u,.01,.99)<11u;
+    for(int i=0;i<5;++i) points[15-i].position.z=0; for(int i=0;i<16;++i) points[i].position.z=float(i%4)*40;
+    ok=ok && RC_ClassifyMajority(points,16u,.01,.99)==16u;
+    for(int i=0;i<16;++i) points[i].id=uvec2(0);
+    ok=ok && RC_ClassifyMajority(points,16u,.01,.99)==16u;
     /* Exercise segment masks around word boundaries and both cache edges. */
     const int edges[8]=int[8](0,31,32,447,448,510,958,RC_AXIS_CELLS-2);
     for(int edgeIndex=0;edgeIndex<8;++edgeIndex) {
@@ -183,7 +207,7 @@ void main() {
             int a=int(floor(coordinate)),b=min(a+1,segment.y);
             ok=ok && RC_TextureAxisClear(center,a) && RC_TextureAxisClear(center,b);
         }
-        int from=int(gl_LocalInvocationID.x)*8;
+        int from=(int(gl_LocalInvocationID.x)*8)%RC_AXIS_CELLS;
         for(int to=0;to<RC_AXIS_CELLS;to+=17) {
             bool crosses=min(from,to)<=edge && max(from,to)>edge;
             ok=ok && RC_TextureAxisClear(from,to)!=crosses;
@@ -199,7 +223,7 @@ void main() {
      * denormals. Integer storage preserves both and the position xyz bits. */
     const uint bitCodes[10]=uint[10](0x00007fffu,0x00008001u,0x7fff0000u,0x80010000u,
         0x00000000u,0x7fff7fffu,RC_AXIS_INVALID,RC_AXIS_UNKNOWN,0x7fff0001u,0xffff0001u);
-    uint lane=gl_LocalInvocationID.x,next=(lane+1u)%128u;
+    uint lane=gl_LocalInvocationID.x,next=(lane+1u)%uint(RC_AXIS_GROUP);
     for(uint i=0u;i<10u;++i) {
         uint code=bitCodes[(lane+i)%10u];
         rcAxisData[lane]=uvec4(floatBitsToUint(vec3(1.25,-2.5,3.75)),code);
@@ -210,12 +234,12 @@ void main() {
         barrier();
     }
     for(uint i=0u;i<128u;++i) {
-        uint seed=i*128u+gl_LocalInvocationID.x+1u;
+        uint seed=i*uint(RC_AXIS_GROUP)+gl_LocalInvocationID.x+1u;
         vec3 inputNormal=normalize(vec3(float((seed*17u)%997u)-498.1,float((seed*31u)%991u)-495.2,float((seed*43u)%983u)-491.3));
         uint packed=RC_AxisPackNormal(inputNormal);
         rcAxisData[lane]=uvec4(floatBitsToUint(vec3(0)),packed);
         barrier();
-        uint nextSeed=i*128u+next+1u;
+        uint nextSeed=i*uint(RC_AXIS_GROUP)+next+1u;
         vec3 expectedNormal=normalize(vec3(float((nextSeed*17u)%997u)-498.1,float((nextSeed*31u)%991u)-495.2,float((nextSeed*43u)%983u)-491.3));
         uint stored=rcAxisData[next].w;
         vec3 decoded=RC_AxisNormal(int(next));

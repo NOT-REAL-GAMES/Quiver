@@ -103,10 +103,11 @@ bool RC_LightVisible (vec3 position, vec3 normal, vec3 direction, float distance
 	vec3 start = position + normal * 0.05;
 	if (!directional)
 		return !RC_SceneOccluded (start, direction, 0.01, max (0.01, distance - 0.1));
-	if (!RC_SceneTrace (start, direction, 0.01, max (0.01, distance - 0.1), blocker)) return true;
+	float reach = max (0.01, distance - 0.1);
+	if (!RC_SceneTrace (start, direction, 0.01, reach, blocker)) return !RC_SceneBatchOccluded (start, direction, 0.01, reach);
 	/* A sky portal exposes an environment/directional source, but it is still
 	 * a boundary between the receiver and an ordinary point or spot light. */
-	return directional && (blocker.flags & RC_SCENE_SKY) != 0u;
+	return directional && (blocker.flags & RC_SCENE_SKY) != 0u && !RC_SceneBatchOccluded (start, direction, 0.01, blocker.distance);
 }
 
 

@@ -12,18 +12,25 @@ BLOB(world_receiver_forward_fast_sw_frag,11); BLOB(world_receiver_forward_fast_r
 BLOB(radiance_receiver_filter_comp,13);
 BLOB(radiance_receiver_half_fast_comp,14);
 BLOB(radiance_receiver_soft_sw_comp,15); BLOB(radiance_receiver_soft_rt_comp,16);
+BLOB(radiance_receiver_half_msaa_comp,17); BLOB(radiance_receiver_half_fast_msaa_comp,18);
+BLOB(postprocess_vert,19); BLOB(radiance_receiver_depth_resolve_frag,20);
+BLOB(world_receiver_forward_lit_frag,21);
 #define H(type,n) ((type)(uintptr_t)(n))
 static unsigned calls,fail,destroyed; static bool hardware,texture_filter;
-static bool soft_creation,fail_compute,partial_compute;
+static bool soft_creation,fail_compute,partial_compute,any_module;
 static unsigned pipeline_calls,pipeline_destroyed;
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateShaderModule(VkDevice d,const VkShaderModuleCreateInfo *i,const VkAllocationCallbacks *a,VkShaderModule *out)
-{ (void)d;(void)a; ++calls; if(calls==fail)return VK_ERROR_OUT_OF_HOST_MEMORY; assert(i->codeSize==4 && ((uintptr_t)i->pCode%4)==0); unsigned id=*(const unsigned char*)i->pCode; const unsigned expected[]={1,2,texture_filter?14u:3u,texture_filter?(hardware?10u:9u):(hardware?5u:4u),texture_filter?13u:8u,texture_filter?(hardware?12u:11u):(hardware?7u:6u)}; assert(id==(soft_creation?(hardware?16u:15u):expected[(calls-1)%6])); *out=H(VkShaderModule,calls);return VK_SUCCESS; }
+{ (void)d;(void)a; ++calls; if(calls==fail)return VK_ERROR_OUT_OF_HOST_MEMORY; assert(i->codeSize==4 && ((uintptr_t)i->pCode%4)==0); unsigned id=*(const unsigned char*)i->pCode; const unsigned expected[]={1,2,texture_filter?14u:3u,texture_filter?(hardware?10u:9u):(hardware?5u:4u),texture_filter?13u:8u,texture_filter?(hardware?12u:11u):(hardware?7u:6u)}; assert(any_module || id==(soft_creation?(hardware?16u:15u):expected[(calls-1)%6])); *out=H(VkShaderModule,calls);return VK_SUCCESS; }
 VKAPI_ATTR void VKAPI_CALL vkDestroyShaderModule(VkDevice d,VkShaderModule s,const VkAllocationCallbacks *a)
 { (void)d;(void)s;(void)a;++destroyed; }
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice d,VkPipelineCache c,uint32_t count,const VkComputePipelineCreateInfo *i,const VkAllocationCallbacks *a,VkPipeline *out)
 { (void)d;(void)c;(void)a;assert(soft_creation && count==1 && i->layout==H(VkPipelineLayout,9) && i->stage.module==H(VkShaderModule,1));++pipeline_calls;
  if(!fail_compute || partial_compute)*out=H(VkPipeline,77);
  return fail_compute?VK_ERROR_OUT_OF_HOST_MEMORY:VK_SUCCESS; }
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice d,VkPipelineCache c,uint32_t count,const VkGraphicsPipelineCreateInfo *i,const VkAllocationCallbacks *a,VkPipeline *out)
+{ (void)d;(void)c;(void)a;assert(count==1 && i->stageCount==2 && i->layout==H(VkPipelineLayout,9) && i->renderPass==H(VkRenderPass,8));
+ assert(i->pMultisampleState->rasterizationSamples==VK_SAMPLE_COUNT_1_BIT && i->pDepthStencilState->depthWriteEnable && i->pColorBlendState->attachmentCount==2);
+ ++pipeline_calls;if(fail_compute)return VK_ERROR_OUT_OF_HOST_MEMORY;*out=H(VkPipeline,77);return VK_SUCCESS; }
 VKAPI_ATTR void VKAPI_CALL vkDestroyPipeline(VkDevice d,VkPipeline p,const VkAllocationCallbacks *a)
 { (void)d;(void)a;assert(p==H(VkPipeline,77));++pipeline_destroyed; }
 int main(void)
@@ -33,12 +40,12 @@ int main(void)
 		hardware=(mode&1)!=0; texture_filter=(mode&2)!=0;
 		for(unsigned f=1;f<=6;++f) {
 			calls=destroyed=0;fail=f;
-			assert(!RCReceiverShaders_Create(&s,device,hardware,texture_filter));
+			assert(!RCReceiverShaders_Create(&s,device,hardware,texture_filter,false,false));
 			assert(!s.device && destroyed==f-1);
 		}
-		calls=fail=0; assert(RCReceiverShaders_Create(&s,device,hardware,texture_filter)); assert(s.forward);
+		calls=fail=0; assert(RCReceiverShaders_Create(&s,device,hardware,texture_filter,false,false)); assert(s.forward);
 		VkShaderModule prior=s.forward;
-		calls=0;fail=4;assert(!RCReceiverShaders_Create(&s,device,hardware,texture_filter));assert(s.forward==prior);
+		calls=0;fail=4;assert(!RCReceiverShaders_Create(&s,device,hardware,texture_filter,false,false));assert(s.forward==prior);
 		RCReceiverShaders_Destroy(&s); assert(!s.device);
 	}
 	soft_creation=true;
@@ -53,6 +60,18 @@ int main(void)
 		calls=0;fail_compute=partial_compute=false;
 		assert(RCReceiverShaders_CreateSoftPipeline(&pipeline,device,0,H(VkPipelineLayout,9),hardware) && pipeline && destroyed==3);
 		vkDestroyPipeline(device,pipeline,NULL);assert(pipeline_destroyed==2);
+	}
+	{ /* The two temporary modules are released whether or not creation works. */
+		VkDevice device=H(VkDevice,1); VkPipeline pipeline=VK_NULL_HANDLE;
+		any_module=true; soft_creation=true; fail=0; calls=0; destroyed=0; pipeline_calls=0; fail_compute=true;
+		assert(!RCReceiverShaders_CreateResolvePipeline(&pipeline,device,0,H(VkPipelineLayout,9),H(VkRenderPass,8)) && !pipeline && destroyed==2);
+		fail_compute=false; destroyed=0;
+		assert(RCReceiverShaders_CreateResolvePipeline(&pipeline,device,0,H(VkPipelineLayout,9),H(VkRenderPass,8)) && pipeline && destroyed==2 && pipeline_calls==2);
+		assert(!RCReceiverShaders_CreateResolvePipeline(&pipeline,device,0,H(VkPipelineLayout,9),H(VkRenderPass,8)));
+		rc_receiver_shaders_t multisampled={0};
+		soft_creation=false; calls=0;
+		assert(RCReceiverShaders_Create(&multisampled,device,false,true,true,true) && multisampled.classify);
+		RCReceiverShaders_Destroy(&multisampled);
 	}
 	puts("PASS: receiver shader modules choose backend/filter and preserve prior modules on failure");return 0;
 }

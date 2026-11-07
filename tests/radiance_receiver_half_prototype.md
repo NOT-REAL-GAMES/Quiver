@@ -7,8 +7,7 @@ forward path. Receiver identity, normal and plane tests protect geometry
 boundaries. Probe visibility checks further limit bounce leakage, but they do
 not prove that a direct shadow edge is constant within one surface.
 
-`r_radiance_resolution_scale 0.5`, `0.333333333`, or `0.25` requests this path;
-`r_radiance_half_resolution 1` remains an alias for `0.5`; `r_radiance_checkerboard 1`
+Any `r_radiance_resolution_scale` below 1 requests this path; `r_radiance_checkerboard 1`
 also computes direct and bounce on complementary receiver-grid cells. A separate
 compute pass reconstructs the missing checkerboard samples into distinct HDR
 images. Samples that fail its strict tests are invalid and fall back. The

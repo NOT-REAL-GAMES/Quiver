@@ -48,8 +48,8 @@ def main():
         variants = [('radiance_receiver_filter.comp', []),
                     ('radiance_receiver_diagnostics.comp', []),
                     ('radiance_receiver_half.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1']),
-                    ('radiance_receiver_soft.comp', []),
-                    ('radiance_receiver_soft.comp', ['-DRC_HARDWARE_RAY_QUERY=1']),
+                    ('radiance_receiver_direct.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_SOFT_SHADOWS=1']),
+                    ('radiance_receiver_direct.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_SOFT_SHADOWS=1', '-DRC_HARDWARE_RAY_QUERY=1']),
                     ('radiance_receiver_direct.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1']),
                     ('radiance_receiver_direct.comp', ['-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_HARDWARE_RAY_QUERY=1']),
                     ('world.frag', ['-DRADIANCE_LIGHTING=1', '-DRC_RECEIVER_REUSE=1', '-DRC_RECEIVER_TEXTURE_FILTER=1', '-DRC_RECEIVER_GAUSSIAN_FALLBACK=1']),
@@ -63,13 +63,16 @@ def main():
             preprocessed = run([*base, '-E'])
             if 'RC_ReceiverVisibilityCompatible' in preprocessed:
                 raise RuntimeError(f'{source}: fast path includes a probe visibility compatibility scan')
+            soft = '-DRC_RECEIVER_SOFT_SHADOWS=1' in flags
+            if soft and 'RC_ReceiverSoftVisibility' not in preprocessed:
+                raise RuntimeError('soft shadow pipeline lacks its outer rays')
             if source in ('radiance_receiver_direct.comp', 'world.frag'):
-                if 'RC_ReceiverSoftVisibility' in preprocessed:
+                if not soft and 'RC_ReceiverSoftVisibility' in preprocessed:
                     raise RuntimeError(f'{source}: outer-ray post helper leaked into default shader')
                 if source == 'world.frag' and 'RC_EvaluateUnshadowedLight' in preprocessed:
                     raise RuntimeError('forward fallback contains optional shadow selection')
-                if source == 'radiance_receiver_direct.comp' and 'RC_ReceiverShadowSelect' not in preprocessed:
-                    raise RuntimeError('fast producer lacks query-free metadata export')
+                if source == 'radiance_receiver_direct.comp' and soft != ('RC_ReceiverShadowSelect' in preprocessed):
+                    raise RuntimeError('only the soft shadow pipeline selects a dominant light')
                 abi = run(['spirv-dis', str(output)])
                 block = re.search(r'OpName\s+(%\S+)\s+"RCLightingParameters"', abi)[1]
                 if not re.search(r'OpMemberDecorate\s+' + re.escape(block) + r'\s+9\s+Offset\s+144', abi):
@@ -84,27 +87,27 @@ def main():
                 if source == 'radiance_receiver_direct.comp':
                     if not re.search(r'if\s*\(\s*RC_BounceGain\s*\(\s*\)\s*>\s*0\.0', preprocessed):
                         raise RuntimeError('fast producer does not skip zero-gain GI')
-            elif source == 'radiance_receiver_soft.comp':
-                if 'RC_EvaluateOneLightMode' in preprocessed or 'RC_ReceiverSoftDirect' in preprocessed:
-                    raise RuntimeError('optional post retains the unsafe all-light query graph')
-                disassembly = run(['spirv-dis', str(output)])
-                if 'RC_EvaluateDirectComponents' in disassembly or 'RC_ReceiverShadowSelect' in disassembly:
-                    raise RuntimeError('optional post retains an all-light loop')
             elif source in ('radiance_receiver_filter.comp', 'radiance_receiver_diagnostics.comp'):
                 optimized = temp / 'filter-opt.spv'
-                run(['spirv-opt', '-Os', str(output), '-o', str(optimized)])
+                freeze = ['--freeze-spec-const', '--fold-spec-const-op-composite', '-Os']
+                run(['spirv-opt', *freeze, str(output), '-o', str(optimized)])
                 disassembly = run(['spirv-dis', str(optimized)])
                 if re.search(r'OpName\s+%\S+\s+"(?:rcRaw|rcMerged|rcBrick)', disassembly):
                     raise RuntimeError(f'{source}: texture-only pass retains probe interval storage')
                 if source == 'radiance_receiver_filter.comp':
                     if re.search(r'OpRayQuery|RC_(?:SceneTrace|SceneOccluded|LightVisible)|"rc(?:Scene|Material)', disassembly):
                         raise RuntimeError('selected-source filter includes a scene/material/visibility graph')
-                    if not re.search(r'OpExecutionMode\s+%\S+\s+LocalSize\s+128\s+1\s+1', disassembly):
-                        raise RuntimeError('filter workgroup does not match the 128x1 dispatch')
+                    if not re.search(r'OpExecutionMode\s+%\S+\s+LocalSize\s+416\s+1\s+1', disassembly):
+                        raise RuntimeError('filter workgroup does not match the 416x1 dispatch')
                     if 'OpAtomicOr' not in disassembly or 'OpControlBarrier' not in disassembly:
                         raise RuntimeError('filter lost its shared continuity cache')
                     if not 0 < shared_bytes(disassembly) <= 32768:
                         raise RuntimeError('filter shared cache exceeds Vulkan minimum')
+                    wide = temp / 'filter-wide.spv'
+                    run(['spirv-opt', '--set-spec-const-default-value', '1:512', *freeze, str(output), '-o', str(wide)])
+                    wide_bytes = shared_bytes(run(['spirv-dis', str(wide)]))
+                    if wide_bytes != 34328:
+                        raise RuntimeError(f'512-lane filter needs {wide_bytes} bytes, not RC_RECEIVER_FILTER_WIDE_SHARED')
                 if source == 'radiance_receiver_diagnostics.comp':
                     block = re.search(r'OpName\s+(%\S+)\s+"DiagnosticParams"', disassembly)[1]
                     if not re.search(r'OpMemberDecorate\s+' + re.escape(block) + r'\s+3\s+Offset\s+96', disassembly):

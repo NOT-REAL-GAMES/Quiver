@@ -39,7 +39,7 @@ static void scale_partitions(void)
 			assert(RCReceiver_ScaledExtent(full,divisor)==expected);
 		}
 	}
-	const float invalid[]={0,1.499f,1.501f,2.5f,5,-2,NAN,INFINITY,-INFINITY};
+	const float invalid[]={0,.5f,.99f,-1,16.5f,17,NAN,INFINITY};
 	for(unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);++i)
 		assert(!RCReceiver_ValidDivisor(invalid[i]) && RCReceiver_ScaledExtent(123,invalid[i])==0);
 }
@@ -48,7 +48,7 @@ VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceFormatProperties(VkPhysicalDevice 
 { (void)p;(void)f; memset(out,0,sizeof(*out)); out->optimalTilingFeatures=supported ? ~0u : 0; }
 VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceImageFormatProperties(VkPhysicalDevice p, VkFormat f, VkImageType type,
 	VkImageTiling tiling, VkImageUsageFlags usage, VkImageCreateFlags flags, VkImageFormatProperties *out)
-{ (void)p;(void)f;(void)type;(void)tiling;(void)usage;(void)flags; memset(out,0,sizeof(*out)); out->maxExtent=(VkExtent3D){10000,10000,1}; out->sampleCounts=VK_SAMPLE_COUNT_1_BIT; return VK_SUCCESS; }
+{ (void)p;(void)f;(void)type;(void)tiling;(void)usage;(void)flags; memset(out,0,sizeof(*out)); out->maxExtent=(VkExtent3D){10000,10000,1}; out->sampleCounts=VK_SAMPLE_COUNT_1_BIT|VK_SAMPLE_COUNT_4_BIT; return VK_SUCCESS; }
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateImage(VkDevice d,const VkImageCreateInfo *ci,const VkAllocationCallbacks *a,VkImage *out)
 { (void)d;(void)a; if(fail()) return VK_ERROR_OUT_OF_HOST_MEMORY; *out=(VkImage)(uintptr_t)++serial; ++images; if(extent_count<RC_RECEIVER_TARGET_COUNT) extents[extent_count++]=ci->extent; return VK_SUCCESS; }
 VKAPI_ATTR void VKAPI_CALL vkDestroyImage(VkDevice d,VkImage image,const VkAllocationCallbacks *a) { (void)d;(void)image;(void)a; assert(images); --images; }
@@ -85,7 +85,26 @@ int main(void)
 		assert(target.framebuffer==original && images==RC_RECEIVER_TARGET_COUNT && allocations==RC_RECEIVER_TARGET_COUNT && views==RC_RECEIVER_TARGET_COUNT && passes==1 && framebuffers==1);
 	}
 	fail_at=0; operation=0;
-	assert(!RCReceiverTargets_Create(&target,p,d,&mem,1279,719,VK_SAMPLE_COUNT_4_BIT) && operation==0);
+	assert(!RCReceiverTargets_Create(&target,p,d,&mem,1279,719,(VkSampleCountFlagBits)3) && operation==0);
+	assert(!RCReceiverTargets_Create(&target,p,d,&mem,1279,719,VK_SAMPLE_COUNT_16_BIT) && operation==0);
+	assert(!RCReceiverTargets_Create(&target,p,d,&mem,1279,719,VK_SAMPLE_COUNT_8_BIT) && target.framebuffer==original);
+	{ /* Multisampled targets add three images, a second pass and its framebuffer. */
+		const unsigned count=RC_RECEIVER_TARGET_COUNT+3;
+		rc_receiver_targets_t multi={0}; operation=0;
+		assert(RCReceiverTargets_Create(&multi,p,d,&mem,1279,719,VK_SAMPLE_COUNT_4_BIT));
+		assert(multi.samples==VK_SAMPLE_COUNT_4_BIT && multi.pass && multi.resolve_pass && multi.framebuffer && multi.resolve_framebuffer);
+		for(unsigned i=0;i<3;++i) assert(multi.multisampled[i].view && multi.multisampled[i].view!=multi.images[i].view);
+		assert(images==RC_RECEIVER_TARGET_COUNT+count && passes==3 && framebuffers==3);
+		const unsigned steps=operation;
+		RCReceiverTargets_Destroy(&multi);
+		assert(images==RC_RECEIVER_TARGET_COUNT && passes==1 && framebuffers==1);
+		for(unsigned i=1;i<=steps;++i) {
+			operation=0; fail_at=i;
+			assert(!RCReceiverTargets_Create(&multi,p,d,&mem,1279,719,VK_SAMPLE_COUNT_4_BIT));
+			assert(images==RC_RECEIVER_TARGET_COUNT && views==RC_RECEIVER_TARGET_COUNT && passes==1 && framebuffers==1);
+		}
+		fail_at=0; operation=0;
+	}
 	supported=false;
 	assert(!RCReceiverTargets_Create(&target,p,d,&mem,1279,719,VK_SAMPLE_COUNT_1_BIT) && target.framebuffer==original);
 	supported=true; operation=0;

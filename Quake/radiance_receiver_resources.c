@@ -3,10 +3,12 @@
 void RCReceiverResources_Destroy(rc_receiver_resources_t *r)
 {
 	if (!r || !r->device) return;
+	RCReceiverLight_Destroy(&r->light);
 	RCReceiverModelPipelines_Destroy(&r->models);
 	for(unsigned i=0;i<4;++i)if(r->forward[i])vkDestroyPipeline(r->device,r->forward[i],NULL);
 	if(r->prepass_cutout)vkDestroyPipeline(r->device,r->prepass_cutout,NULL);
 	if(r->reconstruct)vkDestroyPipeline(r->device,r->reconstruct,NULL);
+	if(r->reconstruct_whole)vkDestroyPipeline(r->device,r->reconstruct_whole,NULL);
 	if(r->soft_shadows)vkDestroyPipeline(r->device,r->soft_shadows,NULL);
 	RCReceiverPipelines_Destroy(&r->pipelines);
 	RCReceiverLayouts_Destroy(&r->layouts);
@@ -40,12 +42,12 @@ bool RCReceiverResources_Create(rc_receiver_resources_t *out,VkPhysicalDevice ph
 	const VkGraphicsPipelineCreateInfo prepass[2],const VkGraphicsPipelineCreateInfo forward[4],
 	const VkComputePipelineCreateInfo *classify,const VkComputePipelineCreateInfo *direct)
 {
-	if(!out || !device || !prepass || !forward || !classify || !direct || samples!=VK_SAMPLE_COUNT_1_BIT) return false;
+	if(!out || !device || !prepass || !forward || !classify || !direct || !RCReceiverTargets_ValidSamples(samples)) return false;
 	for(unsigned i=0;i<2;++i) if(!dynamic_draw_state(&prepass[i]) || !prepass[i].pMultisampleState || prepass[i].pMultisampleState->rasterizationSamples!=samples ||
 		!prepass[i].pDepthStencilState || !prepass[i].pDepthStencilState->depthTestEnable || !prepass[i].pDepthStencilState->depthWriteEnable ||
 		!prepass[i].pColorBlendState || prepass[i].pColorBlendState->attachmentCount!=2 || !prepass[i].pColorBlendState->pAttachments ||
 		prepass[i].pColorBlendState->pAttachments[0].blendEnable || prepass[i].pColorBlendState->pAttachments[1].blendEnable) return false;
-	for(unsigned i=0;i<4;++i) if(!dynamic_draw_state(&forward[i]) || !forward[i].renderPass || !forward[i].pMultisampleState || forward[i].pMultisampleState->rasterizationSamples!=samples ||
+	for(unsigned i=0;i<4;++i) if(!dynamic_draw_state(&forward[i]) || !forward[i].renderPass || !forward[i].pMultisampleState ||
 		!forward[i].pDepthStencilState || !forward[i].pDepthStencilState->depthTestEnable || !forward[i].pDepthStencilState->depthWriteEnable ||
 		!forward[i].pColorBlendState || forward[i].pColorBlendState->attachmentCount!=1 || !forward[i].pColorBlendState->pAttachments ||
 		forward[i].pColorBlendState->pAttachments[0].blendEnable) return false;

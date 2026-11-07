@@ -1,4 +1,5 @@
 #include "radiance_receiver_pipelines.h"
+#include "radiance_receiver_targets.h"
 #include <string.h>
 
 void RCReceiverPipelines_Destroy(rc_receiver_pipelines_t *p)
@@ -7,6 +8,7 @@ void RCReceiverPipelines_Destroy(rc_receiver_pipelines_t *p)
 	if (p->raster) vkDestroyPipeline(p->device,p->raster,NULL);
 	if (p->classify) vkDestroyPipeline(p->device,p->classify,NULL);
 	if (p->direct) vkDestroyPipeline(p->device,p->direct,NULL);
+	if (p->resolve) vkDestroyPipeline(p->device,p->resolve,NULL);
 	memset(p,0,sizeof(*p));
 }
 
@@ -16,7 +18,7 @@ bool RCReceiverPipelines_Create(rc_receiver_pipelines_t *out, VkDevice device, V
 {
 	if (!out || !device || !raster || !classify || !direct || !raster->renderPass || raster->subpass ||
 		!raster->layout || !classify->layout || !direct->layout || !raster->pMultisampleState ||
-		raster->pMultisampleState->rasterizationSamples != VK_SAMPLE_COUNT_1_BIT ||
+		!RCReceiverTargets_ValidSamples(raster->pMultisampleState->rasterizationSamples) ||
 		!raster->pDepthStencilState || !raster->pDepthStencilState->depthTestEnable ||
 		!raster->pDepthStencilState->depthWriteEnable || !raster->pColorBlendState ||
 		raster->pColorBlendState->attachmentCount != 2 || !raster->pColorBlendState->pAttachments ||

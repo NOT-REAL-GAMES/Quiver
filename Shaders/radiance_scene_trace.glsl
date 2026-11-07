@@ -192,6 +192,21 @@ bool RC_SceneTrace (vec3 origin, vec3 direction, float tmin, float tmax, out RCS
 	return found;
 }
 
+/* Batch instances are verified opaque and carry no material data, so sun rays
+ * only need to know whether one lies before the sky. */
+bool RC_SceneBatchOccluded (vec3 origin, vec3 direction, float tmin, float tmax)
+{
+#ifdef RC_HARDWARE_RAY_QUERY
+	if (tmax < tmin) return false;
+	rayQueryEXT query;
+	rayQueryInitializeEXT (query, rcSceneAcceleration, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 2, origin, tmin, direction, tmax);
+	while (rayQueryProceedEXT (query)) {}
+	return rayQueryGetIntersectionTypeEXT (query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+#else
+	return false;
+#endif
+}
+
 /* Local-light visibility only needs to know whether any accepted surface
  * blocks the segment. It need not find the closest hit or build normals/UVs
  * for opaque triangles. Sky blocks local lights; liquid is transparent. */

@@ -1,0 +1,39 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#ifdef RC_HARDWARE_RAY_QUERY
+#extension GL_EXT_ray_query : require
+#endif
+/* Full per-pixel lighting for the few pixels the gather could not reuse. Kept
+ * apart so its register cost and divergence stay out of every other pixel. */
+#define RC_SET 1
+#define RC_SCENE_SET 1
+#define RC_SCENE_BINDING_BASE 9
+#define RC_LIGHT_SET 1
+#define RC_LIGHT_BINDING_BASE 14
+#define RC_RECEIVER_READONLY 1
+#include "radiance_cascades.glsl"
+#include "radiance_lookup.glsl"
+#include "radiance_scene_trace.glsl"
+#include "radiance_lighting.glsl"
+layout(local_size_x=64) in;
+#include "radiance_receiver_light_common.glsl"
+void main() {
+    uint index=gl_GlobalInvocationID.x;
+    if(index>=missCount) return;
+    uint packed=misses[index];
+    ivec2 pixel=ivec2(packed&0x7fffu,(packed>>15)&0x7fffu);
+    vec3 position,normal;
+    if(!RC_LightSurface(pixel,position,normal)) return;
+    if((packed&RC_LIGHT_MISS_INDIRECT)!=0u) {
+        vec3 indirect=vec3(0);
+        RC_SampleDiffuseMode(RC_GI_LOOKUP_POINT(position,normal),normal,rcLighting.receiver_filter.x,indirect);
+        imageStore(lightIndirect,pixel,vec4(RC_LightFinite(indirect)?indirect:vec3(0),2));
+    }
+    if((packed&RC_LIGHT_MISS_DIRECT)!=0u) {
+        vec3 direct,minimum;
+        RC_EvaluateDirectComponents(position,normal,direct,minimum);
+        bool valid=RC_LightFinite(direct) && RC_LightFinite(minimum);
+        imageStore(lightDirect,pixel,vec4(valid?direct:vec3(0),2));
+        imageStore(lightMinimum,pixel,vec4(valid?minimum:vec3(0),2));
+    }
+}

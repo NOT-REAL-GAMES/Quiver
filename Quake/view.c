@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "editor_ui.h"
+#include "view_motion.h"
 
 /*
 
@@ -43,6 +44,16 @@ cvar_t cl_rollangle = {"cl_rollangle", "2.0", CVAR_ARCHIVE_GAME};
 cvar_t cl_bob = {"cl_bob", "0.02", CVAR_ARCHIVE_GAME};
 cvar_t cl_bobcycle = {"cl_bobcycle", "0.6", CVAR_NONE};
 cvar_t cl_bobup = {"cl_bobup", "0.5", CVAR_NONE};
+
+cvar_t v_bodymotion = {"v_bodymotion", "1", CVAR_ARCHIVE_GAME};
+cvar_t v_breath = {"v_breath", "1", CVAR_ARCHIVE_GAME};
+cvar_t v_gait = {"v_gait", "1", CVAR_ARCHIVE_GAME};
+cvar_t v_gait_pitch = {"v_gait_pitch", "0.25", CVAR_ARCHIVE_GAME};
+cvar_t v_gait_yaw = {"v_gait_yaw", "0.3", CVAR_ARCHIVE_GAME};
+cvar_t v_gait_roll = {"v_gait_roll", "0.35", CVAR_ARCHIVE_GAME};
+cvar_t v_gait_sway = {"v_gait_sway", "0.35", CVAR_ARCHIVE_GAME};
+cvar_t v_exertion_rise = {"v_exertion_rise", "10", CVAR_ARCHIVE_GAME};
+cvar_t v_exertion_recover = {"v_exertion_recover", "7", CVAR_ARCHIVE_GAME};
 
 cvar_t v_kicktime = {"v_kicktime", "0.5", CVAR_NONE};
 cvar_t v_kickroll = {"v_kickroll", "0.6", CVAR_NONE};
@@ -80,6 +91,9 @@ vec3_t v_punchangles[2];	   // johnfitz -- copied from cl.punchangle.  0 is curr
 double v_punchangles_times[2]; // spike -- times, to avoid assumptions...
 
 extern qboolean needs_relink;
+
+static view_motion_state_t v_motion;
+static double			   v_motion_time;
 
 /*
 ===============
@@ -144,6 +158,66 @@ float V_CalcBob (void)
 	else if (bob < -7)
 		bob = -7;
 	return bob;
+}
+
+/*
+===============
+V_ResetMotion
+
+A new map starts rested, and restarts cl.time
+===============
+*/
+void V_ResetMotion (void)
+{
+	ViewMotion_Reset (&v_motion);
+	v_motion_time = 0;
+}
+
+/*
+===============
+V_CalcMotion
+
+Advances breathing and gait by the client time that has passed. Reads client state
+and returns an offset for the rendered view only: cl.viewangles is never touched, so
+aim, movement and demos are the same with this on or off.
+===============
+*/
+static void V_CalcMotion (view_motion_pose_t *pose)
+{
+	const view_motion_params_t params = {
+		.bob = cl_bob.value,
+		.bob_cycle = cl_bobcycle.value,
+		.bob_up = cl_bobup.value,
+		.roll_angle = cl_rollangle.value,
+		.breath = v_breath.value,
+		.gait = v_gait.value,
+		.gait_pitch = v_gait_pitch.value,
+		.gait_yaw = v_gait_yaw.value,
+		.gait_roll = v_gait_roll.value,
+		.gait_sway = v_gait_sway.value,
+		.exertion_rise = v_exertion_rise.value,
+		.exertion_recover = v_exertion_recover.value,
+	};
+	view_motion_input_t input = {
+		.speed = sqrt (cl.velocity[0] * cl.velocity[0] + cl.velocity[1] * cl.velocity[1]),
+		.vertical_speed = cl.velocity[2],
+		.on_ground = cl.onground,
+		.in_water = cl.inwater,
+		.active = cl.stats[STAT_HEALTH] > 0 && !chase_active.value && cl.viewentity >= 1 && cl.viewentity <= cl.maxclients,
+	};
+
+	// cl.time can step back a little when it snaps to a server message
+	if (cl.time > v_motion_time)
+	{
+		input.dt = cl.time - v_motion_time;
+		v_motion_time = cl.time;
+	}
+
+	ViewMotion_Step (&v_motion, &params, &input);
+	if (v_bodymotion.value)
+		ViewMotion_Pose (&v_motion, &params, pose);
+	else
+		memset (pose, 0, sizeof (*pose));
 }
 
 //=============================================================================
@@ -714,14 +788,15 @@ V_CalcRefdef
 */
 void V_CalcRefdef (void)
 {
-	entity_t	 *ent, *view;
-	int			  i;
-	vec3_t		  forward, right, up;
-	vec3_t		  angles;
-	float		  bob;
-	static float  oldz = 0;
-	static vec3_t punch = {0, 0, 0}; // johnfitz -- v_gunkick
-	float		  delta;			 // johnfitz -- v_gunkick
+	entity_t		  *ent, *view;
+	int				   i;
+	vec3_t			   forward, right, up;
+	vec3_t			   angles;
+	float			   bob;
+	view_motion_pose_t motion;
+	static float	   oldz = 0;
+	static vec3_t	   punch = {0, 0, 0}; // johnfitz -- v_gunkick
+	float			   delta;			  // johnfitz -- v_gunkick
 
 	V_DriftPitch ();
 
@@ -735,11 +810,12 @@ void V_CalcRefdef (void)
 	ent->angles[YAW] = cl.viewangles[YAW];		// the model should face the view dir
 	ent->angles[PITCH] = -cl.viewangles[PITCH]; // the model should face the view dir
 
-	bob = V_CalcBob ();
+	V_CalcMotion (&motion);
+	bob = v_bodymotion.value ? motion.bob : V_CalcBob ();
 
 	// refresh position
 	VectorCopy (ent->origin, r_refdef.vieworg);
-	r_refdef.vieworg[2] += cl.stats[STAT_VIEWHEIGHT] + bob;
+	r_refdef.vieworg[2] += cl.stats[STAT_VIEWHEIGHT] + bob + motion.view_up;
 
 	// never let it sit exactly on a node line, because a water plane can
 	// dissapear when viewed with the eye exactly on it.
@@ -751,6 +827,12 @@ void V_CalcRefdef (void)
 	VectorCopy (cl.viewangles, r_refdef.viewangles);
 	V_CalcViewRoll ();
 	V_AddIdle ();
+	if (cl.stats[STAT_HEALTH] > 0) // V_CalcViewRoll fixes the dead view angle
+	{
+		r_refdef.viewangles[PITCH] += motion.view_pitch;
+		r_refdef.viewangles[YAW] += motion.view_yaw;
+		r_refdef.viewangles[ROLL] += motion.view_roll;
+	}
 
 	// offsets
 	angles[PITCH] = -ent->angles[PITCH]; // because entity pitches are actually backward
@@ -763,6 +845,9 @@ void V_CalcRefdef (void)
 		for (i = 0; i < 3; i++)
 			r_refdef.vieworg[i] += scr_ofsx.value * forward[i] + scr_ofsy.value * right[i] + scr_ofsz.value * up[i];
 
+	for (i = 0; i < 3; i++)
+		r_refdef.vieworg[i] += motion.view_right * right[i];
+
 	V_BoundOffsets ();
 
 	// set up gun position
@@ -770,12 +855,17 @@ void V_CalcRefdef (void)
 
 	CalcGunAngle ();
 
+	// the weapon already inherits the view's pitch and yaw; entity pitch is backward
+	view->angles[PITCH] -= motion.gun_pitch;
+	view->angles[YAW] += motion.gun_yaw;
+	view->angles[ROLL] += motion.gun_roll;
+
 	VectorCopy (ent->origin, view->origin);
 	view->origin[2] += cl.stats[STAT_VIEWHEIGHT];
 
 	for (i = 0; i < 3; i++)
-		view->origin[i] += forward[i] * bob * 0.4;
-	view->origin[2] += bob;
+		view->origin[i] += forward[i] * bob * 0.4 + right[i] * (motion.view_right + motion.gun_right);
+	view->origin[2] += bob + motion.view_up + motion.gun_up;
 
 	// johnfitz -- removed all gun position fudging code (was used to keep gun from getting covered by sbar)
 	// MarkV -- restored this with r_viewmodel_quake cvar
@@ -982,6 +1072,17 @@ void V_Init (void)
 	Cvar_RegisterVariable (&cl_bob);
 	Cvar_RegisterVariable (&cl_bobcycle);
 	Cvar_RegisterVariable (&cl_bobup);
+
+	Cvar_RegisterVariable (&v_bodymotion);
+	Cvar_RegisterVariable (&v_breath);
+	Cvar_RegisterVariable (&v_gait);
+	Cvar_RegisterVariable (&v_gait_pitch);
+	Cvar_RegisterVariable (&v_gait_yaw);
+	Cvar_RegisterVariable (&v_gait_roll);
+	Cvar_RegisterVariable (&v_gait_sway);
+	Cvar_RegisterVariable (&v_exertion_rise);
+	Cvar_RegisterVariable (&v_exertion_recover);
+	V_ResetMotion ();
 
 	Cvar_RegisterVariable (&v_kicktime);
 	Cvar_RegisterVariable (&v_kickroll);

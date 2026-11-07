@@ -29,6 +29,7 @@ uint64_t RCReceiverForward_Fingerprint(uint64_t h,const rc_receiver_world_snapsh
 #define HASH(v) h=hash_bytes(h,&(v),sizeof(v))
 		HASH(d->vertex_buffer); HASH(d->index_buffer); HASH(d->vertex_offset); HASH(d->index_offset); HASH(d->index_type);
 		HASH(d->index_count); HASH(d->first_index); HASH(d->token); HASH(d->vertex_offset_index);
+		HASH(d->indirect_buffer); HASH(d->indirect_offset);
 		HASH(d->diffuse_set); HASH(d->instance_set); HASH(d->camera_set); HASH(d->mvp); HASH(d->instance_base);
 		unsigned char alpha=d->alpha_test ? 1 : 0; HASH(alpha); HASH(d->depth_bias_constant); HASH(d->depth_bias_slope);
 		HASH(m->lightmap_set); HASH(m->fullbright_set); HASH(m->reuse_set); HASH(m->fog_color); HASH(m->fog_density); HASH(m->alpha);
@@ -54,6 +55,6 @@ void RCReceiverForward_Record(VkCommandBuffer command,VkPipelineLayout layout,co
 		vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,5,1,&d->camera_set,0,NULL);
 		vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,6,1,&m->reuse_set,0,NULL);
 		vkCmdPushConstants(command,layout,VK_SHADER_STAGE_ALL_GRAPHICS,0,sizeof(push),&push);
-		vkCmdDrawIndexed(command,d->index_count,1,d->first_index,d->vertex_offset_index,0);
+		RCReceiverWorld_Draw(command,d);
 	}
 }

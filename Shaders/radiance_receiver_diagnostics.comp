@@ -33,6 +33,8 @@ vec4 RC_ResolveValue(ivec2 p,uint field) {
 }
 #define RC_RECEIVER_RESOLVE_TEST 1
 #define RC_RECEIVER_TEXTURE_FILTER 1
+/* normalThreshold.w holds probe spacing here, not the upscale blur. */
+#define RC_RECEIVER_PLAIN_UPSCALE 1
 #include "radiance_receiver_resolve.glsl"
 bool validGI(vec4 value) {
     return value.a>0.5 && RC_ReceiverFinite(value.rgb) && !any(greaterThan(abs(value.rgb),vec3(65504)));

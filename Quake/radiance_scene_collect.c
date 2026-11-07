@@ -83,6 +83,24 @@ bool RCCollect_Create(rc_scene_collect_t *c, VkPhysicalDevice physical, VkDevice
     return true;
 }
 
+/* Projectiles appear mid-game. Their skins must already own atlas rectangles
+ * and stable IDs, or each first shot repacks the whole atlas and refreshes
+ * every probe. Skins of models precached later are still handled on first use. */
+static bool RCCollect_PinPrecachedSkins(radiance_quake_materials_t *materials)
+{
+    for (int i=1; i<MAX_MODELS && cl.model_precache[i]; ++i) {
+        qmodel_t *model=cl.model_precache[i];
+        if (model->type != mod_alias) continue;
+        for (const aliashdr_t *surface=Mod_Extradata_CheckSkin(model,0); surface; surface=surface->nextsurface)
+            for (int skin=0; skin<surface->numskins; ++skin)
+                for (int animation=0; animation<MAX_FRAMEGROUPS; ++animation) {
+                    const gltexture_t *base=surface->gltextures[skin][animation];
+                    if (base && !RadianceQuakeMaterials_Pin(materials,base,surface->fbtextures[skin][animation])) return false;
+                }
+    }
+    return true;
+}
+
 bool RCCollect_SetWorld(rc_scene_collect_t *c, const qmodel_t *world)
 {
     if (!c) return false;
@@ -96,7 +114,8 @@ bool RCCollect_SetWorld(rc_scene_collect_t *c, const qmodel_t *world)
     RCSceneRuntime_SetAliasRevision(&runtime, RCCollect_AliasRevision);
     RCSceneRuntime_SetAliasPersistent(&runtime, RCCollect_AliasPersistent);
     if (!RCSceneRuntime_SetWorld(&runtime, world, RadianceQuakeMaterials_Brush, &materials) ||
-        !RCScene_AppendCompiledWorld(&runtime.static_scene,world,RadianceQuakeMaterials_Alias,&materials)) {
+        !RCScene_AppendCompiledWorld(&runtime.static_scene,world,RadianceQuakeMaterials_Alias,&materials) ||
+        !RCCollect_PinPrecachedSkins(&materials)) {
         RCSceneRuntime_Clear(&runtime); RadianceQuakeMaterials_Clear(&materials);
         c->last_error="world geometry or material extraction failed"; return false;
     }
@@ -179,8 +198,29 @@ bool RCCollect_PrepareScene(rc_scene_collect_t *c, entity_t *const *candidates, 
     /* The inventory check includes inactive animation frames and reloads.
      * Logical frame selection can update only material rectangles; preserve
      * the GPU pixel identity when its packed inventory is unchanged. */
-    if (!RadianceQuakeMaterials_UpdateAtlas(&c->materials, &c->atlas, c->max_dimension, c->max_layers,
-        c->max_atlas_bytes, &pixels_changed)) { c->last_error="material atlas build failed"; return false; }
+    if (c->atlas_failed && c->atlas_failed_revision==material_revision) { c->last_error="material atlas build failed"; return false; }
+    const double atlas_start=Sys_DoubleTime();
+    bool atlas_ready=RadianceQuakeMaterials_UpdateAtlas(&c->materials, &c->atlas, c->max_dimension, c->max_layers,
+        c->max_atlas_bytes, &pixels_changed);
+    /* Pins are an optimization: an inventory they overflow must still render. */
+    if (!atlas_ready && RadianceQuakeMaterials_ClearPins(&c->materials)) {
+        Con_Printf("Radiance: material atlas could not include precached skins; first use may hitch\n");
+        bool compacted=false;
+        if (RCSceneRuntime_CompactMaterials(&c->runtime,&c->materials,&compacted)) {
+            c->compacted_material_count=c->materials.count;
+            if (compacted && ++c->generation == 0) { c->generation=1; memset(c->slot_generation,0,sizeof(c->slot_generation)); }
+            material_revision=RadianceQuakeMaterials_Revision(&c->materials);
+            atlas_ready=RadianceQuakeMaterials_UpdateAtlas(&c->materials, &c->atlas, c->max_dimension, c->max_layers,
+                c->max_atlas_bytes, &pixels_changed);
+        }
+    }
+    if (!atlas_ready) {
+        Con_Printf("Radiance: material atlas build failed for %zu materials\n",c->materials.count);
+        c->atlas_failed=true; c->atlas_failed_revision=material_revision;
+        c->last_error="material atlas build failed"; return false;
+    }
+    c->atlas_failed=false;
+    if (pixels_changed) { ++c->atlas_repacks; c->atlas_repack_ms=(Sys_DoubleTime()-atlas_start)*1000.0; }
     if (!c->atlas_valid || pixels_changed) {
         if (++c->atlas_upload_generation == 0) {
             c->atlas_upload_generation=1;

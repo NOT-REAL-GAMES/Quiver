@@ -23,7 +23,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import io_export_quiver_md5 as addon
 from io_export_quiver_md5 import baking
 from io_export_quiver_md5.model import ExportError
-from blender_md5_export_test import create_mesh, image, parse_mesh, select_only, texture_path
+from blender_md5_export_test import create_mesh, image, isolate_bake_cache, parse_mesh, select_only, texture_path
 
 
 def png_pixels(path):
@@ -148,6 +148,7 @@ class BakeIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="quiver-md5-bake-test-")
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
+        isolate_bake_cache(self)
         scene = bpy.context.scene
         scene.render.engine = "CYCLES"
         scene.cycles.device = "GPU"  # Baking must isolate its CPU choice.
@@ -189,7 +190,7 @@ class BakeIntegrationTests(unittest.TestCase):
 
     def export(self, name="baked", operator=False, **kwargs):
         path = self.directory / f"{name}.md5mesh"
-        options = dict(bake_mode="AUTO", bake_size=32, bake_margin=2, bake_samples=1)
+        options = dict(bake_mode="AUTO", bake_size_mode="FIXED", bake_size=32, bake_margin=2, bake_samples=1)
         options.update(kwargs)
         before = source_snapshot()
         if operator:

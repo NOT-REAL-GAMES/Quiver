@@ -3242,23 +3242,44 @@ fail:
 	memset(a,0,sizeof(*a)); return false;
 }
 
+/* Prepass samples per pixel for r_radiance_depth_aa, limited to what this device
+ * can render and then read back. The classifier needs the standard locations. */
+uint32_t R_ReceiverDepthSamples(void)
+{
+	static uint32_t supported;
+	if(!supported) {
+		VkPhysicalDeviceProperties properties;
+		vkGetPhysicalDeviceProperties(GL_RadiancePhysicalDevice(),&properties);
+		const VkPhysicalDeviceLimits *l=&properties.limits;
+		supported=VK_SAMPLE_COUNT_1_BIT;
+		if(l->standardSampleLocations)
+			supported|=l->framebufferColorSampleCounts&l->framebufferDepthSampleCounts&l->sampledImageColorSampleCounts&
+				l->sampledImageDepthSampleCounts&l->sampledImageIntegerSampleCounts;
+	}
+	const float level=r_radiance_depth_aa.value;
+	uint32_t samples=level>=8?8u:level>=4?4u:level>=2?2u:1u;
+	while(samples>1 && !(supported&samples))samples>>=1;
+	return samples;
+}
+
 bool R_ReceiverExperimentalPrepare(uint32_t slot,VkRenderPass pass,uint32_t width,uint32_t height,
 	const rc_experimental_bindings_t *bindings,const int32_t viewport[4],float divisor,bool texture_filter,bool soft_shadows,VkCommandPool *pool)
 {
 	if(slot>=RC_RECEIVER_LIVE_SLOTS || !pass || !bindings || !viewport || !pool ||
-		!RCReceiver_ValidDivisor(divisor) || (divisor <= 1 && r_radiance_deferred.value <= 0) || !vulkan_globals.device_features.geometryShader ||
-		vulkan_globals.sample_count!=VK_SAMPLE_COUNT_1_BIT) {
+		!RCReceiver_ValidDivisor(divisor) || (divisor <= 1 && r_radiance_deferred.value <= 0) || !vulkan_globals.device_features.geometryShader) {
 		static bool reported; if(!reported) { Con_Printf("RC experimental provider prerequisites: geometry=%d samples=%d\n",vulkan_globals.device_features.geometryShader,(int)vulkan_globals.sample_count); reported=true; } return false;
 	}
 	if(!R_ReceiverExperimentalAux(slot)) { static bool reported; if(!reported){Con_Printf("RC experimental auxiliary allocation failed\n");reported=true;} return false; }
 	rc_experimental_aux_t *a=&rc_experimental_aux[slot];
-	struct { int32_t viewport[4]; float threshold[4]; } data={{viewport[0],viewport[1],viewport[2],viewport[3]},{.99f,.01f,divisor,0}};
+	struct { int32_t viewport[4]; float threshold[4]; } data={{viewport[0],viewport[1],viewport[2],viewport[3]},
+		{.99f,.01f,divisor,R_RadianceUpscaleExtent()}};
 	memcpy(a->mapped,&data,sizeof(data));
 	rc_receiver_slot_config_t c={.physical=GL_RadiancePhysicalDevice(),.device=vulkan_globals.device,.memory=&vulkan_globals.memory_properties,
 		.revision=(uint64_t)(uintptr_t)pass ^ ((uint64_t)(uintptr_t)bindings->graphics<<1) ^ (bindings->hardware ? UINT64_C(1)<<63 : 0) ^
 			(texture_filter ? UINT64_C(1)<<62 : 0),
-		.width=width,.height=height,.samples=VK_SAMPLE_COUNT_1_BIT,.hardware=bindings->hardware,
+		.width=width,.height=height,.samples=(VkSampleCountFlagBits)R_ReceiverDepthSamples(),.hardware=bindings->hardware,
 		.texture_filter=texture_filter,
+		.full_light=texture_filter && r_radiance_full_light.value>0 && vulkan_globals.sample_count==VK_SAMPLE_COUNT_1_BIT,
 		.soft_shadows=soft_shadows,
 		.geometry_enabled=true,.ray_query_enabled=vulkan_globals.ray_query,.nearest=a->sampler,
 		.viewport_buffer=a->buffer,.viewport_range=32,.radiance=bindings->graphics,.cascade=bindings->cascade,.light=bindings->lighting,.cache=R_PipelineCache()};
@@ -3285,6 +3306,9 @@ bool R_ReceiverExperimentalPrepare(uint32_t slot,VkRenderPass pass,uint32_t widt
 		state[i].vertex_input_state.pVertexBindingDescriptions=&world_vertex_binding_description;
 		state[i].graphics_pipeline.renderPass=pass; state[i].graphics_pipeline.subpass=0;
 		memset(values[i],0,sizeof(values[i]));
+		/* Receiver targets follow r_radiance_depth_aa at any scene sample count.
+		 * Forward draws keep the scene's, reading lighting once per pixel. */
+		if(i<2) { state[i].multisample_state.rasterizationSamples=c.samples; state[i].multisample_state.sampleShadingEnable=VK_FALSE; }
 		if(i<2) { values[i][1]=i; state[i].color_blend_state.attachmentCount=2;
 			state[i].blend_attachment_states[1].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT; }
 		else { unsigned variant=i-2; values[i][0]=variant&1; values[i][1]=(variant>>1)&1;
@@ -3313,6 +3337,7 @@ bool R_ReceiverExperimentalPrepare(uint32_t slot,VkRenderPass pass,uint32_t widt
 			}
 		}
 	}
+	RCReceiverLive_Get(slot)->resources.light.upscale_extent=R_RadianceUpscaleExtent();
 	if(!was_ready) Con_Printf("RC experimental provider ready: slot=%u\n",slot);
 	*pool=a->pool; return true;
 }
@@ -3320,8 +3345,7 @@ bool R_ReceiverExperimentalPrepare(uint32_t slot,VkRenderPass pass,uint32_t widt
 bool R_ReceiverExperimentalModelsPrepare(uint32_t slot,VkRenderPass pass,uint32_t subpass)
 {
 	rc_receiver_slot_t *s=slot<RC_RECEIVER_LIVE_SLOTS?RCReceiverLive_Get(slot):NULL;
-	if(!s || !s->ready || !s->texture_filter || !pass || s->last_fence ||
-		vulkan_globals.sample_count!=VK_SAMPLE_COUNT_1_BIT)return false;
+	if(!s || !s->ready || !s->texture_filter || !pass || s->last_fence)return false;
 	rc_receiver_model_pipelines_t *models=&s->resources.models;
 	uint64_t revision=(uint64_t)(uintptr_t)pass ^ ((uint64_t)subpass<<48) ^ ((uint64_t)s->hardware<<63);
 	if(!revision)revision=1;
@@ -3334,7 +3358,9 @@ bool R_ReceiverExperimentalModelsPrepare(uint32_t slot,VkRenderPass pass,uint32_
 #define MODEL_MODULE(dst,name) do { dst=R_TryCreateShaderModule(name##_spv,name##_spv_size,#name);if(!dst)goto cleanup; } while(0)
 	MODEL_MODULE(vertex[0],alias_radiance_vert);MODEL_MODULE(vertex[1],md5_radiance_vert);MODEL_MODULE(vertex[2],md5_8_radiance_vert);
 	MODEL_MODULE(prepass[0],radiance_receiver_model_frag);MODEL_MODULE(prepass[1],radiance_receiver_model_alphatest_frag);
-	if(s->hardware) {
+	if(s->full_light) {
+		MODEL_MODULE(forward[0],alias_receiver_forward_lit_frag);MODEL_MODULE(forward[1],alias_receiver_forward_lit_alphatest_frag);
+	} else if(s->hardware) {
 		MODEL_MODULE(forward[0],alias_receiver_forward_fast_rt_frag);MODEL_MODULE(forward[1],alias_receiver_forward_fast_rt_alphatest_frag);
 	} else {
 		MODEL_MODULE(forward[0],alias_receiver_forward_fast_sw_frag);MODEL_MODULE(forward[1],alias_receiver_forward_fast_sw_alphatest_frag);
@@ -3352,7 +3378,8 @@ bool R_ReceiverExperimentalModelsPrepare(uint32_t slot,VkRenderPass pass,uint32_
 			info->depth_stencil_state.front=(VkStencilOpState){VK_STENCIL_OP_KEEP,VK_STENCIL_OP_REPLACE,VK_STENCIL_OP_KEEP,VK_COMPARE_OP_ALWAYS,2,2,2};
 			info->depth_stencil_state.back=info->depth_stencil_state.front;
 		}
-		info->multisample_state.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+		info->multisample_state.rasterizationSamples=stage?vulkan_globals.sample_count:s->samples;
+		if(!stage)info->multisample_state.sampleShadingEnable=VK_FALSE;
 		info->color_blend_state.attachmentCount=stage?1:2;
 		if(!stage)info->blend_attachment_states[1].colorWriteMask=VK_COLOR_COMPONENT_R_BIT|VK_COLOR_COMPONENT_G_BIT|VK_COLOR_COMPONENT_B_BIT|VK_COLOR_COMPONENT_A_BIT;
 		info->vertex_input_state.vertexAttributeDescriptionCount=kind?kind==1?countof(md5_vertex_input_attribute_descriptions):countof(md5_8_vertex_input_attribute_descriptions):countof(alias_vertex_input_attribute_descriptions);

@@ -349,6 +349,7 @@ copy "$(SolutionDir)\..\..\Misc\editor_defaults.wad" "$(TargetDir)"</Command>
     <ClCompile Include="..\..\Quake\sys_sdl_win.c" />
     <ClCompile Include="..\..\Quake\tasks.c" />
     <ClCompile Include="..\..\Quake\view.c" />
+    <ClCompile Include="..\..\Quake\view_motion.c"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="..\..\Quake\wad.c" />
     <ClCompile Include="..\..\Quake\world.c" />
     <ClCompile Include="..\..\Shaders\Compiled\Debug\alias.frag.c">
@@ -1414,6 +1415,7 @@ copy "$(SolutionDir)\..\..\Misc\editor_defaults.wad" "$(TargetDir)"</Command>
     <ClInclude Include="..\..\Quake\tasks.h" />
     <ClInclude Include="..\..\Quake\vid.h" />
     <ClInclude Include="..\..\Quake\view.h" />
+    <ClInclude Include="..\..\Quake\view_motion.h" />
     <ClInclude Include="..\..\Quake\wad.h" />
     <ClInclude Include="..\..\Quake\world.h" />
     <ClInclude Include="..\..\Quake\wsaerror.h" />

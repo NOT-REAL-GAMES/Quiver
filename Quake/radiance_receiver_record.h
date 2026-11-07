@@ -5,6 +5,12 @@
 #include "radiance_receiver_scale.h"
 
 /* Matches the classifier's 112-byte push constant block. */
+/* rc_receiver_params_t.samples: low byte is the prepass sample count, bit 8 keeps
+ * the majority surface of a mixed block. WHOLE_STRENGTH marks a frame whose filter
+ * strengths are all 0 or at least 1; KEEP_RESOLVED has a reader of the RESOLVED
+ * images besides the light pass, so the filter must finish there. */
+#define RC_RECEIVER_WHOLE_STRENGTH 512u
+#define RC_RECEIVER_KEEP_RESOLVED 1024u
 typedef struct {
 	float inverse_view_projection[16];
 	int32_t viewport[4];

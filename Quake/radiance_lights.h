@@ -95,8 +95,9 @@ typedef struct
 	uint32_t grid_dimensions[4]; /* x/y/z and index count */
 	float bounce_parameters[4]; /* x indirect gain (flag bit 3); y single-sample area visibility */
 	float gi_camera_fade[4]; /* xyz camera origin, w indirect fade end distance (0 disables) */
-	float receiver_filter[4]; /* x: indirect probe filter strength (0..2) */
-	float shadow_parameters[4]; /* receiver-only: enabled, finite radius, sun angular radius in radians, visibility filter strength */
+	float receiver_filter[4]; /* indirect strength, checker, texture mode, shadow-filter world radius */
+	float shadow_parameters[4]; /* receiver-only: enabled, finite radius, sun angular radius in radians, all-light filter strength */
+	float gi_parameters[4]; /* x: GI lookup offset along the normal, as a fraction of probe spacing; y: liquid shadow filter scale; zw: liquid token range */
 } radiance_lighting_parameters_t;
 
 typedef struct

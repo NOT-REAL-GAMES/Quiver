@@ -293,6 +293,12 @@ static void test_persistent_base (const qmodel_t *world)
 	materials.count=materials.capacity=4;materials.entries=calloc(4,sizeof(*materials.entries));assert(materials.entries);
 	assert(RCSceneRuntime_CompactMaterials(&runtime,&materials,&compacted) && compacted);
 	assert(RCSceneRuntime_BaseContentGeneration(&runtime)==content_generation);free(materials.entries);
+	/* A pinned skin keeps its ID with no triangles, so a projectile that later
+	 * uses it changes neither the registry nor the atlas. */
+	materials.count=materials.capacity=4;materials.entries=calloc(4,sizeof(*materials.entries));assert(materials.entries);
+	materials.entries[3].pinned=true;
+	assert(RCSceneRuntime_CompactMaterials(&runtime,&materials,&compacted) && !compacted && materials.count==4 && materials.entries[3].pinned);
+	free(materials.entries);
 	/* Alpha/removal/restoration invalidate the prefix, rather than retaining
 	 * invisible persistent casters. All geometry remains selected normally. */
 	large.alpha=128;

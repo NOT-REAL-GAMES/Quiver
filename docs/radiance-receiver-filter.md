@@ -30,7 +30,7 @@ for the original probe-filtered reference; set resolution scale
 `1` for the original full-resolution path. Scales `0.666` (canonicalized to
 `0.666666667`), `0.5`, `0.333333333`, and `0.25` select reciprocal scales
 1.5, 2, 3 and 4, including partial blocks at viewport edges.
-The old `r_radiance_half_resolution` control remains a compatibility alias.
+`r_radiance_resolution_scale` accepts any value from 1/16 to 1.
 `radiance_stats` reports what was actually submitted, including fallback.
 
 Two-thirds rendering uses a 1280×720 receiver grid at a 1920×1080 viewport.
@@ -72,8 +72,15 @@ surface, redistributes four taps per side plus the centre, and weights them by
 their world-space integration intervals. This prevents taps entering a wall
 from producing bands, or a collapsed support from acquiring multiple full-weight
 copies of its boundary sample. Manual interpolation uses at most eighteen RGB
-endpoint fetches per axis. Cached geometry and edge masks use 16,512 bytes of
-shared memory per 128-lane workgroup, below Vulkan's 32 KiB minimum. Normals
+endpoint fetches per axis. Cached geometry and edge masks use 34,328 bytes of
+shared memory per 512-lane workgroup where the device allows it, or 31,988 at
+416 lanes, below Vulkan's 32 KiB minimum. Wider groups cut the shared apron's
+overhead, and a second pipeline drops the
+fractional-strength baseline, whose fallbacks raised the register count from 85
+to 117. It runs whenever every strength is 0 or at least 1. Scenes without
+local-minimum lights skip that field's taps entirely. When the light pass runs,
+it reads the vertical pass's output directly, so the copy pass only runs for the
+older forward path and for diagnostics. Normals
 use octahedral SNORM16 encoding in an integer cache; reserved codes distinguish
 invalid geometry from originally unavailable scheduled evidence. Interpolation
 endpoints already lie inside the nearest-barrier segment, so the filter does
@@ -85,8 +92,23 @@ intervening reduced-grid edge masks reject visible boundaries,
 but cannot establish hidden occlusion. Same-surface lighting and shadow edges can become coarser or stepped, soften,
 or shift. If upsampling finds no usable sample, the fragment evaluates the
 requested probe Gaussian. Models, transparency, multisampling and unsupported frames keep their
-existing path. The experimental reduced path requires CPU world submission
-(`r_indirect 0`) and single-sample rendering.
+existing path. The reduced path works with CPU or GPU world submission: at
+`r_indirect 1` the prepass and forward replay reuse the GPU-built draw commands.
+Mesh shader batches (`r_meshlets`) cannot be replayed and turn the receiver off.
+
+## Full-resolution lighting
+
+`r_radiance_full_light` (default 1) moves receiver lookups out of the forward
+shader. A gather compute pass upsamples GI, direct and minimum once per visible
+pixel, using the prepass surface at that pixel. Pixels with no usable receiver
+go on a list, and a second pass, dispatched indirectly, evaluates the probe
+Gaussian and direct light only for them. The forward shader then reads three
+texels. It no longer carries the upscale kernel or the fallback, whose register
+cost slowed every fragment. Set the cvar to 0 to compare against the old path.
+
+The images cost 24 bytes per pixel and the miss list 4, in each of the two frame
+slots: about 277 MB in total at 3440x1440. MSAA scenes keep the older forward
+shader, because an edge pixel can hold two surfaces and these images hold one.
 
 ## Coplanar surface correction
 

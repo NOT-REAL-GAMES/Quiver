@@ -29,6 +29,11 @@ typedef struct {
     uint64_t generation, atlas_revision, material_source_revision, atlas_upload_generation, world_epoch, slot_generation[2], pending_generation[2];
     uint64_t geometry_generation, slot_geometry_generation[2], pending_geometry_generation[2];
     uint64_t base_geometry_generation, base_content_generation;
+    uint32_t atlas_repacks;
+    double atlas_repack_ms;
+    /* A failed pack decodes every source, so try each material set only once. */
+    uint64_t atlas_failed_revision;
+    bool atlas_failed;
     bool atlas_valid, rt_available, scene_prepared, materials_need_compaction, pending[2], ready[2], used_rt[2], split_scene[2];
     rc_scene_runtime_stats_t stats;
     radiance_emissive_stats_t emissive_stats;

@@ -1,4 +1,5 @@
 #version 460
+#extension GL_EXT_control_flow_attributes : require
 #extension GL_GOOGLE_include_directive : require
 /* Separable world-scaled irradiance filter; no probe/visibility reads. */
 #define RC_SET 1
@@ -6,9 +7,8 @@
 #define RC_LIGHT_BINDING_BASE 14
 #define RC_RECEIVER_READONLY 1
 #include "radiance_cascades.glsl"
-#include "radiance_light_query_free.glsl"
-#include "radiance_light_unshadowed.glsl"
-layout(local_size_x=128,local_size_y=1) in;
+#include "radiance_parameters.glsl"
+layout(local_size_x=416,local_size_x_id=1,local_size_y=1) in;
 layout(set=0,binding=0) uniform sampler2D halfPosition;
 layout(set=0,binding=1) uniform sampler2D halfNormal;
 layout(set=0,binding=2) uniform usampler2D halfStatus;
@@ -30,12 +30,13 @@ vec4 RC_ResolveValue(ivec2 p,uint field) {
     if(field==2u) return texelFetch(sourceMinimum,p,0);
     return texelFetch(sourceDirect,p,0);
 }
+/* Unpacks the block's representative pixel; see radiance_receiver_half.comp. A
+ * one-pixel block has no other, which spares the ID fetch waiting on this one. */
+#define RC_RECEIVER_REPRESENTATIVE(p) (rcReceiver.normalThreshold.z==1.0?ivec2(0):RC_ReceiverRepresentative(texelFetch(halfPosition,p,0).w))
+ivec2 RC_ReceiverRepresentative(float packed) { int offset=max(int(packed)-1,0); return ivec2(offset&15,offset>>4); }
 #include "radiance_receiver_guides.glsl"
-#include "radiance_receiver_shadow_filter.glsl"
 bool RC_CheckerFetch(ivec2 p,uint field,out vec3 value) {
     if(RC_ResolveStatus(p)!=1u) return false;
-    if(field==0u && rcLighting.shadow_parameters.x>0.5 && rcLighting.shadow_parameters.w>0.0)
-        return RC_ShadowFilterDirect(p,RC_ReceiverExtent(rcReceiver.viewport.zw,rcReceiver.normalThreshold.z),value);
     vec4 v=RC_ResolveValue(p,field); value=v.rgb;
     return v.a>0.5;
 }
@@ -44,6 +45,12 @@ bool RC_CheckerCompatible(ivec2 dst,ivec2 src,uint field) {
 }
 #include "radiance_receiver_checkerboard.glsl"
 #include "radiance_receiver_texture_filter.glsl"
+/* False when every strength is 0 or at least 1. The fractional baseline's
+ * fallbacks set the register peak, and with it how many groups fit an SM. */
+layout(constant_id=0) const bool rcFilterFractional=true;
+#define RC_AXIS_FRACTIONAL rcFilterFractional
+/* Liquids scatter light below the surface, so their shadows blur further. */
+#define RC_AXIS_DIRECT_SCALE(id) (float((id).x)>=rcLighting.gi_parameters.z && float((id).x)<=rcLighting.gi_parameters.w ? rcLighting.gi_parameters.y : 1.0)
 #include "radiance_receiver_filter_axis.glsl"
 void main() {
     int pass=int(rcReceiver.normalThreshold.w);
@@ -54,25 +61,44 @@ void main() {
     if(pass==2) {
         if(any(greaterThanEqual(p,extent))) return;
         imageStore(resolvedIndirect,p,texelFetch(sourceIndirect,p,0));
+        imageStore(resolvedDirect,p,texelFetch(sourceDirect,p,0));
+        imageStore(resolvedMinimum,p,texelFetch(sourceMinimum,p,0));
         return;
     }
     float gain=rcLighting.bounce_parameters.x;
     bool gi=(rcLighting.counts.w&8u)==0u || isnan(gain) || isinf(gain) || gain>0.0;
     bool gaussian=rcLighting.receiver_filter.x>0.0;
+    bool shadows=rcLighting.shadow_parameters.x>0.5 && rcLighting.shadow_parameters.w>0.0 && rcLighting.receiver_filter.w>0.0;
+    bool minimumLights=(rcLighting.counts.w&128u)!=0u;
+    uint fields=(gi && gaussian?2u:0u)|(shadows?(minimumLights?5u:1u):0u);
     /* All lanes must reach both shared barriers, including the last partial
      * workgroup. Copy and Gaussian-zero passes do not populate the cache. */
-    if(gi && gaussian) RC_TextureAxisLoad(base,line,vertical,extent);
+    if(fields!=0u) RC_TextureAxisLoadFields(base,line,vertical,extent,fields,
+        RC_AxisSupport(rcLevels[0].origin_spacing.w,rcLighting.receiver_filter.x),
+        RC_AxisSupport(rcLighting.receiver_filter.w,rcLighting.shadow_parameters.w));
     if(any(greaterThanEqual(p,extent))) return;
     vec3 indirect=vec3(0);
     bool i=false;
-    if(gi) i=gaussian?RC_TextureFilterAxis(p,extent,base,line,vertical,indirect):RC_TextureFilterIndirect(p,extent,indirect);
-    imageStore(resolvedIndirect,p,vec4(i?indirect:vec3(0),i?1:0));
-    if(vertical) return;
+    if(vertical && !(gi && gaussian)) imageStore(resolvedIndirect,p,texelFetch(sourceIndirect,p,0));
+    else {
+        if(gi) i=gaussian?RC_TextureFilterAxis(p,extent,base,line,vertical,indirect):RC_TextureFilterIndirect(p,extent,indirect);
+        imageStore(resolvedIndirect,p,vec4(i?indirect:vec3(0),i?1:0));
+    }
+    /* Every three-pass path swaps all fields. GI-only V/copy preserve H's
+     * direct/minimum reconstruction exactly through identity copies. */
+    if(vertical && !shadows) {
+        imageStore(resolvedDirect,p,texelFetch(sourceDirect,p,0));
+        imageStore(resolvedMinimum,p,texelFetch(sourceMinimum,p,0));
+        return;
+    }
     vec3 direct=vec3(0),minimum=vec3(0);
     bool d=false,m=false;
     if(RC_ResolveStatus(p)==1u) {
-        if(rcLighting.receiver_filter.y>0.5) RC_CheckerReconstructDirectPair(p,extent,direct,d,minimum,m);
-        else { d=RC_ShadowFilterDirect(p,extent,direct); m=RC_TextureRaw(p,2u,minimum); }
+        if(shadows) {
+            float radius=rcLighting.receiver_filter.w*RC_AXIS_DIRECT_SCALE(rcAxisID[RC_AXIS_RADIUS+int(gl_LocalInvocationID.x)]),strength=rcLighting.shadow_parameters.w;
+            RC_TextureFilterAxisDirectPair(p,extent,base,line,vertical,radius,strength,minimumLights,direct,d,minimum,m);
+        } else if(rcLighting.receiver_filter.y>0.5) RC_CheckerReconstructDirectPair(p,extent,direct,d,minimum,m);
+        else { d=RC_TextureRaw(p,0u,direct); m=RC_TextureRaw(p,2u,minimum); }
     }
     d=d && RC_ReceiverFinite(direct) && !any(greaterThan(abs(direct),vec3(65504.0)));
     m=m && RC_ReceiverFinite(minimum) && !any(greaterThan(abs(minimum),vec3(65504.0)));

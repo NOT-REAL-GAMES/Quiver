@@ -1,5 +1,5 @@
 // Rebuild from the Misc directory using the embedded map tools:
-// ../build/vkquake --quiver-map-tool qbsp -bsp2 -nopercent -leaktest -wadpath . maps/ecs32768.map vq_pak/maps/ecs32768.bsp
+// ../build/vkquake --quiver-map-tool qbsp -bsp2 -nopercent -leaktest -wadpath . maps/ecs32768.map vq_pak/maps/ecs32768.bsp/ecs32768.bsp
 // ../build/vkquake --quiver-map-tool vis -threads 2 vq_pak/maps/ecs32768.bsp
 // ../build/vkquake --quiver-map-tool light -threads 2 vq_pak/maps/ecs32768.bsp
 {
@@ -143,46 +143,81 @@
 }
 {
 "classname" "light"
-"origin" "-480 -360 280"
-"light" "500"
+"origin" "-504 -408 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "-480 0 280"
-"light" "500"
+"origin" "-504 -136 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "-480 360 280"
-"light" "500"
+"origin" "-504 136 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "0 -360 280"
-"light" "500"
+"origin" "-504 408 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "0 0 280"
-"light" "500"
+"origin" "-168 -408 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "0 360 280"
-"light" "500"
+"origin" "-168 -136 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "480 -360 280"
-"light" "500"
+"origin" "-168 136 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "480 0 280"
-"light" "500"
+"origin" "-168 408 280"
+"light" "440"
 }
 {
 "classname" "light"
-"origin" "480 360 280"
-"light" "500"
+"origin" "168 -408 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "168 -136 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "168 136 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "168 408 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "504 -408 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "504 -136 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "504 136 280"
+"light" "440"
+}
+{
+"classname" "light"
+"origin" "504 408 280"
+"light" "440"
 }

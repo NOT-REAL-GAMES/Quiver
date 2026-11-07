@@ -12,11 +12,22 @@ void RadianceMaterialAtlas_Clear (radiance_material_atlas_t *atlas)
 	memset (atlas, 0, sizeof (*atlas));
 }
 
+typedef struct { uint32_t height, width, slot; } radiance_pack_order_t;
+
+static int RadianceMaterialAtlas_CompareOrder (const void *left, const void *right)
+{
+	const radiance_pack_order_t *a = left, *b = right;
+	if (a->height != b->height) return a->height > b->height ? -1 : 1;
+	if (a->width != b->width) return a->width > b->width ? -1 : 1;
+	return a->slot < b->slot ? -1 : a->slot > b->slot;
+}
+
 bool RadianceMaterialAtlas_Build (radiance_material_atlas_t *atlas, const radiance_material_source_t *sources,
 	size_t count, uint32_t max_dimension, uint32_t max_layers, size_t max_bytes)
 {
 	radiance_material_atlas_t pending = {0};
 	radiance_placement_t *placements = NULL;
+	radiance_pack_order_t *order = NULL;
 	if (!atlas || (!sources && count) || !count || !max_dimension || !max_layers ||
 		count > SIZE_MAX / sizeof (*pending.materials) || count > SIZE_MAX / (2 * sizeof (*placements))) return false;
 	/* Choose page dimensions after inspecting the largest source. */
@@ -51,26 +62,33 @@ bool RadianceMaterialAtlas_Build (radiance_material_atlas_t *atlas, const radian
 	}
 	pending.width = dimensions[0]; pending.height = dimensions[1];
 	placements = calloc (count * 2, sizeof (*placements));
-	if (!placements) return false;
-	uint32_t x = 0, y = 0, row_height = 0;
+	order = malloc (count * 2 * sizeof (*order));
+	if (!placements || !order) goto fail;
+	/* Shelves waste whatever a row's tallest image leaves above the others, so
+	 * packing tallest first keeps large textures from stranding whole pages. */
+	size_t order_count = 0;
 	for (size_t i = 0; i < count; ++i)
 	{
 		const radiance_material_image_t *images[2] = {&sources[i].albedo, &sources[i].emission};
-		for (int j = 0; j < 2; ++j)
+		for (uint32_t j = 0; j < 2; ++j)
+			if (images[j]->rgba)
+				order[order_count++] = (radiance_pack_order_t){images[j]->height, images[j]->width, (uint32_t)(2 * i + j)};
+	}
+	qsort (order, order_count, sizeof (*order), RadianceMaterialAtlas_CompareOrder);
+	uint32_t x = 0, y = 0, row_height = 0;
+	for (size_t i = 0; i < order_count; ++i)
+	{
+		const uint32_t width = order[i].width, height = order[i].height;
+		if (!pending.layers) pending.layers = 1;
+		if (width > pending.width - x) { x = 0; y += row_height; row_height = 0; }
+		if (height > pending.height - y)
 		{
-			const radiance_material_image_t *image = images[j];
-			if (!image->rgba) continue;
-			if (!pending.layers) pending.layers = 1;
-			if (image->width > pending.width - x) { x = 0; y += row_height; row_height = 0; }
-			if (image->height > pending.height - y)
-			{
-				if (pending.layers >= max_layers) goto fail;
-				++pending.layers; x = y = row_height = 0;
-			}
-			placements[2 * i + j] = (radiance_placement_t){pending.layers - 1, x, y};
-			x += image->width;
-			if (image->height > row_height) row_height = image->height;
+			if (pending.layers >= max_layers) goto fail;
+			++pending.layers; x = y = row_height = 0;
 		}
+		placements[order[i].slot] = (radiance_placement_t){pending.layers - 1, x, y};
+		x += width;
+		if (height > row_height) row_height = height;
 	}
 	/* A sky-only world has no texels to pack, but the Vulkan descriptor still
 	 * requires a valid image. Supply a single transparent texel instead of
@@ -106,11 +124,13 @@ bool RadianceMaterialAtlas_Build (radiance_material_atlas_t *atlas, const radian
 		}
 	}
 	free (placements);
+	free (order);
 	RadianceMaterialAtlas_Clear (atlas);
 	*atlas = pending;
 	return true;
 fail:
 	free (placements);
+	free (order);
 	RadianceMaterialAtlas_Clear (&pending);
 	return false;
 }

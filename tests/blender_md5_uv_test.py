@@ -23,7 +23,8 @@ import io_export_quiver_md5 as addon
 from io_export_quiver_md5 import baking
 from io_export_quiver_md5.model import ExportError
 from blender_md5_bake_test import png_pixels, source_snapshot
-from blender_md5_export_test import create_mesh, image, parse_mesh, reconstruct, select_only, texture_path
+from blender_md5_export_test import (create_mesh, image, isolate_bake_cache, parse_mesh, reconstruct,
+                                     select_only, texture_path)
 
 
 def uv_snapshot(obj):
@@ -95,6 +96,7 @@ class GeneratedUVTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="quiver-md5-uv-test-")
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
+        isolate_bake_cache(self)
 
     def material(self, name="Generated UV material"):
         material = bpy.data.materials.new(name)
@@ -143,7 +145,7 @@ class GeneratedUVTests(unittest.TestCase):
 
     def export_surfaces(self, obj, name="generated_uv", **kwargs):
         path = self.directory / f"{name}.md5mesh"
-        options = dict(bake_mode="AUTO", bake_uv_mode="AUTO", bake_size=64,
+        options = dict(bake_mode="AUTO", bake_uv_mode="AUTO", bake_size_mode="FIXED", bake_size=64,
                        bake_margin=2, bake_samples=1, forward_axis="POS_X")
         options.update(kwargs)
         before, before_mesh = source_snapshot(), mesh_snapshot(obj)

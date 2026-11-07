@@ -112,7 +112,7 @@ class SoftShadowHarnessTest(unittest.TestCase):
                 f'Radiance: soft shadows requested=1 active={actual_post} radius=2 sun_radius_deg=.5 max_extra_rays=3\n'
                 f'Radiance: receiver scale requested={scale} active={active_scale} divisor={soft.rc.receiver_divisor(active_scale)}\n'
                 f'Radiance: receiver filter requested={filtering} active={filtering if reduced else "full"}\n'
-                f'Radiance: half-resolution receiver requested={int(scale!=1)} active={int(reduced)} checkerboard requested={checker} active={int(checker and reduced)}\n'
+                f'Radiance: reduced receiver requested={int(scale!=1)} active={int(reduced)} checkerboard requested={checker} active={int(checker and reduced)}\n'
                 'Viewpos: (607 143 40) 3 91 0\n"host_timescale" is ".000001"\n"r_radiance_probe_gaussian" is "0"\n'
                 '"r_radiance_receiver_diagnostics" is "0"\n')
             for name,value in (('r_indirect',indirect),('vid_fsaa',1),('fov',90),('r_lightmap',1),('r_radiance_highlight',0),

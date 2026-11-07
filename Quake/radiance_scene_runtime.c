@@ -780,6 +780,8 @@ bool RCSceneRuntime_CompactMaterials (rc_scene_runtime_t *runtime,
 		if (id >= materials->count) { free (remap); return false; }
 		remap[id] = 0;
 	}
+	for (size_t i = 0; i < materials->count; ++i)
+		if (materials->entries[i].pinned) remap[i] = 0;
 	uint32_t used = 0;
 	for (size_t i = 0; i < materials->count; ++i)
 		if (remap[i] != UINT32_MAX) remap[i] = used++;

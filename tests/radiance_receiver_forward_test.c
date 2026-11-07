@@ -21,6 +21,7 @@ VKAPI_ATTR void VKAPI_CALL vkCmdPushConstants(VkCommandBuffer c,VkPipelineLayout
 { (void)c;(void)l; uint32_t token; memcpy(&token,(const char *)data+88,4); assert(stage==VK_SHADER_STAGE_ALL_GRAPHICS && off==0 && size==92 && token==37); ++pushes; }
 VKAPI_ATTR void VKAPI_CALL vkCmdDrawIndexed(VkCommandBuffer c,uint32_t count,uint32_t instances,uint32_t first,int32_t vertex,uint32_t start)
 { (void)c; assert(count==6 && instances==1 && first==0 && vertex==0 && start==0); ++draws; }
+void RCReceiverWorld_Draw(VkCommandBuffer c,const rc_receiver_world_draw_t *d) { vkCmdDrawIndexed(c,d->index_count,1,d->first_index,d->vertex_offset_index,0); }
 int main(void)
 {
 	VkCommandBuffer command=H(VkCommandBuffer,1); VkPipelineLayout layout=H(VkPipelineLayout,1);

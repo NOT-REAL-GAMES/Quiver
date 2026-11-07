@@ -1,6 +1,7 @@
 /* Frame ownership for the optional world-space radiance renderer. */
 #include "quakedef.h"
 #include "radiance_runtime.h"
+#include "radiance_receiver_capture.h"
 #include "radiance_coordinator.h"
 #include "radiance_scene_collect.h"
 #include "radiance_scene_alias.h"
@@ -510,10 +511,17 @@ bool R_RadianceFramePrepare (uint32_t slot, VkFence fence, VkCommandBuffer comma
 	if (fallback_sky) sources.parameters.counts[3] |= 16u;
 	sources.parameters.receiver_filter[1] = r_radiance_checkerboard.value > 0 && R_RadianceResolutionDivisor () > 1 ? 1.0f : 0.0f;
 	sources.parameters.receiver_filter[2] = r_radiance_receiver_filter.value > 0 ? 1.0f : 0.0f;
+	sources.parameters.receiver_filter[3] = R_RadianceShadowFilterRadius ();
 	sources.parameters.receiver_filter[0] = isfinite (r_radiance_probe_gaussian.value) ? CLAMP (0.0f, r_radiance_probe_gaussian.value, 2.0f) : 0.0f;
 	/* Receiver controls do not alter source history or probe transport. */
 	R_RadianceShadowParameters (sources.parameters.shadow_parameters);
 	sources.parameters.counts[3] |= 8u;
+	if (vulkan_globals.sample_count != VK_SAMPLE_COUNT_1_BIT) sources.parameters.counts[3] |= 32u;
+	if (r_radiance_debug_fallback.value > 0) sources.parameters.counts[3] |= 64u;
+	/* Most scenes have no local-minimum lights, so the filters can skip that field. */
+	for (size_t i = 0; i < sources.light_count; ++i)
+		if ((sources.lights[i].metadata[2] & 17u) == 1u && (sources.lights[i].metadata[3] & 7u) == 4u)
+		{ sources.parameters.counts[3] |= 128u; break; }
 	const uint32_t quality = isfinite (r_radiance_quality.value) ? (uint32_t)CLAMP (0.0f, r_radiance_quality.value, 2.0f) : 1u;
 	if (r_fullbright_cheatsafe || (r_lightmap_cheatsafe && r_fullbright.value)) sources.parameters.counts[3] |= 2u;
 	sources.parameters.bounce_parameters[0] = isfinite (r_radiance_bounce_gain.value) ? q_max (0.0f, r_radiance_bounce_gain.value) : 1.0f;
@@ -523,6 +531,11 @@ bool R_RadianceFramePrepare (uint32_t slot, VkFence fence, VkCommandBuffer comma
 	sources.parameters.bounce_parameters[3] = vulkan_globals.scene_hdr_active ? 2.0f : r_radiance_highlight.value > 0 ? 1.0f : 0.0f;
 	for (int axis = 0; axis < 3; ++axis) sources.parameters.gi_camera_fade[axis] = r_refdef.vieworg[axis];
 	sources.parameters.gi_camera_fade[3] = isfinite (r_radiance_gi_distance.value) ? q_max (0.0f, r_radiance_gi_distance.value) : 0.0f;
+	sources.parameters.gi_parameters[0] = isfinite (r_radiance_gi_normal_bias.value) ? CLAMP (0.0f, r_radiance_gi_normal_bias.value, 1.0f) : 0.0f;
+	sources.parameters.gi_parameters[1] = isfinite (r_radiance_water_shadow_scale.value) ? CLAMP (1.0f, r_radiance_water_shadow_scale.value, 16.0f) : 1.0f;
+	/* Receiver tokens identify liquid texels; floats hold these values exactly. */
+	sources.parameters.gi_parameters[2] = (float)(1 + (NUM_WORLD_CBX + NUM_ENTITIES_CBX) * RC_EXPERIMENTAL_CAPTURE_CAPACITY);
+	sources.parameters.gi_parameters[3] = sources.parameters.gi_parameters[2] + (float)(RC_EXPERIMENTAL_CAPTURE_CAPACITY - 1);
 	if (profile) cpu_time[3] = Sys_DoubleTime ();
 	entity_t *batch_entities = NULL;
 	uint32_t batch_count = CL_ECSVisualBatch (&batch_entities);
@@ -565,6 +578,8 @@ bool R_RadianceFramePrepare (uint32_t slot, VkFence fence, VkCommandBuffer comma
 	e->pending[slot] = true; e->commands[slot] = commands;
 	++e->frame_serial;
 	radiance_runtime_stats_t stats = {.active = true, .timing_available = e->timing_available,
+		.atlas_revision = e->scene.atlas_revision, .atlas_repacks = e->scene.atlas_repacks, .atlas_repack_ms = e->scene.atlas_repack_ms,
+		.atlas_layers = e->scene.atlas.layers, .atlas_width = e->scene.atlas.width, .atlas_height = e->scene.atlas.height, .atlas_bytes = e->scene.atlas.bytes,
 		.sky_fallback = fallback_sky, .sky_authored = e->lights.map_stats.sky_authored,
 		.backend = scene.hardware ? RADIANCE_BACKEND_HARDWARE : RADIANCE_BACKEND_SOFTWARE,
 		.probes = RC_SparseLayout (e->sparse)->probe_count, .intervals_updated = count,

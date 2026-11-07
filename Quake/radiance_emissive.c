@@ -304,6 +304,88 @@ static bool RCEmit_PartSelectionChanged(const rc_emit_part_t *part,
 	return false;
 }
 
+/* A lightning beam arrives as a chain of small entities, each its own emitter
+ * with its own shadow ray. Links closer than this collapse into one line. */
+#define RC_EMIT_LINE_LINK 64.0
+#define RC_EMIT_LINE_DEVIATION 32.0
+#define RC_EMIT_LINE_MINIMUM 3u
+
+static double RCEmit_Distance(const radiance_light_t *a,const radiance_light_t *b)
+{
+	double d2=0; for(int c=0;c<3;++c) {double d=(double)a->position_radius[c]-b->position_radius[c];d2+=d*d;}
+	return sqrt(d2);
+}
+
+/* Replace one chain with a two-sided line emitter. The shader aims at its
+ * closest point, so a receiver beside the beam needs one ray, and intensity
+ * matches the old sum there: linear falloff gives about radius/spacing links. */
+static bool RCEmit_MergeLine(radiance_light_t *lights,const uint32_t *chain,uint32_t count,radiance_light_t *out)
+{
+	uint32_t a=chain[0],b=chain[0]; double length=0;
+	for(uint32_t i=0;i<count;++i) for(uint32_t j=i+1;j<count;++j) {
+		double d=RCEmit_Distance(&lights[chain[i]],&lights[chain[j]]);
+		if(d>length) {length=d;a=chain[i];b=chain[j];}
+	}
+	if(length<=1e-3) return false;
+	double axis[3],center[3],normal[3],half_height=1.0,radius=0,intensity=0,half_width=0;
+	for(int c=0;c<3;++c) {
+		axis[c]=((double)lights[b].position_radius[c]-lights[a].position_radius[c])/length;
+		center[c]=.5*((double)lights[a].position_radius[c]+lights[b].position_radius[c]);
+	}
+	for(uint32_t i=0;i<count;++i) {
+		const radiance_light_t *l=&lights[chain[i]]; double along=0,off2=0;
+		for(int c=0;c<3;++c) along+=((double)l->position_radius[c]-center[c])*axis[c];
+		for(int c=0;c<3;++c) {double d=(double)l->position_radius[c]-center[c]-along*axis[c];off2+=d*d;}
+		if(off2>RC_EMIT_LINE_DEVIATION*RC_EMIT_LINE_DEVIATION) return false;
+		half_height=fmax(half_height,fmax(l->direction_cone[3],sqrt(off2)));
+		half_width=fmax(half_width,l->area_axis[3]);
+		radius=fmax(radius,l->position_radius[3]); intensity+=l->color_intensity[3];
+	}
+	*out=lights[chain[0]];
+	double projection=0; for(int c=0;c<3;++c) {normal[c]=out->direction_cone[c];projection+=normal[c]*axis[c];}
+	for(int c=0;c<3;++c) normal[c]-=projection*axis[c];
+	double normal_length=sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+	if(normal_length<1e-6) {
+		int pick=fabs(axis[0])<.9?0:1; double dot=axis[pick];
+		for(int c=0;c<3;++c) normal[c]=(c==pick?1.0:0.0)-dot*axis[c];
+		normal_length=sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+	}
+	double spacing=length/(double)(count-1);
+	for(int c=0;c<3;++c) {
+		out->position_radius[c]=(float)center[c]; out->area_axis[c]=(float)axis[c]; out->direction_cone[c]=(float)(normal[c]/normal_length);
+	}
+	out->position_radius[3]=(float)radius; out->area_axis[3]=(float)(.5*length+half_width); out->direction_cone[3]=(float)half_height;
+	out->color_intensity[3]=(float)(intensity/count*fmin((double)count,radius/spacing));
+	out->metadata[2]&=~(uint32_t)RADIANCE_LIGHT_SOURCE_ONE_SIDED;
+	return true;
+}
+
+/* Keys stay untouched: they record which triangles a light represents, so GI
+ * must keep seeing every link as represented. Returns the new light count. */
+static size_t RCEmit_MergeDynamicLines(radiance_light_t *lights,const rc_emit_key_t *keys,size_t count)
+{
+	if(count<RC_EMIT_LINE_MINIMUM) return count;
+	uint8_t *state=calloc(count,1); uint32_t *chain=malloc(count*sizeof(*chain));
+	radiance_light_t *result=malloc(count*sizeof(*result));
+	if(!state||!chain||!result) {free(state);free(chain);free(result);return count;}
+	size_t kept=0;
+	for(size_t i=0;i<count;++i) {
+		if(state[i]) continue;
+		uint32_t members=0; state[i]=1; chain[members++]=(uint32_t)i;
+		if(keys[i].dynamic)
+			for(uint32_t at=0;at<members;++at)
+				for(size_t j=i+1;j<count;++j)
+					if(!state[j] && keys[j].dynamic && keys[j].material==keys[i].material &&
+						RCEmit_Distance(&lights[chain[at]],&lights[j])<=RC_EMIT_LINE_LINK) {state[j]=1;chain[members++]=(uint32_t)j;}
+		radiance_light_t line;
+		if(members>=RC_EMIT_LINE_MINIMUM && RCEmit_MergeLine(lights,chain,members,&line)) result[kept++]=line;
+		else for(uint32_t m=0;m<members;++m) result[kept++]=lights[chain[m]];
+	}
+	memcpy(lights,result,kept*sizeof(*lights));
+	free(state);free(chain);free(result);
+	return kept;
+}
+
 bool Radiance_BuildEmissiveLightsCachedFiltered(radiance_emissive_cache_t *cache, rc_scene_t *scene,
 	uint32_t static_count, const radiance_material_atlas_t *atlas, uint64_t revision,
 	bool scene_rebuilt, bool dynamic_changed, const uint8_t *represented_materials, const float camera[3], radiance_light_t *out,
@@ -410,8 +492,9 @@ bool Radiance_BuildEmissiveLightsCachedFiltered(radiance_emissive_cache_t *cache
 		}
 	}
 	free(cache->selected); cache->selected=keys; cache->selected_count=n; cache->selected_valid=true;
-	if(n) memcpy(out,lights,n*sizeof(*out));
-	if(stats) *stats=(radiance_emissive_stats_t){total,n,total-n};
+	size_t emitted=RCEmit_MergeDynamicLines(lights,keys,n);
+	if(emitted) memcpy(out,lights,emitted*sizeof(*out));
+	if(stats) *stats=(radiance_emissive_stats_t){total,emitted,total-n};
 	if(changed) *changed=flag_changed;
 	free(table);free(ranks);free(lights);return true;
 }

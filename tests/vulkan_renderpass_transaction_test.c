@@ -128,6 +128,8 @@ int main(void)
 		assert(context_bindings[variant][SCBX_MODELS].pass==context_bindings[variant][SCBX_ENTITIES].pass);
 		assert(context_bindings[variant][SCBX_MODELS].pass!=context_bindings[variant][SCBX_WORLD].pass);
 		assert(context_bindings[variant][SCBX_MODELS].type==SUBPASS_MAIN);
+		assert(context_bindings[variant][SCBX_RECEIVER_BRUSHES].pass==context_bindings[variant][SCBX_ENTITIES].pass);
+		assert(context_bindings[variant][SCBX_RECEIVER_BRUSHES].type==SUBPASS_MAIN);
 	}
 	finish(false);
 	puts ("PASS: render-pass failures restore layouts, bindings and persistent warp ownership and allow retry");

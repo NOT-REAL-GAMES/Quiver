@@ -1,6 +1,6 @@
 # Quiver / vkQuake MD5 exporter
 
-A Blender 4.2+ exporter for vkQuake's Quake rerelease variant of MD5 version 10. Version 0.4 exports meshes and skins with automatic material baking, temporary geometry cleanup, and bake UV generation, plus optional rest skeletons and skin weights. Animation clips are a later step.
+A Blender 4.2+ exporter for vkQuake's Quake rerelease variant of MD5 version 10. Version 0.5 exports meshes and skins with automatic material baking, area-based texture sizing, a persistent bake cache, temporary geometry cleanup, and bake UV generation, plus optional rest skeletons and skin weights. Animation clips are a later step.
 
 ## Install
 
@@ -70,10 +70,10 @@ The first number selects the skin; the second is the texture-animation frame and
 The export dialog's **Material Baking** controls offer:
 
 - **Automatic** (default): preserve directly usable image textures and constant colors; bake other supported material channels as needed.
-- **Always Bake**: bake every node material without an explicit MD5 skin list, including directly usable textures, at the chosen resolution.
+- **Always Bake**: bake every node material without an explicit MD5 skin list, including directly usable textures.
 - **Off**: require directly usable image textures and constant colors, with a clear error when a channel needs baking.
 
-**Bake Resolution** sets each baked skin's square dimensions (default 2048 pixels; use 4096 for more detail). **Bake Margin** pads UV islands (default 8 pixels), and **Bake Samples** controls Cycles sampling (default 16). Each material gets its own texture rather than sharing the entire object's texture space. Enable **Export PNG Skins** for baking. Cycles must be available; baking uses the CPU independently of your configured GPU renderer.
+**Bake Margin** pads UV islands (default 8 pixels, limited to half a small texture), and **Bake Samples** controls Cycles sampling (default 16). Each material slot on each object gets its own texture rather than sharing the entire object's texture space. Enable **Export PNG Skins** for baking. Cycles must be available; baking uses the CPU independently of your configured GPU renderer.
 
 **Bake UVs → Automatic** (default) reuses an existing valid bake layout. Otherwise it unwraps only the material's faces on a temporary copy. If Smart Project still overlaps, it tries separate-face Lightmap packing and a disjoint face atlas as a final fallback. Every resulting layout is validated. The baked MD5 surface uses those new UVs, while material inputs continue sampling the original render UVs. This preserves repeating textures and Mapping nodes. **Use Existing** keeps strict validation and requires a non-overlapping layout inside 0–1. Larger textures improve detail; non-overlapping UVs are still required at any resolution.
 
@@ -82,6 +82,49 @@ Baking exports unlit Base Color, Alpha coverage, and Emission Color multiplied b
 Procedural materials using Generated/Object coordinates can be baked even without an existing UV map. Materials that read UV coordinates still need their source map, and explicit MD5 skin-image lists require an existing UV map. Automatic generation affects only baked surfaces; directly copied skins retain their authored UVs. The generated layout is evaluated through the modifier stack; if a modifier duplicates UVs or changes topology incompatibly, apply that modifier on a working copy before exporting.
 
 Baking keeps the full object's coordinate space and modifier evaluation so Generated/Object textures remain aligned. Temporary scenes, objects, materials, and images are removed after export or failure; your render settings, node trees, selection, poses, source UVs, and source images are preserved.
+
+## Automatic texture sizing
+
+**Bake Size → From Surface Area** (default) gives each baked surface a square power-of-two size that holds **Texel Density**, in pixels per game unit, steady across the model. A surface is one material slot on one object.
+
+```text
+size = density × √(world area ÷ UV coverage)
+```
+
+- **World area** is the surface's triangle area in game units², after object transforms and the export **Scale**. Size therefore follows the model's in-game size, not its size in Blender.
+- **UV coverage** is the fraction of the 0–1 tile the surface's bake layout fills. Pixels outside the islands are wasted, so a layout filling a quarter of the tile needs twice the size.
+- The result rounds to the nearest power of two, which keeps density within a factor of √2 of the target for existing UV layouts, then is held between **Min Size** (default 64) and **Max Size** (default 2048). Surfaces stopped by Max Size fall below the target; the export reports how many.
+
+The default density of 4 means a 64-unit crate side gets about 256 pixels. Quake's own textures are about 1 pixel per unit.
+
+Existing UV layouts are measured directly. A generated layout's coverage depends on its size, because island margins are a fixed number of pixels, so the exporter projects candidate sizes and measures them, and picks the smallest that reaches the target. This costs a few extra projections on the first export of a surface; the measurements are stored, so later exports and material edits skip them. Measured coverage ranges from over 90% on a cube to under 5% on dense surfaces, which is why no single estimate works. Coverage can jump between sizes, so a generated layout can land above the √2 band: on Sponza at density 4, surfaces under Max Size came out between 3.9 and 9.4. Dense surfaces with many small islands spend most of their tile on margins; a lower **Bake Margin** or hand-made UVs give them far more detail per pixel.
+
+To set sizes by hand, choose **Bake Size → Fixed** and use **Bake Resolution** for every surface, or set **Bake Size Override** in a material's **Quiver MD5 Skins** panel. The override beats both modes and can be any size from 32 to 4096. Zero means no override.
+
+## Bake cache
+
+Each finished bake is stored and reused until something that affects it changes, so re-exporting an unchanged model does no Cycles work. The cache survives restarts and is shared between projects and export directories.
+
+A bake's key covers:
+
+- The surface's mesh data: positions, topology, UV maps, and color and other attributes.
+- The material channels that are baked: every node reachable from Base Color, Alpha, and Emission, including node groups, color ramps, curves, and the pixels of each image.
+- Bake size, margin, samples, UV mode, and destination UV map.
+- Modifiers, Blender's version, and the exporter's baking code.
+- Where the material reads them: the object's transform and properties, the whole mesh, or the animation frame.
+
+Only what can affect the pixels counts, which means:
+
+- Editing one material slot's faces or nodes rebakes that slot only, unless its material reads data from outside those faces. Generated coordinates follow the mesh bounds, and nodes such as Geometry or Ambient Occlusion also read neighboring faces, so those rebake with any edit to the object. Node types the exporter does not recognize are treated the same way.
+- Moving an object, renaming things, rearranging nodes, adding unconnected nodes, and changing Roughness or Metallic do not rebake.
+- Surfaces with identical inputs bake once per export, and their PNGs are shared. Copies of an object placed around a scene count as identical unless their material reads world position. Different scales still share a bake if they round to the same size.
+- Changing **Texel Density** rebakes only the surfaces whose size changes.
+
+Every lookup checks each stored file's size and digest. A damaged entry is deleted, rebaked, and reported in the export warnings. A cached export writes byte-identical PNGs and mesh files. If the cache can't be written, the export still succeeds with a warning. Image sequences, movies, and UDIM tiles can't be fingerprinted reliably, so surfaces using them bake on every export; identical ones still share within that export.
+
+**Force Rebake** ignores stored bakes for one export and replaces them; it resets itself afterward. **Clear Bake Cache** deletes all stored bakes. **Bake Cache** chooses another directory; the default is `~/.cache/quiver_md5/bakes` on Linux, `~/Library/Caches/quiver_md5/bakes` on macOS, and `%LOCALAPPDATA%\quiver_md5\bakes` on Windows. The least recently used entries are deleted once the cache passes 4 GiB.
+
+After each export, the status bar shows how many surfaces were baked, cached, and shared, plus the size range. The system console lists each surface's size and status.
 
 ## Geometry, transforms, and optional rigging
 
@@ -146,12 +189,20 @@ exporter.export(
     texture_prefix="progs",
     copy_textures=True,
     bake_mode="AUTO",
-    bake_size=2048,
+    bake_size_mode="AUTO",
+    bake_texel_density=4.0,
+    bake_min_size=64,
+    bake_max_size=2048,
+    bake_size=2048,  # Used when bake_size_mode="FIXED".
     bake_margin=8,
     bake_samples=16,
     bake_uv_mode="AUTO",
+    force_rebake=False,
+    bake_cache_dir="",
 )
 ```
+
+The returned result's `bakes` field lists each surface's size, status, world area, UV coverage, and achieved density.
 
 Add `import bpy` to your script. Extension installations use Blender's extension namespace; obtain the `exporter` module through that installed package instead of the legacy import shown above.
 
@@ -162,12 +213,13 @@ The format-neutral structures in `model.py` are separate from Blender extraction
 From the repository root:
 
 ```sh
-python3 -m unittest discover -s tests -p test_blender_md5_format.py -v
+python3 -m unittest discover -s tests -p 'test_blender_md5_*.py' -v
 blender --background --factory-startup --python-exit-code 1 --python tests/blender_md5_export_test.py
 blender --background --factory-startup --python-exit-code 1 --python tests/blender_md5_bake_test.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_md5_bake_cache_test.py
 blender --background --factory-startup --python-exit-code 1 --python tests/blender_md5_uv_test.py
 python3 Tools/blender/package_addon.py
 blender --factory-startup --command extension validate /tmp/quiver-md5-exporter.zip
 ```
 
-The integration tests create temporary scenes and verify exported geometry and bind transforms using an independent MD5 reader. No Quake assets are required. This version was exercised with Blender 5.4.0 Alpha; the minimum supported API target is Blender 4.2.
+The integration tests create temporary scenes and verify exported geometry and bind transforms using an independent MD5 reader. They use throwaway caches, and the bake cache test includes a real Blender restart. No Quake assets are required. This version was exercised with Blender 5.4.0 Alpha; the minimum supported API target is Blender 4.2.

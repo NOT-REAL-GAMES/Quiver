@@ -42,14 +42,13 @@ bool RC_ReceiverShadowFinite16(vec3 value)
 {
     return !any(isnan(value)) && !any(isinf(value)) && !any(greaterThan(abs(value),vec3(65504)));
 }
-/* Alpha1 is an ordinary valid direct sample. Alpha2..3 additionally exports
- * this source's final visibility for the query-free spatial postprocess.
+/* The contact-hardening post is independent of aggregate image filtering.
  * Unscheduled checker cells keep alpha0, including their original RGB. */
 vec4 RC_ReceiverSoftResult(uint packed,vec4 hard,vec3 position,vec3 normal)
 {
     if(hard.a<=0.5) return hard;
     vec3 result=hard.rgb;
-    float alpha=1.0,dominance=clamp(hard.a-1.0,0.0,1.0);
+    float dominance=clamp(hard.a-1.0,0.0,1.0);
     uint source=packed>>4u;
     if(rcLighting.shadow_parameters.x>0.5 && dominance>0.0 && (packed&3u)==1u && source>0u && source-1u<rcLighting.counts.x) {
         RCLight light=rcLights[source-1u];
@@ -63,11 +62,10 @@ vec4 RC_ReceiverSoftResult(uint packed,vec4 hard,vec3 position,vec3 normal)
                 vec3 corrected=hard.rgb+unshadowed*((visibility-center)*.3183098861837907);
                 if(RC_ReceiverShadowFinite16(corrected)) {
                     result=corrected;
-                    if(rcLighting.shadow_parameters.w>0.0) alpha=2.0+visibility;
                 }
             }
         }
     }
-    return vec4(result,alpha);
+    return vec4(result,1.0);
 }
 #endif

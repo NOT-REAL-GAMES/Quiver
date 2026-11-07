@@ -21,6 +21,7 @@ from mathutils import Matrix, Quaternion, Vector
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Tools" / "blender"))
 import io_export_quiver_md5 as addon
+from io_export_quiver_md5 import bake_cache
 from io_export_quiver_md5.model import ExportError
 
 
@@ -205,6 +206,16 @@ def texture_path(directory, shader, skin=0, suffix=""):
     return paths[0]
 
 
+def isolate_bake_cache(test):
+    """Give each export an empty cache: real bakes, and nothing left in the user's."""
+    root = tempfile.TemporaryDirectory(prefix="quiver-md5-bake-cache-")
+    test.addCleanup(root.cleanup)
+    patcher = mock.patch.object(bake_cache, "default_directory",
+                                side_effect=lambda: Path(tempfile.mkdtemp(dir=root.name)))
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
+
 class ExportIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -223,6 +234,7 @@ class ExportIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="quiver-md5-test-")
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
+        isolate_bake_cache(self)
 
     def export(self, name="test", **kwargs):
         path = self.directory / f"{name}.md5mesh"

@@ -6,13 +6,14 @@ joint-local weights. Neither path changes selection, poses, or source images.
 """
 
 from array import array
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from contextlib import ExitStack
 import json
 import math
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import struct
 import tempfile
 import zlib
@@ -22,7 +23,8 @@ from mathutils import Matrix
 
 from .model import ExportError, Joint, Model, Surface, Vertex, Weight, split_surface
 from .geometry import clean_degenerate_faces, triangle_has_area
-from . import md5
+from . import bake_cache, md5
+from .sizing import DEFAULT_DENSITY, SizePolicy
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,7 @@ class ExportResult:
     triangles: int
     textures: int
     warnings: tuple
+    bakes: tuple = ()  # One bake_manager.BakeRecord per baked surface.
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,7 @@ class _Texture:
     image: object = None
     color: tuple = None
     alpha: float | None = None
+    path: Path = None  # A finished PNG, published byte for byte.
 
 
 class NeedsBaking(ExportError):
@@ -351,6 +355,9 @@ def _solid_png(path, color):
 
 
 def _save_texture(path, texture):
+    if texture.path is not None:
+        shutil.copyfile(texture.path, path)
+        return
     if texture.image is None:
         _solid_png(path, texture.color)
         return
@@ -431,26 +438,41 @@ def _publish(staging, target, names, obsolete=()):
 def export(context, filepath, *, selected_only=True, scale=1.0, forward_axis='NEG_Y',
            export_rig=False, apply_modifiers=True, texture_prefix='progs', copy_textures=True,
            bake_mode='AUTO', bake_size=2048, bake_margin=8, bake_samples=16,
-           bake_uv_mode='AUTO'):
+           bake_uv_mode='AUTO', bake_size_mode='AUTO', bake_texel_density=DEFAULT_DENSITY,
+           bake_min_size=64, bake_max_size=2048, force_rebake=False, bake_cache_dir=''):
     """Write .md5mesh, one-frame .md5anim, and adjacent Quake-named PNG skins.
 
     ``texture_prefix`` describes the eventual directory inside the game/mod;
     it never changes the disk destination selected in the file browser.
     AUTO bakes material channels that cannot be represented by direct images.
     Explicit per-material skin lists always take precedence over baking.
+
+    ``bake_size_mode`` AUTO sizes each bake from its surface area at
+    ``bake_texel_density`` pixels per game unit, between the min and max sizes;
+    FIXED uses ``bake_size``. A material's Bake Size override beats both.
+    Finished bakes are reused from ``bake_cache_dir`` (default: the user cache)
+    unless their inputs changed or ``force_rebake`` is set.
     """
     if bake_mode not in {'AUTO', 'ALWAYS', 'OFF'}:
         raise ExportError("Material Baking must be AUTO, ALWAYS, or OFF")
     if bake_uv_mode not in {'AUTO', 'EXISTING'}:
         raise ExportError("Bake UVs must be AUTO or EXISTING")
-    for value, low, high, label in ((bake_size, 32, 4096, 'Bake Resolution'),
-                                    (bake_margin, 0, 64, 'Bake Margin'),
+    policy = SizePolicy(bake_size_mode, bake_size, bake_texel_density, bake_min_size, bake_max_size)
+    for value, low, high, label in ((bake_margin, 0, 64, 'Bake Margin'),
                                     (bake_samples, 1, 256, 'Bake Samples')):
         if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
             raise ExportError(f"{label} must be an integer between {low} and {high}")
     warnings = set()
     with ExitStack() as resources:
         baker = None
+
+        def open_session():
+            from .baking import BakeSession
+            return resources.enter_context(BakeSession(context, size=bake_size, samples=bake_samples,
+                                                       margin=min(bake_margin, bake_size // 2)))
+
+        def save_png(path, image, alpha):
+            _save_texture(path, _Texture(image=image, alpha=alpha))
 
         def material_skins(obj, mesh, material_index, material, uv_name):
             nonlocal baker
@@ -469,16 +491,21 @@ def export(context, filepath, *, selected_only=True, scale=1.0, forward_axis='NE
             if not copy_textures:
                 raise ExportError("Enable Export PNG Skins to bake materials")
             if baker is None:
-                from .baking import BakeSession
-                baker = resources.enter_context(BakeSession(context, size=bake_size,
-                                                            margin=bake_margin, samples=bake_samples))
-            baked = baker.bake(obj, mesh, material_index, uv_name,
-                               apply_modifiers=apply_modifiers, uv_mode=bake_uv_mode)
-            diffuse, glow = baked
-            return ((_Texture(image=diffuse), _Texture(image=glow, alpha=1.0) if glow else None),), baked.uvs
+                from .bake_manager import SurfaceBaker
+                root = (Path(bpy.path.abspath(bake_cache_dir)).expanduser() if bake_cache_dir
+                        else bake_cache.default_directory())
+                scratch = resources.enter_context(tempfile.TemporaryDirectory(prefix='quiver-md5-bake-'))
+                baker = SurfaceBaker(context, open_session, bake_cache.BakeCache(root), policy, Path(scratch), save_png,
+                                     margin=bake_margin, samples=bake_samples, uv_mode=bake_uv_mode,
+                                     apply_modifiers=apply_modifiers, scale=scale, force=force_rebake)
+            baked = baker.bake(obj, mesh, material_index, material, uv_name)
+            return ((_Texture(path=baked.diffuse), _Texture(path=baked.glow) if baked.glow else None),), baked.uvs
 
-        return _export_bundle(context, filepath, selected_only, scale, forward_axis, export_rig,
-                              apply_modifiers, texture_prefix, copy_textures, material_skins, warnings)
+        result = _export_bundle(context, filepath, selected_only, scale, forward_axis, export_rig,
+                                apply_modifiers, texture_prefix, copy_textures, material_skins, warnings)
+        if baker is None:
+            return result
+        return replace(result, warnings=tuple(sorted({*result.warnings, *baker.finish()})), bakes=tuple(baker.records))
 
 
 def _export_bundle(context, filepath, selected_only, scale, forward_axis, export_rig,

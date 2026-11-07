@@ -57,13 +57,14 @@ slower in these scenes and was removed. Instanced acceleration structures are
 an experimental hardware ray-query path now offers broader local-shadow
 coverage, as described below.
 
-`r_radiance_batch_shadows 1` opts into experimental shared-mesh acceleration
-for eligible opaque ECS visual batches. It defaults to `0` and is not saved in
-the configuration. This path can cast point and emissive-light shadows from
-all eligible instances, while indirect/GI hits and directional/sun shadows
-remain limited to the ordinary 256 selected occluders. The software backend,
-unsupported geometry and allocation failures retain the bounded fallback.
-`radiance_stats` reports requested/active status, local-shadow and GI/sun
+`r_radiance_batch_shadows` (default 1, saved) uses shared-mesh acceleration
+for eligible opaque ECS visual batches. Point, emissive and directional shadows
+come from all eligible instances, while indirect/GI hits stay limited to the
+ordinary 256 selected occluders because batch instances carry no material data.
+Eligibility is per instance: a rotated, scaled, translucent or otherwise
+unsupported entity stays with the bounded selection without disabling the rest.
+The software backend and allocation failures retain the bounded fallback.
+`radiance_stats` reports requested/active status, direct-shadow and GI
 coverage, and acceleration allocations. For 32,768 instances the acceleration
 allocation reached about 32.8 MB in one RTX 4080 run, and short fixed-budget
 whole-frame GPU timings were variable and sometimes slower; use this as a

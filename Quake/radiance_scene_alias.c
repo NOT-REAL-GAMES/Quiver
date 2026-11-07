@@ -234,6 +234,15 @@ void RCScene_ECSBatchClear (rc_scene_ecs_batch_t *batch)
     memset (batch, 0, sizeof (*batch));
 }
 
+static bool RCScene_ECSBatchEligible (const entity_t *e, const qmodel_t *model)
+{
+    if (e->model != model || e->skinnum != 0 || e->frame != 0 || e->netstate.scale != ENTSCALE_DEFAULT ||
+        (e->alpha != ENTALPHA_DEFAULT && ENTALPHA_DECODE (e->alpha) < 1.0f)) return false;
+    for (int axis = 0; axis < 3; ++axis)
+        if (!isfinite (e->origin[axis]) || e->angles[axis] != 0.0f) return false;
+    return true;
+}
+
 bool RCScene_ECSBatchPrepare (rc_scene_ecs_batch_t *batch, const entity_t *entities,
     uint32_t count, rc_scene_rt_batch_t *snapshot)
 {
@@ -246,20 +255,17 @@ bool RCScene_ECSBatchPrepare (rc_scene_ecs_batch_t *batch, const entity_t *entit
         hdr->nextsurface || hdr->numskins < 1 || !hdr->radiance_mesh) return false;
     for (unsigned i = 0; i < MAX_FRAMEGROUPS; ++i)
         if (hdr->gltextures[0][i] && (hdr->gltextures[0][i]->flags & TEXPREF_ALPHAPIXELS)) return false;
-    for (uint32_t i = 0; i < count; ++i)
-    {
-        const entity_t *e = &entities[i];
-        if (e->model != model || e->skinnum != 0 || e->frame != 0 ||
-            e->netstate.scale != ENTSCALE_DEFAULT ||
-            (e->alpha != ENTALPHA_DEFAULT && ENTALPHA_DECODE (e->alpha) < 1.0f)) return false;
-        for (int axis = 0; axis < 3; ++axis)
-            if (!isfinite (e->origin[axis]) || e->angles[axis] != 0.0f) return false;
-    }
+    /* An instance that cannot share the mesh stays with the bounded selection,
+     * so one rotated or translucent entity never disables the whole batch. */
+    const entity_t *first = NULL;
+    for (uint32_t i = 0; i < count && !first; ++i)
+        if (RCScene_ECSBatchEligible (&entities[i], model)) first = &entities[i];
+    if (!first) return false;
     if (batch->model != model || batch->header != hdr || batch->mesh_identity != hdr->radiance_mesh || batch->retained_revision != RCAlias_Revision (hdr->radiance_mesh) || !batch->mesh.triangle_count)
     {
         rc_scene_t mesh; RCScene_Init (&mesh);
         float matrix[16]; IdentityMatrix (matrix);
-        if (!RCScene_AppendAlias (&mesh, &entities[0], matrix, 0, 0, 0, 0, 0, RCScene_ECSBatchMaterial, NULL) ||
+        if (!RCScene_AppendAlias (&mesh, first, matrix, 0, 0, 0, 0, 0, RCScene_ECSBatchMaterial, NULL) ||
             !mesh.triangle_count) { RCScene_Clear (&mesh); return false; }
         RCScene_Clear (&batch->mesh); batch->mesh = mesh;
         batch->model = model; batch->header = hdr; batch->mesh_identity = hdr->radiance_mesh;
@@ -273,8 +279,11 @@ bool RCScene_ECSBatchPrepare (rc_scene_ecs_batch_t *batch, const entity_t *entit
         if (!storage) return false;
         batch->origins = storage; batch->capacity = count;
     }
-    for (uint32_t i = 0; i < count; ++i) memcpy (batch->origins[i], entities[i].origin, sizeof (batch->origins[i]));
+    uint32_t eligible = 0;
+    for (uint32_t i = 0; i < count; ++i)
+        if (RCScene_ECSBatchEligible (&entities[i], model))
+            memcpy (batch->origins[eligible++], entities[i].origin, sizeof (batch->origins[0]));
     *snapshot = (rc_scene_rt_batch_t){batch->mesh.triangles, batch->mesh.triangle_count,
-        (const float (*)[3])batch->origins, count, batch->mesh_revision};
+        (const float (*)[3])batch->origins, eligible, batch->mesh_revision};
     return true;
 }

@@ -33,7 +33,7 @@ prefix = r'''
 enum { FRAME_BEGIN_GRAPHICS, FRAME_NEXT_SUBPASS, FRAME_GRAPHICS_WORK, FRAME_RECORD_WORK,
        FRAME_SCREEN_EFFECTS, FRAME_READBACK, FRAME_END_GRAPHICS, FRAME_PREPARED_COMMANDS };
 enum { FRAME_TARGET_SCENE, FRAME_TARGET_UI };
-enum { DRAW_WORLD = 1, DRAW_MODELS };
+enum { DRAW_WORLD = 1, DRAW_RECEIVER_BRUSHES, DRAW_MODELS };
 enum { PCBX_FIRST, PCBX_RADIANCE, PCBX_LAST, PCBX_RENDER_PASSES, PCBX_NUM };
 typedef struct { VkCommandBuffer cb; } cb_context_t;
 typedef struct { int type; void (*recorder)(cb_context_t *); uint32_t pass, subpass; int first_context, last_context, draw_stage; } frame_step_t;
@@ -59,11 +59,12 @@ static bool receiver_checkerboard, receiver_texture_filter, submitted_texture_fi
 static bool receiver_active, submitted_half, submitted_checker, select_result, receiver_soft, submitted_soft;
 static int classic_world, selections;
 static float submitted_divisor;
-static float receiver_shadow_filter, submitted_shadow_filter;
+static float receiver_shadow_filter, submitted_shadow_filter, submitted_shadow_radius;
 static void R_RadianceRecordReceiverUse(float divisor, bool checker, bool texture_filter) { submitted_divisor=divisor; submitted_half=divisor>1; submitted_checker=checker; submitted_texture_filter=texture_filter; }
 static void R_RadianceRecordReceiverSoftUse(bool active) { submitted_soft=active; }
-static void R_RadianceRecordReceiverShadowFilterUse(float strength) { submitted_shadow_filter=strength; }
+static void R_RadianceRecordReceiverShadowFilterUse(float strength,float radius) { submitted_shadow_filter=strength;submitted_shadow_radius=radius; }
 static float RCReceiverFrame_ActiveShadowFilter(uint64_t frame) { assert(frame==r_framecount);return receiver_shadow_filter; }
+static float RCReceiverFrame_ActiveShadowFilterRadius(uint64_t frame) { assert(frame==r_framecount);return 12; }
 static bool RCReceiverFrame_ActiveSoftShadows(uint64_t frame) { assert(frame==r_framecount); return receiver_soft; }
 static uint64_t RCReceiverFrame_CompletedSerial(uint32_t frame) { return frame; }
 static bool RCReceiverFrame_Active(uint64_t frame) { assert(frame==r_framecount); return receiver_active; }
@@ -76,6 +77,8 @@ static bool RCReceiverSelect_Submit(VkCommandBuffer cb, uint64_t frame, bool act
 static bool RCExperimentalSubmitModels(VkCommandBuffer cb,uint64_t serial,VkRenderPass pass,VkFramebuffer fb,uint32_t subpass) {
  (void)cb;(void)pass;(void)fb;(void)subpass;assert(serial==r_framecount);++model_selections;return receiver_active && model_select_result;
 }
+static int brush_selections;
+static bool RCExperimentalSubmitBrushes(bool world_reused) { ++brush_selections; return world_reused; }
 static bool GL_RadianceCommandsReady(void) { return ready; }
 static bool Sky_NeedStencil(void) { return false; }
 static void Sys_Error(const char *format, ...) { (void)format; abort(); }
@@ -136,14 +139,14 @@ int main(void) {
     receiver_shadow_filter=1.5f; receiver_soft = true; receiver_active = true; receiver_checkerboard = true; receiver_texture_filter = true; receiver_divisor = 4;
     R_RecordFrame(&parms, true, 0, submit, PCBX_NUM, NULL, NULL);
     assert(classic_world == 1 && selections == 2 && submitted_half && submitted_checker && submitted_divisor == 4 && submitted_texture_filter && submitted_soft);
-    assert(submitted_shadow_filter==1.5f);
+    assert(submitted_shadow_filter==1.5f && submitted_shadow_radius==12);
     receiver_divisor = 1.5f;
     R_RecordFrame(&parms, true, 0, submit, PCBX_NUM, NULL, NULL);
     assert(classic_world == 1 && selections == 3 && submitted_half && submitted_checker && submitted_divisor == 1.5f && submitted_texture_filter && submitted_soft);
     select_result = false;
     R_RecordFrame(&parms, true, 0, submit, PCBX_NUM, NULL, NULL);
     assert(classic_world == 2 && selections == 4 && !submitted_half && !submitted_checker && submitted_divisor == 1 && !submitted_texture_filter && !submitted_soft);
-    assert(submitted_shadow_filter==0);
+    assert(submitted_shadow_filter==0 && submitted_shadow_radius==0);
     /* A model-only receiver submission is still active if the world takes
        its forward fallback, and full1 texture reuse must report truthfully. */
     frame->step_count=2;frame->steps[1]=(frame_step_t){.type=FRAME_GRAPHICS_WORK,.draw_stage=DRAW_MODELS,.pass=1};
@@ -155,6 +158,16 @@ int main(void) {
     R_RecordFrame(&parms,true,0,submit,PCBX_NUM,NULL,NULL);
     assert(model_selections==2 && !submitted_texture_filter && !submitted_soft);
     assert(submitted_shadow_filter==0);
+    /* Replayed brush entities must skip their native stream, and only then:
+       a skipped world replay needs both native streams or doors disappear. */
+    frame->step_count=2;frame->steps[1]=(frame_step_t){.type=FRAME_GRAPHICS_WORK,.draw_stage=DRAW_RECEIVER_BRUSHES,.pass=1};
+    receiver_active=true;select_result=true;
+    int classic_before=classic_world;
+    R_RecordFrame(&parms,true,0,submit,PCBX_NUM,NULL,NULL);
+    assert(brush_selections==1 && classic_world==classic_before);
+    select_result=false;
+    R_RecordFrame(&parms,true,0,submit,PCBX_NUM,NULL,NULL);
+    assert(brush_selections==2 && classic_world==classic_before+2);
     /* An unused MSAA resolve attachment can transition only at pass end;
        COLOR_ATTACHMENT_OUTPUT alone does not cover that implicit write. */
     current_layout.samples = VK_SAMPLE_COUNT_4_BIT;

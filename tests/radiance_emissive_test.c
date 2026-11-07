@@ -60,9 +60,48 @@ static void persistent_material_dependencies(void)
 	Radiance_EmissiveCacheDestroy(cache);free(triangles);
 }
 
+/* Lightning arrives as many small entities; each link must not cost its own ray. */
+static size_t dynamic_emitters(const float *x,uint32_t count,radiance_light_t *lights,size_t capacity)
+{
+	rc_scene_triangle_t triangles[32]; assert(count<=32);
+	for(uint32_t i=0;i<count;++i) {triangle(&triangles[i],x[i],1);triangles[i].metadata[1]=RC_SCENE_DYNAMIC;triangles[i].metadata[3]=100+i;}
+	rc_scene_t scene={.triangles=triangles,.triangle_count=count};
+	uint8_t pixels[]={255,0,0,255};
+	radiance_material_t material={0};
+	material.layers_flags[2]=RADIANCE_MATERIAL_EMISSION_TEXTURE;
+	material.emission_rect[2]=material.emission_rect[3]=1;
+	for(unsigned c=0;c<4;++c)material.emission[c]=1;
+	radiance_material_atlas_t atlas={.materials=&material,.material_count=1,.rgba=pixels,.bytes=sizeof(pixels),.width=1,.height=1,.layers=1};
+	radiance_emissive_cache_t *cache=Radiance_EmissiveCacheCreate();assert(cache);
+	radiance_emissive_stats_t stats; bool changed=false; float camera[3]={0};
+	assert(Radiance_BuildEmissiveLightsCached(cache,&scene,0,&atlas,1,true,true,camera,lights,capacity,&stats,&changed));
+	for(uint32_t i=0;i<count;++i) assert(triangles[i].metadata[1]&RC_SCENE_EMISSIVE_PROXY);
+	Radiance_EmissiveCacheDestroy(cache);
+	return stats.emitted_lights;
+}
+
+static void dynamic_line_emitters(void)
+{
+	radiance_light_t lights[32]; float x[32];
+	for(uint32_t i=0;i<21;++i) x[i]=(float)i*30;
+	assert(dynamic_emitters(x,21,lights,32)==1);
+	const radiance_light_t *line=&lights[0];
+	assert(fabsf(fabsf(line->area_axis[0])-1)<.001f && line->area_axis[3]>=300 && line->area_axis[3]<320);
+	assert(fabsf(line->position_radius[0]-308)<16 && line->position_radius[3]>=96 && line->direction_cone[3]>=1);
+	assert(!(line->metadata[2]&RADIANCE_LIGHT_SOURCE_ONE_SIDED));
+	radiance_light_t single[2]; float one[1]={0}; assert(dynamic_emitters(one,1,single,2)==1);
+	float expected=single[0].color_intensity[3]*fminf(21.f,line->position_radius[3]/30.f);
+	assert(fabsf(line->color_intensity[3]-expected)<expected*.001f);
+	/* Pairs and separate chains are not beams. */
+	float pair[2]={0,30}; assert(dynamic_emitters(pair,2,lights,32)==2);
+	float apart[6]={0,30,60,1000,1030,1060}; assert(dynamic_emitters(apart,6,lights,32)==2);
+	float scattered[3]={0,500,1000}; assert(dynamic_emitters(scattered,3,lights,32)==3);
+}
+
 int main(void)
 {
 	persistent_material_dependencies();
+	dynamic_line_emitters();
 	/* One red emitting texel and one dark texel: half the surface emits. */
 	uint8_t pixels[]={255,0,0,255, 0,0,0,0};
 	radiance_material_t materials[1]={0};

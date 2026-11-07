@@ -300,6 +300,7 @@ void CL_ClearState (void)
 
 	// wipe the entire cl structure
 	CL_FreeState ();
+	V_ResetMotion ();
 
 	SZ_Clear (&cls.message);
 

@@ -156,7 +156,7 @@ void main() {
  vec4 unfiltered=post(17u,vec4(-1,2,3,2)); uint oldQueries=queries;
  rcLighting.shadow_parameters.w=1; queries=0u;
  vec4 tagged=post(17u,vec4(-1,2,3,2));
- ok=ok && queries==3u && oldQueries==3u && tagged.rgb==unfiltered.rgb && abs(tagged.a-2.25)<.00001 && unfiltered.a==1;
+ ok=ok && queries==3u && oldQueries==3u && tagged.rgb==unfiltered.rgb && tagged.a==1.0 && unfiltered.a==1;
  queries=0u; vec4 unchanged=post(17u,vec4(4,5,6,0));
  ok=ok && unchanged==vec4(4,5,6,0) && queries==0u;
  vec4 tie=post(17u,vec4(4,5,6,1));

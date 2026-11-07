@@ -37,4 +37,12 @@ class ShadowFilterEvidenceTest(unittest.TestCase):
         for wrong in ('','Radiance: shadow filter frames active=4294967296 inactive=0'):
             with self.subTest(wrong=wrong),self.assertRaises(RuntimeError):shadow.filter_frames(wrong)
 
+    def test_actual_world_radius_is_required(self):
+        good=self.state(1,1).rstrip()+' radius=8 active_radius=8'
+        shadow.verify_filter(good,1,8)
+        shadow.verify_filter(self.state(0,0,0).rstrip()+' radius=8 active_radius=0',0,8)
+        for wrong in (good.replace('active_radius=8','active_radius=4'),good.replace('radius=8','radius=16'),
+                      good.replace('active_radius=8','active_radius=nan'),self.state(1,1)):
+            with self.subTest(wrong=wrong),self.assertRaises(RuntimeError):shadow.verify_filter(wrong,1,8)
+
 if __name__=='__main__':unittest.main()

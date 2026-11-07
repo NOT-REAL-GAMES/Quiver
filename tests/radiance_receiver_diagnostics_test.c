@@ -95,8 +95,8 @@ int main(void)
     assert(!RCReceiverDiagnostics_Create(&d,t.device,&memory,&t,H(VkSampler,1),0) && d.pipeline && alive()==old_alive);
     fail=0;
     rc_receiver_params_t params={.viewport={3,2,17,9},.samples=1,.divisor=4,.normal_cosine=.99f,.plane_tolerance=.01f};
-    params.divisor=1;assert(!RCReceiverDiagnostics_Record(&d,H(VkCommandBuffer,1),47,&params,32,true,true) && !commands);
-    params.divisor=2.5f;assert(!RCReceiverDiagnostics_Record(&d,H(VkCommandBuffer,1),47,&params,32,true,true) && !commands);
+    params.divisor=.5f;assert(!RCReceiverDiagnostics_Record(&d,H(VkCommandBuffer,1),47,&params,32,true,true) && !commands);
+    params.divisor=17;assert(!RCReceiverDiagnostics_Record(&d,H(VkCommandBuffer,1),47,&params,32,true,true) && !commands);
     params.divisor=4;params.inverse_view_projection[0]=NAN;
     assert(!RCReceiverDiagnostics_Record(&d,H(VkCommandBuffer,1),47,&params,32,true,true) && !commands);
     params.inverse_view_projection[0]=1;params.divisor=1.5f;expect_resolved=true;

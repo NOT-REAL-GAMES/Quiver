@@ -16,7 +16,7 @@ import bench_radiance as rc
 
 class RadianceBenchmarkTest(unittest.TestCase):
     def test_full_texture_and_model_submission_guards_are_explicit(self):
-        state = ('half-resolution receiver requested=0 active=0 checkerboard requested=1 active=0\n'
+        state = ('reduced receiver requested=0 active=0 checkerboard requested=1 active=0\n'
                  'receiver scale requested=1 active=1 divisor=1\n'
                  'receiver filter requested=texture active=texture\n'
                  'deferred opaque requested=1 models_active=1 draws=25 triangles=250000 frames_active=4 frames_fallback=7')
@@ -98,14 +98,14 @@ class RadianceBenchmarkTest(unittest.TestCase):
             self.assertEqual(rc.resolution_scale(value), expected)
         for value in ['.2', '.4', '0', 'nan', 'inf', 'bad']:
             with self.assertRaises(argparse.ArgumentTypeError): rc.resolution_scale(value)
-        text = ('Radiance: half-resolution receiver requested=1 active=1 checkerboard requested=1 active=1\n'
+        text = ('Radiance: reduced receiver requested=1 active=1 checkerboard requested=1 active=1\n'
                 'Radiance: receiver scale requested=0.333333 active=0.333333 divisor=3\n'
                 'Radiance: receiver filter requested=texture active=texture')
         rc.verify_receiver_state(text, 'checkerboard', 1/3, 'texture', True)
         for changed in (text.replace('divisor=3', 'divisor=4'), text.replace('active=texture', 'active=probe'),
                         text.replace('active=0.333333', 'active=0.5'), text.replace('requested=texture', 'requested=probe')):
             with self.assertRaises(RuntimeError): rc.verify_receiver_state(changed, 'checkerboard', 1/3, 'texture', True)
-        full = ('half-resolution receiver requested=0 active=0 checkerboard requested=0 active=0\n'
+        full = ('reduced receiver requested=0 active=0 checkerboard requested=0 active=0\n'
                 'receiver scale requested=1 active=1 divisor=1\nreceiver filter requested=probe active=full')
         rc.verify_receiver_state(full, 'full', 1, 'probe', True)
         with self.assertRaises(RuntimeError): rc.verify_receiver_state('', 'full', 1, 'probe', True)
@@ -126,7 +126,7 @@ class RadianceBenchmarkTest(unittest.TestCase):
         self.assertEqual((rc.receiver_extent(641, 2/3), rc.receiver_extent(361, 2/3)), (428, 241))
         self.assertEqual([rc.receiver_extent(n, 2/3) for n in range(13)],
                          [0, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8, 8])
-        text = ('half-resolution receiver requested=1 active=1 checkerboard requested=1 active=1\n'
+        text = ('reduced receiver requested=1 active=1 checkerboard requested=1 active=1\n'
                 'receiver scale requested=0.666667 active=0.666667 divisor=1.5\n'
                 'receiver filter requested=texture active=texture')
         rc.verify_receiver_state(text, 'checkerboard', 2/3, 'texture', True)
@@ -160,10 +160,10 @@ class RadianceBenchmarkTest(unittest.TestCase):
 
     def test_reduced_receiver_requires_real_active_path(self):
         rc.verify_receiver_state('', 'full')
-        rc.verify_receiver_state('Radiance: half-resolution receiver requested=1 active=1 checkerboard requested=0 active=0', 'half')
-        rc.verify_receiver_state('Radiance: half-resolution receiver requested=1 active=1 checkerboard requested=1 active=1', 'checkerboard')
-        for value in ('', 'Radiance: half-resolution receiver requested=1 active=0 checkerboard requested=1 active=0',
-                      'Radiance: half-resolution receiver requested=1 active=1 checkerboard requested=1 active=0'):
+        rc.verify_receiver_state('Radiance: reduced receiver requested=1 active=1 checkerboard requested=0 active=0', 'half')
+        rc.verify_receiver_state('Radiance: reduced receiver requested=1 active=1 checkerboard requested=1 active=1', 'checkerboard')
+        for value in ('', 'Radiance: reduced receiver requested=1 active=0 checkerboard requested=1 active=0',
+                      'Radiance: reduced receiver requested=1 active=1 checkerboard requested=1 active=0'):
             with self.assertRaises(RuntimeError):
                 rc.verify_receiver_state(value, 'checkerboard')
 
@@ -473,7 +473,7 @@ class RadianceBenchmarkTest(unittest.TestCase):
                     filtering = 'texture' if self.values['r_radiance_receiver_filter'] else 'probe'
                     sources = 101 if self.change_sources and self.after_stop else 100
                     return (f'Radiance: requested=1 active=1 backend=ray-query quality=1\n'
-                            f'Radiance: half-resolution receiver requested={reduced} active={reduced} checkerboard requested={checker} active={checker}\n'
+                            f'Radiance: reduced receiver requested={reduced} active={reduced} checkerboard requested={checker} active={checker}\n'
                             f'Radiance: receiver scale requested={scale} active={scale} divisor={rc.receiver_divisor(scale):g}\n'
                             f'Radiance: receiver filter requested={filtering} active={filtering if reduced else "full"}\n'
                             f'Radiance: gains point=1 emissive=1 bounce=1\nRadiance: lights={sources} emissive=72 emissive_omitted=0\n'

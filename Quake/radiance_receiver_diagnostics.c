@@ -90,7 +90,7 @@ bool RCReceiverDiagnostics_Record(rc_receiver_diagnostics_t *d,VkCommandBuffer c
 {
     if(!enabled) return true;
     if(!d || !d->device || !d->pipeline || !d->targets || !command || !params || d->recorded || d->fence ||
-        params->samples!=1 || !RCReceiver_ValidDivisor(params->divisor) || !isfinite(spacing) || spacing<=0 ||
+        !RCReceiverTargets_ValidSamples(params->samples&255u) || !RCReceiver_ValidDivisor(params->divisor) || !isfinite(spacing) || spacing<=0 ||
         params->viewport[0]<0 || params->viewport[1]<0 || params->viewport[2]<=0 || params->viewport[3]<=0 ||
         (uint64_t)params->viewport[0]+(uint32_t)params->viewport[2]>d->targets->width ||
         (uint64_t)params->viewport[1]+(uint32_t)params->viewport[3]>d->targets->height ||

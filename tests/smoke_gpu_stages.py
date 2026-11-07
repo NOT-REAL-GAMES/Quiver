@@ -72,12 +72,12 @@ def main():
             measure(f'OIT {variant}')
         if args.receiver_modes:
             for receiver, checkerboard in (('half', 0), ('checkerboard', 1)):
-                engine.cmd('r_oit 0\nr_indirect 0\nr_radiance_half_resolution 1\n'
+                engine.cmd('r_oit 0\nr_indirect 0\nr_radiance_resolution_scale 0.5\n'
                            f'r_radiance_checkerboard {checkerboard}\nwait\nwait\nwait')
                 time.sleep(2)
                 radiance.verify_receiver_state(engine.cmd('radiance_stats'), receiver)
                 measure(f'{receiver} receiver')
-            engine.cmd('r_radiance_half_resolution 0\nr_radiance_checkerboard 0\nwait\nwait')
+            engine.cmd('r_radiance_resolution_scale 1\nr_radiance_checkerboard 0\nwait\nwait')
         # Starting twice discards the old measurement. Stop must remain safe
         # across the swapchain recreation and after an ordinary fresh start.
         engine.cmd('gpu_stage_time start')

@@ -1,5 +1,6 @@
 #include "radiance_receiver_frame.h"
 #include "radiance_receiver_forward.h"
+#include "radiance_receiver_light.h"
 #include <math.h>
 #include <string.h>
 static rc_receiver_frame_plan_t staged;
@@ -38,20 +39,24 @@ static VkImageMemoryBarrier filter_barrier(VkImage image,VkImageLayout from,VkIm
 		.oldLayout=from,.newLayout=to,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
 		.image=image,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
 }
-/* The indirect images alternate sampled and storage roles between the two
- * axes. Direct and minimum stay in their first-pass output images. */
+/* Every three-pass path binds the same reverse descriptor. Keep all three
+ * fields in its declared layouts; inactive fields are copied by V/copy. */
 static void filter_swap(VkCommandBuffer command,const rc_receiver_frame_plan_t *p,bool reverse)
 {
 	const unsigned source=reverse?RC_RECEIVER_HALF_INDIRECT:RC_RECEIVER_RESOLVED_INDIRECT;
 	const unsigned destination=reverse?RC_RECEIVER_RESOLVED_INDIRECT:RC_RECEIVER_HALF_INDIRECT;
-	VkImageMemoryBarrier images[2]={
-		filter_barrier(p->targets->images[source].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT),
-		filter_barrier(p->targets->images[destination].image,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_GENERAL,
-			VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_SHADER_WRITE_BIT)};
-	vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,NULL,0,NULL,2,images);
+	VkImageMemoryBarrier images[6];
+	for(unsigned field=0;field<3;++field) {
+		images[field*2]=filter_barrier(p->targets->images[source+field].image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_SHADER_READ_BIT);
+		images[field*2+1]=filter_barrier(p->targets->images[destination+field].image,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_GENERAL,
+			VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_SHADER_WRITE_BIT);
+	}
+	vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,NULL,0,NULL,6,images);
 }
-static void reconstruct(VkCommandBuffer command,const rc_receiver_frame_plan_t *p)
+/* Returns true when the result stayed in the HALF images. The light pass can read
+ * them directly, which spares the copy back into the RESOLVED images. */
+static bool reconstruct(VkCommandBuffer command,const rc_receiver_frame_plan_t *p)
 {
 	VkMemoryBarrier ready={.sType=VK_STRUCTURE_TYPE_MEMORY_BARRIER,.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT,
 		.dstAccessMask=VK_ACCESS_SHADER_READ_BIT};
@@ -60,14 +65,16 @@ static void reconstruct(VkCommandBuffer command,const rc_receiver_frame_plan_t *
 		VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL,0,VK_ACCESS_SHADER_WRITE_BIT);
 	vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&ready,0,NULL,3,outputs);
 	VkDescriptorSet sets[2]={p->reconstruct_set,p->cascade_set};
-	vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,p->reconstruct_pipeline);
+	vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,
+		(p->params.samples&RC_RECEIVER_WHOLE_STRENGTH) && p->reconstruct_whole_pipeline?p->reconstruct_whole_pipeline:p->reconstruct_pipeline);
 	struct { int32_t viewport[4]; float thresholds[4]; } constants;
 	memcpy(constants.viewport,p->params.viewport,sizeof(constants.viewport));
 	constants.thresholds[0]=p->params.normal_cosine; constants.thresholds[1]=p->params.plane_tolerance;
 	constants.thresholds[2]=p->params.divisor; constants.thresholds[3]=0;
 	uint32_t w=RCReceiver_ScaledExtent((uint32_t)p->params.viewport[2],p->params.divisor);
 	uint32_t h=RCReceiver_ScaledExtent((uint32_t)p->params.viewport[3],p->params.divisor);
-	unsigned passes=p->gaussian_filter?3u:1u;
+	unsigned passes=p->gaussian_filter || p->smooth_shadows?3u:1u;
+	if(passes==3u && p->light && !(p->params.samples&RC_RECEIVER_KEEP_RESOLVED)) passes=2u;
 	for(unsigned pass=0;pass<passes;++pass) {
 		if(pass) filter_swap(command,p,pass==2);
 		sets[0]=pass==1?p->reconstruct_reverse_set:p->reconstruct_set;
@@ -75,13 +82,18 @@ static void reconstruct(VkCommandBuffer command,const rc_receiver_frame_plan_t *
 		constants.thresholds[3]=(float)pass;
 		vkCmdPushConstants(command,p->reconstruct_layout,VK_SHADER_STAGE_COMPUTE_BIT,0,sizeof(constants),&constants);
 		if(p->texture_filter) {
-			if(pass==1) vkCmdDispatch(command,(h+127)/128,w,1);
-			else vkCmdDispatch(command,(w+127)/128,h,1);
+			const uint32_t group=p->filter_group?p->filter_group:RC_RECEIVER_FILTER_GROUP;
+			if(pass==1) vkCmdDispatch(command,(h+group-1)/group,w,1);
+			else vkCmdDispatch(command,(w+group-1)/group,h,1);
 		} else vkCmdDispatch(command,(w+7)/8,(h+7)/8,1);
+		if(p->timing_pool && passes>1u && pass<2u)vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,p->timing_pool,p->timing_first_query+6+pass);
 	}
+	const bool in_half=passes==2u;
 	for(unsigned i=0;i<3;++i) { outputs[i].srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT; outputs[i].dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
-		outputs[i].oldLayout=VK_IMAGE_LAYOUT_GENERAL; outputs[i].newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; }
+		outputs[i].oldLayout=VK_IMAGE_LAYOUT_GENERAL; outputs[i].newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		if(in_half) outputs[i].image=p->targets->images[RC_RECEIVER_HALF_INDIRECT+i].image; }
 	vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,NULL,0,NULL,3,outputs);
+	return in_half;
 }
 bool RCReceiverFrame_Record(VkCommandBuffer command, uint64_t frame_serial)
 {
@@ -92,10 +104,11 @@ bool RCReceiverFrame_Record(VkCommandBuffer command, uint64_t frame_serial)
 	if (!p->enabled || !p->edge_fallback_enabled || p->frame_serial!=frame_serial ||
 		!isfinite(p->shadow_filter_strength) || p->shadow_filter_strength<0 || p->shadow_filter_strength>2 ||
 		(p->smooth_shadows!=(p->shadow_filter_strength>0)) ||
-		(p->timing_pool && p->timing_first_query>UINT32_MAX-5u) ||
+		!isfinite(p->shadow_filter_radius) || p->shadow_filter_radius<0 || p->shadow_filter_radius>128 ||
+		(p->smooth_shadows!=(p->shadow_filter_radius>0)) ||
+		(p->timing_pool && p->timing_first_query>UINT32_MAX-7u) ||
 		(p->checkerboard && !p->postprocess) || (p->postprocess && !p->checkerboard && !p->gaussian_filter && !p->smooth_shadows) ||
-		(p->gaussian_filter && (!p->postprocess || !p->texture_filter || !p->reconstruct_reverse_set)) ||
-		(p->smooth_shadows && (!p->postprocess || !p->texture_filter || !p->soft_shadows || !p->soft_shadow_pipeline)) ||
+		((p->gaussian_filter || p->smooth_shadows) && (!p->postprocess || !p->texture_filter || !p->reconstruct_reverse_set)) ||
 		(p->postprocess && (!p->reconstruct_pipeline || !p->reconstruct_layout || !p->reconstruct_set))) return false;
 	if (p->forward_materials) {
 		rc_receiver_world_snapshot_t snapshot={.frame_serial=frame_serial,.draws=(rc_receiver_world_draw_t *)p->world_draws,.count=p->world_draw_count};
@@ -110,8 +123,12 @@ bool RCReceiverFrame_Record(VkCommandBuffer command, uint64_t frame_serial)
 	if (!RCReceiver_RecordFrameSoftTimed(command,p->targets,p->pipelines,p->classify_layout,p->direct_layout,
 		p->classify_set,p->direct_set,p->cascade_set,p->lighting_set,&p->params,p->depth_clear,world_ready,world_draw,&ctx,p->timing_pool,p->timing_first_query,soft)) return false;
 	if(p->timing_pool)vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,p->timing_pool,p->timing_first_query+4);
-	if(p->postprocess) reconstruct(command,p);
+	const bool in_half=p->postprocess && reconstruct(command,p);
 	if(p->timing_pool)vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,p->timing_pool,p->timing_first_query+5);
+	if(p->light) {
+		RCReceiverLight_Record(command,p->light,&p->params,p->postprocess && !in_half,p->cascade_set);
+		if(p->timing_pool)vkCmdWriteTimestamp(command,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,p->timing_pool,p->timing_first_query+8);
+	}
 	active=true; active_soft=soft!=VK_NULL_HANDLE; active_frame=frame_serial; return true;
 }
 const rc_receiver_targets_t *RCReceiverFrame_PendingTargets(uint64_t serial)
@@ -131,7 +148,9 @@ bool RCReceiverFrame_ActivePostprocess(uint64_t serial)
 bool RCReceiverFrame_ActiveSoftShadows(uint64_t serial)
 { return RCReceiverFrame_Active(serial) && active_soft; }
 float RCReceiverFrame_ActiveShadowFilter(uint64_t serial)
-{ return RCReceiverFrame_ActiveSoftShadows(serial) && staged.postprocess && staged.smooth_shadows ? staged.shadow_filter_strength : 0; }
+{ return RCReceiverFrame_Active(serial) && staged.postprocess && staged.smooth_shadows ? staged.shadow_filter_strength : 0; }
+float RCReceiverFrame_ActiveShadowFilterRadius(uint64_t serial)
+{ return RCReceiverFrame_Active(serial) && staged.postprocess && staged.smooth_shadows ? staged.shadow_filter_radius : 0; }
 
 const rc_receiver_targets_t *RCReceiverFrame_ActiveTargets(uint64_t serial)
 { return RCReceiverFrame_Active(serial) ? staged.targets : NULL; }

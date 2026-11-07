@@ -360,6 +360,9 @@
     <ClCompile Include="..\..\Quake\view.c">
       <Filter>Main</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Quake\view_motion.c">
+      <Filter>Main</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Quake\wad.c">
       <Filter>Main</Filter>
     </ClCompile>
@@ -1201,6 +1204,9 @@
       <Filter>Main</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Quake\view.h">
+      <Filter>Main</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Quake\view_motion.h">
       <Filter>Main</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Quake\wad.h">

@@ -28,6 +28,8 @@ This checkout also includes an [experimental BSP meshlet renderer](docs/bsp-mesh
 
 The [in-engine map editor](docs/map-editor.md) edits source maps and compiles a playtest without leaving the game.
 
+[First-person body motion](docs/view-motion.md) adds breathing that quickens with exertion and footfall-linked head movement. Use `v_bodymotion 0` for the classic view bob, or `cl_bob 0` for a still view.
+
 ## Installation
 
 Windows and Linux binaries can be found in [Releases](https://github.com/Novum/vkQuake/releases).

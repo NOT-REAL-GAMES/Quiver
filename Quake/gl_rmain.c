@@ -384,6 +384,10 @@ static void R_SceneViewport (cb_context_t *cbx, float min_depth)
 static void R_SetupContext (cb_context_t *cbx)
 {
 	cbx->receiver_world_capture = NULL;
+	cbx->receiver_brush_capture = NULL;
+	cbx->receiver_brush_context = NULL;
+	cbx->receiver_mvp = NULL;
+	cbx->receiver_instance_base = 0;
 	R_SceneViewport (cbx, 0.0f);
 	R_BindGraphicsPipeline (cbx, PIPELINE_BASIC_BLEND);
 	R_PushConstants (cbx, VK_SHADER_STAGE_ALL_GRAPHICS, 0, 16 * sizeof (float), vulkan_globals.view_projection_matrix);
@@ -1267,12 +1271,14 @@ static void R_ShowSkeletons (cb_context_t *cbx)
 /* Each world recorder owns one capture; the primary consumes it only after
  * draw_done has joined the workers. The reduced path is optional and falls
  * back to the ordinary world commands whenever staging fails. */
-#define RC_EXPERIMENTAL_CAPTURE_CAPACITY 512
-static rc_receiver_world_capture_t rc_capture_workers[NUM_WORLD_CBX];
-static rc_receiver_world_draw_t rc_capture_draws[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
-static rc_receiver_forward_material_t rc_capture_materials[NUM_WORLD_CBX][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
-static rc_receiver_world_draw_t rc_capture_combined_draws[NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
-static rc_receiver_forward_material_t rc_capture_combined_materials[NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+/* World workers, one brush-entity capture per entity worker, then opaque world liquids. */
+#define RC_EXPERIMENTAL_WATER_SLOT (NUM_WORLD_CBX + NUM_ENTITIES_CBX)
+#define RC_EXPERIMENTAL_CAPTURE_WORKERS (RC_EXPERIMENTAL_WATER_SLOT + 1)
+static rc_receiver_world_capture_t rc_capture_workers[RC_EXPERIMENTAL_CAPTURE_WORKERS];
+static rc_receiver_world_draw_t rc_capture_draws[RC_EXPERIMENTAL_CAPTURE_WORKERS][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_forward_material_t rc_capture_materials[RC_EXPERIMENTAL_CAPTURE_WORKERS][RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_world_draw_t rc_capture_combined_draws[RC_EXPERIMENTAL_CAPTURE_WORKERS * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
+static rc_receiver_forward_material_t rc_capture_combined_materials[RC_EXPERIMENTAL_CAPTURE_WORKERS * RC_EXPERIMENTAL_CAPTURE_CAPACITY];
 #define RC_EXPERIMENTAL_MODEL_CAPACITY 2048
 static rc_receiver_model_capture_t rc_model_workers[NUM_ENTITIES_CBX];
 static rc_receiver_model_draw_t rc_model_draws[NUM_ENTITIES_CBX][RC_EXPERIMENTAL_MODEL_CAPACITY];
@@ -1281,12 +1287,15 @@ static rc_receiver_model_snapshot_t rc_model_snapshot;
 static uint32_t rc_model_capture_count;
 static bool rc_capture_requested;
 static uint32_t rc_capture_count;
+static uint32_t rc_brush_capture_count, rc_brush_draw_count, rc_water_draw_count;
+static bool rc_water_capture;
 static uint64_t rc_capture_serial;
 typedef struct {
 	rc_receiver_params_t params;
 	uint32_t width,height;
 	bool texture_filter,checkerboard,smooth_indirect;
 	float shadow_parameters[4];
+	float shadow_filter_radius;
 } rc_experimental_view_t;
 static rc_experimental_view_t rc_capture_view;
 static bool RCExperimentalCaptureView (rc_experimental_view_t *out)
@@ -1297,7 +1306,7 @@ static bool RCExperimentalCaptureView (rc_experimental_view_t *out)
 		(uint64_t)r_scene_vrect.y+(uint32_t)r_scene_vrect.height>(uint32_t)vid.render_height) return false;
 	rc_experimental_view_t pending={.width=(uint32_t)vid.render_width,.height=(uint32_t)vid.render_height,
 		.params={.viewport={r_scene_vrect.x,r_scene_vrect.y,r_scene_vrect.width,r_scene_vrect.height},
-			.samples=1,.plane_tolerance=.01f,.normal_cosine=.99f,.divisor=R_RadianceResolutionDivisor ()}};
+			.samples=R_ReceiverDepthSamples()|(r_radiance_depth_aa.value>0?256u:0u),.plane_tolerance=.01f,.normal_cosine=.99f,.divisor=R_RadianceResolutionDivisor ()}};
 	rc_receiver_params_t *params=&pending.params;
 	if (!Radiance_InvertMatrix(vulkan_globals.view_projection_matrix,params->inverse_view_projection)) return false;
 	params->ndc_transform[0]=2.0f/params->viewport[2]; params->ndc_transform[1]=2.0f/params->viewport[3];
@@ -1309,16 +1318,21 @@ static bool RCExperimentalCaptureView (rc_experimental_view_t *out)
 		(!isfinite(r_radiance_bounce_gain.value) || r_radiance_bounce_gain.value>0) &&
 		isfinite(r_radiance_probe_gaussian.value) && r_radiance_probe_gaussian.value>0;
 	R_RadianceShadowParameters(pending.shadow_parameters);
+	pending.shadow_filter_radius=R_RadianceShadowFilterRadius();
+	const float gaussian=r_radiance_probe_gaussian.value,shadow=pending.shadow_parameters[3];
+	if(!(gaussian>0 && gaussian<1) && !(shadow>0 && shadow<1)) params->samples|=RC_RECEIVER_WHOLE_STRENGTH;
+	if(r_radiance_receiver_diagnostics.value>0) params->samples|=RC_RECEIVER_KEEP_RESOLVED;
 	*out=pending; return true;
 }
 static void RCExperimentalCaptureBegin (void *data)
 {
 	bool task_mode = *(const bool *)data;
-	rc_capture_requested = (R_RadianceResolutionDivisor () > 1 || r_radiance_deferred.value > 0) && !indirect && R_RadianceActive ();
+	rc_capture_requested = (R_RadianceResolutionDivisor () > 1 || r_radiance_deferred.value > 0) && !(indirect && R_MeshletsDrawWorld ()) && R_RadianceActive ();
 	memset (&rc_capture_view, 0, sizeof (rc_capture_view));
 	RCReceiverModelCapture_Reset ();
 	memset (&rc_model_snapshot, 0, sizeof (rc_model_snapshot));
 	rc_model_capture_count = task_mode ? NUM_ENTITIES_CBX : 1;
+	rc_brush_capture_count = 0; rc_brush_draw_count = 0; rc_water_draw_count = 0; rc_water_capture = false;
 	static bool setup_reported;
 	if (!setup_reported) { Con_Printf ("RC experimental capture setup: indirect=%d enabled=%d\n", indirect, rc_capture_requested); setup_reported=true; }
 	rc_capture_count = task_mode ? NUM_WORLD_CBX : 1;
@@ -1334,15 +1348,31 @@ static void RCExperimentalCaptureBegin (void *data)
 			.capacity=RC_EXPERIMENTAL_CAPTURE_CAPACITY, .first_token=1+i*RC_EXPERIMENTAL_CAPTURE_CAPACITY};
 		if (!RCReceiverCapture_Install (i, &rc_capture_workers[i])) { rc_capture_requested=false; RCReceiverCapture_Reset(); return; }
 	}
-	if (r_radiance_deferred.value > 0 && r_radiance_receiver_filter.value > 0 && vulkan_globals.sample_count == VK_SAMPLE_COUNT_1_BIT)
+	if (r_radiance_deferred.value > 0 && r_radiance_receiver_filter.value > 0)
 		for (uint32_t i = 0; i < rc_model_capture_count; ++i)
 		{
 			rc_model_workers[i] = (rc_receiver_model_capture_t){.frame_serial=rc_capture_serial,
 				.draws=rc_model_draws[i], .capacity=RC_EXPERIMENTAL_MODEL_CAPACITY,
-				.first_token=1+NUM_WORLD_CBX*RC_EXPERIMENTAL_CAPTURE_CAPACITY+i*RC_EXPERIMENTAL_MODEL_CAPACITY};
+				.first_token=1+RC_EXPERIMENTAL_CAPTURE_WORKERS*RC_EXPERIMENTAL_CAPTURE_CAPACITY+i*RC_EXPERIMENTAL_MODEL_CAPACITY};
 			if (!RCReceiverModelCapture_Install (i, &rc_model_workers[i]))
 			{ RCReceiverModelCapture_Reset (); break; }
 		}
+	for (uint32_t i = 0; i < rc_model_capture_count; ++i)
+	{
+		const uint32_t slot = NUM_WORLD_CBX + i;
+		rc_capture_workers[slot] = (rc_receiver_world_capture_t){.frame_serial=rc_capture_serial,
+			.draws=rc_capture_draws[slot], .materials=rc_capture_materials[slot], .capacity=RC_EXPERIMENTAL_CAPTURE_CAPACITY,
+			/* Staging requires every world-stream token to precede every model token. */
+			.first_token=1+slot*RC_EXPERIMENTAL_CAPTURE_CAPACITY};
+		if (!RCReceiverCapture_Install (slot, &rc_capture_workers[slot])) { rc_capture_requested=false; RCReceiverCapture_Reset (); return; }
+		++rc_brush_capture_count;
+	}
+	rc_capture_workers[RC_EXPERIMENTAL_WATER_SLOT] = (rc_receiver_world_capture_t){.frame_serial=rc_capture_serial,
+		.draws=rc_capture_draws[RC_EXPERIMENTAL_WATER_SLOT], .materials=rc_capture_materials[RC_EXPERIMENTAL_WATER_SLOT],
+		.capacity=RC_EXPERIMENTAL_CAPTURE_CAPACITY, .first_token=1+RC_EXPERIMENTAL_WATER_SLOT*RC_EXPERIMENTAL_CAPTURE_CAPACITY};
+	if (!RCReceiverCapture_Install (RC_EXPERIMENTAL_WATER_SLOT, &rc_capture_workers[RC_EXPERIMENTAL_WATER_SLOT]))
+	{ rc_capture_requested=false; RCReceiverCapture_Reset (); return; }
+	rc_water_capture = true;
 }
 void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, VkFramebuffer framebuffer, uint32_t subpass,
 	VkRenderPass model_pass, VkFramebuffer model_framebuffer, uint32_t model_subpass)
@@ -1350,13 +1380,23 @@ void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, Vk
 	static bool reported;
 	static unsigned failures_reported;
 	if (!rc_capture_requested || rc_capture_serial != RCReceiverFrame_CompletedSerial ((uint32_t)r_framecount)) return;
-	rc_receiver_world_capture_t *parts[NUM_WORLD_CBX];
+	rc_receiver_world_capture_t *parts[RC_EXPERIMENTAL_CAPTURE_WORKERS]={0};
 	for (uint32_t i=0;i<rc_capture_count;i++) parts[i]=&rc_capture_workers[i];
+	uint32_t part_count=rc_capture_count+rc_brush_capture_count;
+	for (uint32_t i=0;i<rc_brush_capture_count;++i) {
+		parts[rc_capture_count+i]=&rc_capture_workers[NUM_WORLD_CBX+i];
+		rc_brush_draw_count+=rc_capture_workers[NUM_WORLD_CBX+i].count;
+	}
+	if (rc_water_capture) {
+		parts[part_count++]=&rc_capture_workers[RC_EXPERIMENTAL_WATER_SLOT];
+		rc_water_draw_count=rc_capture_workers[RC_EXPERIMENTAL_WATER_SLOT].count;
+		rc_brush_draw_count+=rc_water_draw_count;
+	}
 	rc_receiver_world_snapshot_t snapshot={0};
 	bool ok=RCReceiverCapture_Collect(&snapshot,rc_capture_serial,rc_capture_combined_draws,rc_capture_combined_materials,
-		NUM_WORLD_CBX * RC_EXPERIMENTAL_CAPTURE_CAPACITY,parts,rc_capture_count);
+		RC_EXPERIMENTAL_CAPTURE_WORKERS * RC_EXPERIMENTAL_CAPTURE_CAPACITY,parts,part_count);
 	bool empty_world=true;
-	for (uint32_t i=0;i<rc_capture_count;++i) empty_world &= !parts[i]->failed && !parts[i]->count;
+	for (uint32_t i=0;i<part_count;++i) empty_world &= !parts[i]->failed && !parts[i]->count;
 	if (empty_world) { snapshot=(rc_receiver_world_snapshot_t){.frame_serial=rc_capture_serial,.draws=rc_capture_combined_draws}; ok=true; }
 	rc_receiver_model_capture_t *model_parts[NUM_ENTITIES_CBX];
 	bool has_model_capture=r_radiance_deferred.value>0 && r_radiance_receiver_filter.value>0;
@@ -1369,7 +1409,7 @@ void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, Vk
 	if (ok && !reported) { Con_Printf ("RC experimental world capture: collected %u direct draw batches, workers=%u\n", snapshot.count, rc_capture_count); reported=true; }
 	else if (!ok && failures_reported < 3) {
 		Con_Printf ("RC experimental world capture unavailable: frame=%llu workers=%u", (unsigned long long)rc_capture_serial, rc_capture_count);
-		for (uint32_t i=0;i<rc_capture_count;i++) Con_Printf (" [%u:%u%s]", i, parts[i]->count, parts[i]->failed ? " failed" : "");
+		for (uint32_t i=0;i<part_count;i++) Con_Printf (" [%u:%u%s]", i, parts[i]->count, parts[i]->failed ? " failed" : "");
 		Con_Printf ("\n"); ++failures_reported;
 	}
 	const uint32_t eligible_models=RCReceiverModel_EligibleCount(&rc_model_snapshot);
@@ -1393,9 +1433,9 @@ void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, Vk
 			const bool checkerboard=rc_capture_view.checkerboard;
 			const float *shadow_parameters=rc_capture_view.shadow_parameters;
 			const bool smooth_indirect=rc_capture_view.smooth_indirect;
-			const bool smooth_shadows=texture_filter && shadow_parameters[0]>0 && shadow_parameters[3]>0 && s->resources.soft_shadows;
-			VkDescriptorSet receiver_set=checkerboard || smooth_indirect || smooth_shadows ?
-				s->resources.descriptors.forward_resolved : s->resources.descriptors.forward;
+			const bool smooth_shadows=texture_filter && shadow_parameters[0]>0 && shadow_parameters[3]>0 && rc_capture_view.shadow_filter_radius>0;
+			VkDescriptorSet receiver_set=s->resources.light.device ? s->resources.light.forward :
+				checkerboard || smooth_indirect || smooth_shadows ? s->resources.descriptors.forward_resolved : s->resources.descriptors.forward;
 			for(uint32_t i=0;i<snapshot.count;++i)rc_capture_combined_materials[i].reuse_set=receiver_set;
 			VkViewport viewport={(float)view[0],(float)view[1],(float)view[2],(float)view[3],0,1};
 			VkRect2D scissor={{0,0},{rc_capture_view.width,rc_capture_view.height}};
@@ -1414,7 +1454,8 @@ void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, Vk
 					&viewport,&scissor,world_timestamps,world_first_query+3);
 			bool staged=alternate && models_ready && RCReceiverResources_StageFrameModels(&s->resources,rc_capture_serial,primary,bindings.cascade_set,bindings.lighting_set,
 					&params,0.0f,&snapshot,rc_capture_combined_materials,&s->alternates,true,true,texture_filter,checkerboard,smooth_indirect,smooth_shadows,shadow_parameters[0]>0,
-					receiver_timestamps,receiver_first_query,smooth_shadows?shadow_parameters[3]:0,eligible_models?&rc_model_snapshot:NULL,eligible_models?&s->model_alternates:NULL);
+					receiver_timestamps,receiver_first_query,smooth_shadows?shadow_parameters[3]:0,smooth_shadows?rc_capture_view.shadow_filter_radius:0,
+					eligible_models?&rc_model_snapshot:NULL,eligible_models?&s->model_alternates:NULL);
 			static unsigned gate_reports;
 			if(gate_reports<4) { Con_Printf("RC experimental frame: alternate=%d staged=%d\n",alternate,staged); ++gate_reports; }
 			if (staged) {
@@ -1426,6 +1467,13 @@ void RCExperimentalCaptureFinish (VkCommandBuffer primary, VkRenderPass pass, Vk
 	rc_capture_requested=false;
 }
 
+
+/* Brush entities join the world replay, so they share its outcome. */
+bool RCExperimentalSubmitBrushes (bool world_reused)
+{
+	R_RadianceRecordBrushReceiverUse (rc_brush_draw_count, rc_water_draw_count, world_reused);
+	return world_reused;
+}
 
 /* Select only the captured model stream at its actual entity pass. A failed
  * model/prepass/compute stage leaves every original fallback command intact. */
@@ -1455,9 +1503,9 @@ static void R_DrawWorldTask (int index, void *use_tasks)
 	cb_context_t *cbx = &vulkan_globals.secondary_cb_contexts[SCBX_WORLD][index];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
-	/* Only the legacy direct world path can produce this prototype snapshot.
-	 * Indirect and mesh/task draws retain the ordinary renderer. */
-	cbx->receiver_world_capture = indirect ? NULL : RCReceiverCapture_Acquire ((uint32_t)index, (uint64_t)(uint32_t)r_framecount);
+	/* Direct and indirect world draws both feed this snapshot. Mesh shader
+	 * batches cannot be replayed, so capture is off while they are active. */
+	cbx->receiver_world_capture = RCReceiverCapture_Acquire ((uint32_t)index, (uint64_t)(uint32_t)r_framecount);
 	if (indirect)
 		R_DrawIndirectBrushes (cbx, false, false, false, use_tasks ? index : -1);
 	else
@@ -1475,7 +1523,20 @@ static void R_DrawSkyTask (void *unused)
 	cb_context_t *cbx = vulkan_globals.secondary_cb_contexts[SCBX_SKY];
 	R_SetupContext (cbx);
 	Fog_EnableGFog (cbx);
-	R_DrawWorld_Water (cbx, false); // draw opaque water before sky (more likely to occlude)
+	/* Opaque liquids replay through the world stream like brush entities, so
+	 * this draw is their native fallback rather than part of the sky stream. */
+	cb_context_t *liquids = &vulkan_globals.secondary_cb_contexts[SCBX_RECEIVER_BRUSHES][NUM_ENTITIES_CBX];
+	R_SetupContext (liquids);
+	Fog_EnableGFog (liquids);
+	rc_receiver_world_capture_t *capture = RCReceiverCapture_Acquire (RC_EXPERIMENTAL_WATER_SLOT, (uint64_t)(uint32_t)r_framecount);
+	if (capture)
+	{
+		liquids->receiver_world_capture = capture;
+		R_DrawWorld_Water (liquids, false);
+		liquids->receiver_world_capture = NULL;
+	}
+	else
+		R_DrawWorld_Water (cbx, false); // draw opaque water before sky (more likely to occlude)
 	Sky_DrawSky (cbx);
 }
 
@@ -1613,9 +1674,14 @@ static void R_DrawEntitiesTask (int index, void *use_tasks)
 	R_SetupContext (models); Fog_EnableGFog (models);
 	cbx->receiver_model_capture = RCReceiverModelCapture_Acquire ((uint32_t)index, (uint64_t)(uint32_t)r_framecount);
 	cbx->receiver_model_context = cbx->receiver_model_capture ? models : NULL;
+	cb_context_t *brushes = &vulkan_globals.secondary_cb_contexts[SCBX_RECEIVER_BRUSHES][index];
+	R_SetupContext (brushes); Fog_EnableGFog (brushes);
+	cbx->receiver_brush_capture = RCReceiverCapture_Acquire (NUM_WORLD_CBX + (uint32_t)index, (uint64_t)(uint32_t)r_framecount);
+	cbx->receiver_brush_context = cbx->receiver_brush_capture ? brushes : NULL;
 	R_DrawEntitiesOnList (cbx, false, index + chain_model_0, use_tasks ? true : false);
 	R_DrawECSVisualBatch (cbx, use_tasks ? index : 0, use_tasks ? NUM_ENTITIES_CBX : 1);
 	cbx->receiver_model_capture = NULL; cbx->receiver_model_context = NULL;
+	cbx->receiver_brush_capture = NULL; cbx->receiver_brush_context = NULL;
 }
 
 /* The particle count is known only after setup. Assign the dependent indexed
@@ -1818,6 +1884,7 @@ void R_RenderView (
 		Task_AddDependency (store_efrags, draw_sky_task);
 		Task_AddDependency (chain_surfaces, draw_sky_task);
 		Task_AddDependency (begin_rendering_task, draw_sky_task);
+		if (capture_task != INVALID_TASK_HANDLE) Task_AddDependency (capture_task, draw_sky_task);
 		Task_AddDependency (draw_sky_task, draw_done_task);
 
 		task_handle_t draw_water_task = Task_AllocateAndAssignFunc (R_DrawWaterTask, NULL, 0);

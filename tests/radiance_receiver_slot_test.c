@@ -8,9 +8,18 @@ static bool fence_ready=true, fail_shaders,fail_resources,fail_postprocess,creat
 static unsigned shader_calls,resource_calls,shader_destroy,resource_destroy,alternate_destroy,soft_calls,soft_destroy;
 static bool fail_soft;
 void RCReceiverModelAlternates_Destroy(rc_receiver_model_alternates_t *a) { assert(!a->device);memset(a,0,sizeof(*a)); }
+VKAPI_ATTR void VKAPI_CALL vkGetPhysicalDeviceProperties(VkPhysicalDevice p,VkPhysicalDeviceProperties *out) { (void)p;memset(out,0,sizeof(*out)); }
 VKAPI_ATTR VkResult VKAPI_CALL vkGetFenceStatus(VkDevice d,VkFence f) { (void)d;(void)f;return fence_ready?VK_SUCCESS:VK_NOT_READY; }
-bool RCReceiverShaders_Create(rc_receiver_shaders_t *s,VkDevice d,bool h,bool texture_filter)
-{ (void)h;created_filter=texture_filter;++shader_calls;if(fail_shaders)return false;*s=(rc_receiver_shaders_t){.device=d,.vertex=H(VkShaderModule,1),.prepass=H(VkShaderModule,2),.classify=H(VkShaderModule,3),.direct=H(VkShaderModule,4),.forward=H(VkShaderModule,5),.reconstruct=H(VkShaderModule,6)};return true; }
+bool RCReceiverShaders_CreateResolvePipeline(VkPipeline *out,VkDevice d,VkPipelineCache cache,VkPipelineLayout layout,VkRenderPass pass){(void)d;(void)cache;(void)layout;(void)pass;*out=H(VkPipeline,77);return true;}
+static bool created_multisampled;
+static unsigned light_calls; static bool fail_light,created_full_light;
+bool RCReceiverLight_Create(rc_receiver_light_t *out,VkPhysicalDevice physical,VkDevice device,const VkPhysicalDeviceMemoryProperties *memory,
+	const rc_receiver_targets_t *targets,VkDescriptorSetLayout forward_layout,VkSampler nearest,VkBuffer viewport_buffer,VkDeviceSize viewport_offset,
+	VkDeviceSize viewport_range,VkDescriptorSetLayout radiance,VkPipelineCache cache,bool hardware)
+{ (void)physical;(void)memory;(void)targets;(void)forward_layout;(void)nearest;(void)viewport_buffer;(void)viewport_offset;(void)viewport_range;(void)radiance;(void)cache;(void)hardware;
+ ++light_calls; if(fail_light)return false; out->device=device; return true; }
+bool RCReceiverShaders_Create(rc_receiver_shaders_t *s,VkDevice d,bool h,bool texture_filter,bool multisampled,bool full_light)
+{ (void)h;created_multisampled=multisampled;created_full_light=full_light;created_filter=texture_filter;++shader_calls;if(fail_shaders)return false;*s=(rc_receiver_shaders_t){.device=d,.vertex=H(VkShaderModule,1),.prepass=H(VkShaderModule,2),.classify=H(VkShaderModule,3),.direct=H(VkShaderModule,4),.forward=H(VkShaderModule,5),.reconstruct=H(VkShaderModule,6)};return true; }
 bool RCReceiverShaders_CreateSoftPipeline(VkPipeline *out,VkDevice d,VkPipelineCache cache,VkPipelineLayout layout,bool hardware)
 { (void)d;(void)cache;(void)hardware;assert(layout==H(VkPipelineLayout,5) && !*out);++soft_calls;if(fail_soft)return false;*out=H(VkPipeline,11);return true; }
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice d,VkPipelineCache c,uint32_t n,const VkComputePipelineCreateInfo *info,const VkAllocationCallbacks *a,VkPipeline *out)
@@ -60,6 +69,18 @@ int main(void)
 	c.soft_shadows=true;assert(RCReceiverSlot_Prepare(&slot,&c) && soft_calls==2 && shader_calls==previous_calls);
 	c.texture_filter=false;
 	assert(RCReceiverSlot_Prepare(&slot,&c) && !slot.texture_filter && !created_filter && shader_calls==previous_calls+1 && soft_calls==2 && soft_destroy==1);
+	/* Changing the prepass sample count rebuilds; an invalid one keeps the slot. */
+	previous_calls=shader_calls; c.samples=VK_SAMPLE_COUNT_4_BIT;
+	assert(RCReceiverSlot_Prepare(&slot,&c) && created_multisampled && shader_calls==previous_calls+1 && slot.samples==VK_SAMPLE_COUNT_4_BIT && slot.resources.pipelines.resolve);
+	c.samples=VK_SAMPLE_COUNT_16_BIT; assert(!RCReceiverSlot_Prepare(&slot,&c) && slot.ready && slot.samples==VK_SAMPLE_COUNT_4_BIT);
+	/* The light pass needs the texture filter, and failing to build it keeps the old slot. */
+	c.samples=VK_SAMPLE_COUNT_4_BIT; c.full_light=true;
+	assert(!c.texture_filter && !RCReceiverSlot_Prepare(&slot,&c) && !light_calls);
+	c.texture_filter=true; fail_light=true; previous_calls=shader_calls;
+	assert(!RCReceiverSlot_Prepare(&slot,&c) && light_calls==1 && slot.ready && !slot.full_light);
+	fail_light=false;
+	assert(RCReceiverSlot_Prepare(&slot,&c) && light_calls==2 && slot.full_light && created_full_light && slot.resources.light.device);
+	c.full_light=false; assert(RCReceiverSlot_Prepare(&slot,&c) && light_calls==2 && !slot.full_light && !slot.resources.light.device);
 	assert(RCReceiverSlot_Release(&slot) && !slot.ready && shader_destroy>=2 && resource_destroy>=2);
 	puts("PASS: frame slot preserves in-flight resources and transactionally replaces validated shader bundles"); return 0;
 }

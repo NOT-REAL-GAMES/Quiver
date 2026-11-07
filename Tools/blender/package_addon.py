@@ -12,7 +12,10 @@ def build_archive(output: Path, *, legacy: bool = False) -> Path:
     """Build an extension ZIP, or a traditional add-on ZIP with ``legacy=True``."""
     tool_dir = Path(__file__).resolve().parent
     source_dir = tool_dir / "io_export_quiver_md5"
-    required = [source_dir / name for name in ("__init__.py", "exporter.py", "model.py", "md5.py", "baking.py", "geometry.py")]
+    required = [source_dir / name for name in (
+        "__init__.py", "exporter.py", "model.py", "md5.py", "baking.py", "geometry.py",
+        "sizing.py", "bake_cache.py", "bake_inputs.py", "bake_manager.py",
+    )]
     if not legacy:
         required.append(source_dir / "blender_manifest.toml")
     for path in required:

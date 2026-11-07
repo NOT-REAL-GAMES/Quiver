@@ -116,9 +116,24 @@ void main() {
   ivec2 p=ivec2(x,y),pixel=rcReceiver.viewport.xy+p;
   ok=ok && RC_ReceiverDirect(pixel,uvec2(1),vec3(p,0),vec3(0,0,1),direct,minimum) && near(direct,float(x+10*y)) && near(minimum,float(x+10*y)*.5);
  }
+#if RC_RECEIVER_TEXTURE_FILTER
+ /* The upscale blur softens a step in direct light, but never across surfaces. */
+ reset(ivec2(23,25)); rcReceiver.normalThreshold.w=2.0;
+ for(int i=0;i<400;++i) { float step=i%20<8?0.0:8.0; fields[i]=vec4(vec3(step),1); fields[800+i]=vec4(vec3(step),1); }
+ ivec2 edge=rcReceiver.viewport.xy+ivec2(12,6), even=rcReceiver.viewport.xy+ivec2(1,6);
+ ok=ok && RC_ReceiverDirect(edge,uvec2(1),vec3(12,6,0),vec3(0,0,1),direct,minimum) && direct.x>.5 && direct.x<7.5 && near(minimum,direct.x);
+ ok=ok && RC_ReceiverDirect(even,uvec2(1),vec3(1,6,0),vec3(0,0,1),direct,minimum) && near(direct,0.0);
+ for(int i=0;i<400;++i) if(i%20>=8) positions[i].z=40.0;
+ for(int i=0;i<1024;++i) if(i%32-rcReceiver.viewport.x>=12) ids[i]=uvec2(2);
+ ok=ok && RC_ReceiverDirect(edge+ivec2(-2,0),uvec2(1),vec3(10,6,0),vec3(0,0,1),direct,minimum) && near(direct,0.0);
+#endif
  store(7,ok);
  reset(ivec2(23,25)); ivec2 pixel=rcReceiver.viewport.xy+ivec2(1,0);
+#if RC_RECEIVER_TEXTURE_FILTER
+ store(8,RC_ReceiverIndirect(pixel,uvec2(2),vec3(1,0,0),vec3(0,0,1),value) && !RC_ReceiverIndirect(pixel,uvec2(2),vec3(1,0,40),vec3(0,0,1),value));
+#else
  store(8,!RC_ReceiverIndirect(pixel,uvec2(2),vec3(1,0,0),vec3(0,0,1),value));
+#endif
  reset(ivec2(23,25)); rcLighting.receiver_filter.y=1;
  ok=RC_CheckerReconstruct(ivec2(1,0),activeExtent(),0u,direct) && near(direct,14.0/3.0);
  ok=ok && RC_CheckerReconstruct(ivec2(0),activeExtent(),1u,value) && near(value,5.5);
@@ -140,10 +155,20 @@ void main() {
  }
  store(10,ok);
  reset(ivec2(23,25)); statuses[1]=2u; pixel=rcReceiver.viewport.xy+ivec2(1,0);
+#if RC_RECEIVER_TEXTURE_FILTER
+ /* The wider GI search rescues one bad texel, but not a whole neighbourhood. */
+ ok=RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value);
+ for(int i=0;i<400;++i) statuses[i]=2u;
+ store(11,ok && !RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value));
+#else
  store(11,!RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value));
+#endif
  reset(ivec2(23,25)); fields[401]=vec4(0,0,0,1); pixel=rcReceiver.viewport.xy+ivec2(1,0);
  ok=RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value) && value==vec3(0);
  fields[401].a=0;
+#if RC_RECEIVER_TEXTURE_FILTER
+ for(int i=0;i<400;++i) fields[400+i].a=0;
+#endif
  store(12,ok && !RC_ReceiverIndirect(pixel,uvec2(1),vec3(1,0,0),vec3(0,0,1),value));
  reset(ivec2(23,25)); normals[2]=vec3(1,0,0); pixel=rcReceiver.viewport.xy+ivec2(2,0);
  bool accepted=RC_ReceiverIndirect(pixel,uvec2(1),vec3(2,0,0),vec3(0,0,1),value);

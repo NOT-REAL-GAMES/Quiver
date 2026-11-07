@@ -12,7 +12,7 @@ int main (void)
 {
 	_Static_assert (sizeof (radiance_light_t) == 80, "std430 light layout");
 	_Static_assert (sizeof (radiance_material_t) == 80, "std430 material layout");
-	_Static_assert (sizeof (radiance_lighting_parameters_t) == 160 &&
+	_Static_assert (sizeof (radiance_lighting_parameters_t) == 176 &&
 		offsetof(radiance_lighting_parameters_t,shadow_parameters) == 144, "std140 light parameter layout");
 	/* Overlapping x spans must start and stop within each grid row; preserve
 	 * source order and report the required capacity even if output is short. */
